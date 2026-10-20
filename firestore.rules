@@ -1,0 +1,36 @@
+rules_version = '2';
+
+// Règles de sécurité P-Flow.
+// - Seuls les emails présents dans la collection "allowlist" peuvent utiliser l'appli.
+// - Chaque personne ne voit et ne modifie que ses propres données (users/{son uid}).
+// - Seuls les administrateurs (collection "admins", créée à la main dans la console) gèrent la liste.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function myEmail() { return request.auth.token.email.lower(); }
+    function verified() {
+      return signedIn() && request.auth.token.email != null && request.auth.token.email_verified == true;
+    }
+    function isAdmin() {
+      return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    function allowed() {
+      return verified() && exists(/databases/$(database)/documents/allowlist/$(myEmail()));
+    }
+
+    match /admins/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    match /allowlist/{mail} {
+      allow get: if verified() && (mail == myEmail() || isAdmin());
+      allow list, create, update, delete: if isAdmin();
+    }
+
+    match /users/{uid}/{document=**} {
+      allow read, write: if allowed() && request.auth.uid == uid;
+    }
+  }
+}

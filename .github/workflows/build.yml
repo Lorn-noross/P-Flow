@@ -1,0 +1,85 @@
+name: Build et publication
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      APP_BUILD: ${{ github.run_number }}
+      HAS_KEY: ${{ secrets.ANDROID_KEYSTORE_PASSWORD != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Construire la version web
+        run: |
+          npm run build
+          echo "APP_VERSION=$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        if: env.HAS_KEY == 'true'
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Construire l'APK Android
+        if: env.HAS_KEY == 'true'
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          npx cap sync android
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+          cp app/build/outputs/apk/release/app-release.apk ../p-flow.apk
+
+      - name: Publier l'APK
+        if: env.HAS_KEY == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.APP_VERSION }}-${{ github.run_number }}
+          name: P-Flow ${{ env.APP_VERSION }} (build ${{ github.run_number }})
+          body: |
+            Télécharger sur Android : https://github.com/${{ github.repository }}/releases/latest/download/p-flow.apk
+          files: p-flow.apk
+          make_latest: true
+
+      - name: Annoncer la nouvelle version à l'appli
+        if: env.HAS_KEY == 'true'
+        run: |
+          echo "{\"version\":\"${APP_VERSION}\",\"build\":${APP_BUILD},\"apk\":\"https://github.com/${{ github.repository }}/releases/latest/download/p-flow.apk\"}" > dist/version.json
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

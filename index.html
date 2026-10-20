@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#F1F4F6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E1318" media="(prefers-color-scheme: dark)">
+<meta name="description" content="Ce qui rentre, ce qui sort, ce qui reste.">
+<title>P-Flow</title>
+<link rel="icon" href="./icon.svg" type="image/svg+xml">
+<link rel="manifest" href="./manifest.webmanifest">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-mois" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></symbol>
+  <symbol id="i-fixes" viewBox="0 0 24 24"><path d="M17 3l3 3-3 3"/><path d="M4 11.5V10a4 4 0 0 1 4-4h12"/><path d="M7 21l-3-3 3-3"/><path d="M20 12.5V14a4 4 0 0 1-4 4H4"/></symbol>
+  <symbol id="i-annee" viewBox="0 0 24 24"><path d="M3.5 20.5h17M7 16.5v-5M12 16.5V6M17 16.5v-8"/></symbol>
+  <symbol id="i-reglages" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="M14.5 6l-6 6 6 6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M2.5 12c2.4-6.5 4.8-6.5 7.2 0s4.8 6.5 7.2 0c1-2.7 2-4.2 3-4.6"/></symbol>
+</svg>
+
+<!-- Chargement -->
+<div class="screen" id="s-boot"><div class="spinner" role="status" aria-label="Chargement"></div></div>
+
+<!-- Connexion -->
+<div class="screen" id="s-login" hidden>
+  <form class="screen-card" id="login-form" novalidate>
+    <div class="auth-brand">
+      <span class="mark"><svg class="i"><use href="#i-wave"/></svg></span>
+      <h1>P-Flow</h1>
+      <p>Ce qui rentre, ce qui sort, ce qui reste.</p>
+    </div>
+    <button type="button" class="btn google block web-only" id="google-btn">
+      <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
+      Continuer avec Google
+    </button>
+    <div class="divider web-only">ou avec ton email</div>
+    <h2 id="login-title">Connexion</h2>
+    <label class="field"><span>Email</span><input class="input" id="l-email" type="email" autocomplete="email" inputmode="email"></label>
+    <label class="field" id="l-pass-field"><span>Mot de passe</span><input class="input" id="l-pass" type="password" autocomplete="current-password" minlength="6"></label>
+    <p class="error" id="l-error" role="alert"></p>
+    <p class="notice ok" id="l-info" hidden></p>
+    <button type="submit" class="btn primary block" id="l-submit">Se connecter</button>
+    <div class="auth-links">
+      <button type="button" class="link" id="l-switch">Créer un compte</button>
+      <button type="button" class="link" id="l-forgot">Mot de passe oublié ?</button>
+    </div>
+  </form>
+</div>
+
+<!-- Vérification de l'email -->
+<div class="screen" id="s-verify" hidden>
+  <div class="screen-card">
+    <div class="auth-brand"><span class="mark"><svg class="i"><use href="#i-wave"/></svg></span></div>
+    <h2>Vérifie ton email</h2>
+    <p>On t'a envoyé un lien à <b id="v-email"></b>. Ouvre-le, puis reviens ici. Pense à regarder dans les spams.</p>
+    <p class="error" id="v-error" role="alert"></p>
+    <button class="btn primary block" id="v-done">J'ai cliqué sur le lien</button>
+    <div class="auth-links">
+      <button class="link" id="v-resend">Renvoyer l'email</button>
+      <button class="link" data-act="logout">Changer de compte</button>
+    </div>
+  </div>
+</div>
+
+<!-- Accès refusé -->
+<div class="screen" id="s-denied" hidden>
+  <div class="screen-card">
+    <div class="auth-brand"><span class="mark"><svg class="i"><use href="#i-wave"/></svg></span></div>
+    <h2>Accès pas encore autorisé</h2>
+    <p>Le compte <b id="d-email"></b> n'est pas dans la liste des personnes autorisées. Demande à la personne qui t'a donné P-Flow de t'ajouter, puis touche « Réessayer ».</p>
+    <details>
+      <summary class="link" style="cursor:pointer">Tu es l'administrateur ? Premier démarrage</summary>
+      <div class="stack" style="margin-top:12px">
+        <p class="hint">Dans la console Firebase, ouvre Firestore et crée ces deux documents (un champ <code>ok</code> = <code>true</code> suffit) :</p>
+        <ol class="steps">
+          <li>Collection <b>admins</b>, ID du document :</li>
+        </ol>
+        <p class="code" id="d-uid"></p>
+        <ol class="steps" start="2">
+          <li>Collection <b>allowlist</b>, ID du document :</li>
+        </ol>
+        <p class="code" id="d-mail"></p>
+      </div>
+    </details>
+    <p class="error" id="d-error" role="alert"></p>
+    <button class="btn primary block" id="d-retry">Réessayer</button>
+    <button class="link" data-act="logout">Se déconnecter</button>
+  </div>
+</div>
+
+<!-- Premier démarrage -->
+<div class="screen" id="s-onboard" hidden>
+  <form class="screen-card" id="onboard-form" novalidate>
+    <div class="auth-brand"><span class="mark"><svg class="i"><use href="#i-wave"/></svg></span><h1>Bienvenue</h1><p>Deux questions et c'est parti.</p></div>
+    <p class="h3">Ton profil</p>
+    <div class="choice" id="o-profile">
+      <button type="button" data-pro="0" aria-pressed="true"><b>Particulier</b><span>Salaire, aides, dépenses du foyer.</span></button>
+      <button type="button" data-pro="1" aria-pressed="false"><b>Auto-entrepreneur</b><span>Calcul automatique de la part URSSAF sur ton chiffre d'affaires.</span></button>
+    </div>
+    <div class="stack" id="o-pro" hidden>
+      <label class="field"><span>Taux URSSAF (%)</span><input class="input num" id="o-rate" inputmode="decimal" placeholder="Ex. 21,2" autocomplete="off"></label>
+      <p class="hint">Artisan en prestations de services : 21,2 % de cotisations, + 0,3 % formation pro, + 0,48 % chambre des métiers. Ventes de marchandises : 12,3 %. Tu pourras le changer dans Réglages.</p>
+      <div class="seg" id="o-period">
+        <button type="button" data-p="mensuelle" aria-pressed="true">Déclaration mensuelle</button>
+        <button type="button" data-p="trimestrielle" aria-pressed="false">Trimestrielle</button>
+      </div>
+    </div>
+    <p class="error" id="o-error" role="alert"></p>
+    <button type="submit" class="btn primary block">Commencer</button>
+  </form>
+</div>
+
+<div class="app" id="app" hidden>
+  <aside class="side">
+    <div class="brand"><span class="mark"><svg class="i"><use href="#i-wave"/></svg></span>P-Flow</div>
+    <nav class="nav" aria-label="Sections">
+      <button data-act="view" data-view="mois"><svg class="i"><use href="#i-mois"/></svg>Mois</button>
+      <button data-act="view" data-view="fixes"><svg class="i"><use href="#i-fixes"/></svg>Fixes</button>
+      <button data-act="view" data-view="annee"><svg class="i"><use href="#i-annee"/></svg>Année</button>
+      <button data-act="view" data-view="reglages"><svg class="i"><use href="#i-reglages"/></svg>Réglages</button>
+    </nav>
+    <div class="sync" data-s="connecting"><span class="dot"></span><span class="txt">Connexion…</span></div>
+  </aside>
+
+  <main class="main">
+    <header class="top">
+      <div class="ctx" id="ctx"></div>
+      <div class="sync" data-s="connecting" title="Synchronisation"><span class="dot"></span><span class="txt">Connexion…</span></div>
+      <button class="btn primary add-desk" data-act="add"><svg class="i"><use href="#i-plus"/></svg>Ajouter</button>
+    </header>
+
+    <div class="update" id="update" hidden><span>Une nouvelle version de P-Flow est disponible.</span><a id="update-link" href="#" target="_blank" rel="noopener">Télécharger</a></div>
+
+    <!-- MOIS -->
+    <section class="view" id="v-mois">
+      <div class="month-grid">
+        <div class="col">
+          <article class="card hero">
+            <div class="hero-top">
+              <p class="eyebrow">Reste du mois</p>
+              <button class="link" data-act="today" id="back-today" hidden></button>
+            </div>
+            <p class="big" id="hero-amount">…</p>
+            <p class="hero-sub" id="hero-sub">Chargement…</p>
+            <div class="split" id="split"></div>
+            <dl class="legend" id="legend"></dl>
+          </article>
+          <article class="card uc pro-only" id="urssaf-card"></article>
+        </div>
+        <div class="col">
+          <article class="card lists" id="lists"><p class="empty">Chargement…</p></article>
+        </div>
+      </div>
+    </section>
+
+    <!-- FIXES -->
+    <section class="view" id="v-fixes" hidden>
+      <div class="page-intro">
+        <p>Ce qui revient chaque mois : loyer, abonnements, crédits, salaire… Comptés automatiquement dans chaque mois, sans les ressaisir.</p>
+        <button class="btn ghost" data-act="add-rec"><svg class="i"><use href="#i-plus"/></svg>Ajouter un fixe</button>
+      </div>
+      <article class="card fix-totals" id="fix-totals"></article>
+      <article class="card lists" id="fix-list"></article>
+    </section>
+
+    <!-- ANNÉE -->
+    <section class="view" id="v-annee" hidden>
+      <p class="period" id="y-period"></p>
+      <div class="kpis" id="kpis"></div>
+      <article class="card chart-card">
+        <div class="chart-head">
+          <h3>Revenus nets et dépenses, mois par mois</h3>
+          <div class="chart-legend"><span><i class="sw" style="background:var(--accent)"></i>Revenus nets</span><span><i class="sw" style="background:var(--dep)"></i>Dépenses</span></div>
+        </div>
+        <div id="chart"></div>
+      </article>
+      <div class="two">
+        <article class="card"><h3>Détail par mois</h3><div class="tbl-wrap" id="y-table"></div></article>
+        <div class="stack">
+          <article class="card"><h3>Où part l'argent</h3><div class="top-list" id="y-top"></div></article>
+          <article class="card pro-only"><h3>Seuils de la micro-entreprise</h3><div class="meters" id="y-meters"></div>
+            <p class="hint" style="margin-top:12px">Calculé sur les revenus marqués « soumis à l'URSSAF ». Franchise de TVA (prestations de services) : au-delà de 37 500 € sur l'année, la TVA s'applique au 1er janvier suivant ; au-delà de 41 250 €, dès le dépassement.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- RÉGLAGES -->
+    <section class="view" id="v-reglages" hidden>
+      <div class="settings">
+        <div class="stack">
+          <article class="card stack">
+            <h3>Compte</h3>
+            <div class="meta-line"><span>Connecté avec</span><b id="acc-email"></b></div>
+            <div class="meta-line"><span>Version</span><b id="acc-version"></b></div>
+            <div><button class="btn ghost" data-act="logout">Se déconnecter</button></div>
+          </article>
+          <article class="card stack">
+            <h3>Profil</h3>
+            <div class="seg" id="profile-seg">
+              <button type="button" data-act="profile" data-pro="0">Particulier</button>
+              <button type="button" data-act="profile" data-pro="1">Auto-entrepreneur</button>
+            </div>
+            <p class="hint">Le profil auto-entrepreneur ajoute le calcul URSSAF, la date de déclaration et les seuils de la micro-entreprise.</p>
+          </article>
+          <article class="card stack pro-only">
+            <h3>Taux URSSAF</h3>
+            <p class="hint">Pourcentage prélevé sur ton chiffre d'affaires, pour toute l'année choisie. Artisan en prestations de services : 21,2 % + 0,3 % formation pro + 0,48 % chambre des métiers. Ajoute 1,7 % si tu as le versement libératoire.</p>
+            <div class="stack" id="rates"></div>
+          </article>
+          <article class="card stack pro-only">
+            <h3>Déclaration URSSAF</h3>
+            <div class="seg" id="period-seg">
+              <button type="button" data-act="period" data-p="mensuelle">Tous les mois</button>
+              <button type="button" data-act="period" data-p="trimestrielle">Tous les trimestres</button>
+            </div>
+          </article>
+        </div>
+        <div class="stack">
+          <article class="card stack pro-only">
+            <h3>Calculette brut ↔ net</h3>
+            <p class="hint" id="c-rate"></p>
+            <label class="field"><span>Ce que je facture (brut)</span><input class="input num" id="c-brut" inputmode="decimal" placeholder="Ex. 1 500" autocomplete="off"></label>
+            <p class="out" id="c-out1"></p>
+            <div class="calc-grid">
+              <label class="field"><span>Net voulu par mois</span><input class="input num" id="c-obj" inputmode="decimal" placeholder="Ex. 2 000" autocomplete="off"></label>
+              <label class="field"><span>Taux horaire</span><input class="input num" id="c-th" inputmode="decimal" placeholder="Ex. 40" autocomplete="off"></label>
+            </div>
+            <p class="out" id="c-out2"></p>
+            <p class="hint">En micro-entreprise, les frais pro ne sont pas déduits : prévois-les en plus.</p>
+          </article>
+          <article class="card stack">
+            <h3>Sauvegarde</h3>
+            <p class="hint">Tes données sont enregistrées dans ton compte et synchronisées entre tes appareils.</p>
+            <div class="web-only"><button class="btn ghost" data-act="export" id="export-btn">Exporter l'année en CSV</button></div>
+            <p class="hint native-only">L'export CSV se fait depuis la version PC.</p>
+          </article>
+          <article class="card stack" id="admin-card" hidden>
+            <h3>Personnes autorisées</h3>
+            <p class="hint">Seuls ces emails peuvent utiliser P-Flow. Chaque personne a ses propres comptes, invisibles pour les autres.</p>
+            <form class="inline-form" id="allow-form" novalidate>
+              <input class="input" id="allow-email" type="email" placeholder="email@exemple.fr" autocomplete="off">
+              <button class="btn primary" type="submit">Autoriser</button>
+            </form>
+            <div id="allow-list"></div>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar" aria-label="Sections">
+    <button data-act="view" data-view="mois"><svg class="i"><use href="#i-mois"/></svg>Mois</button>
+    <button data-act="view" data-view="fixes"><svg class="i"><use href="#i-fixes"/></svg>Fixes</button>
+    <button data-act="view" data-view="annee"><svg class="i"><use href="#i-annee"/></svg>Année</button>
+    <button data-act="view" data-view="reglages"><svg class="i"><use href="#i-reglages"/></svg>Réglages</button>
+  </nav>
+  <button class="fab" data-act="add" aria-label="Ajouter une dépense ou un revenu"><svg class="i"><use href="#i-plus"/></svg></button>
+</div>
+
+<div class="backdrop" id="sheet-bg" hidden>
+  <form class="sheet" id="sheet" novalidate>
+    <div class="sheet-head">
+      <h2 id="sheet-title">Nouvelle opération</h2>
+      <button type="button" class="icon-btn" id="sheet-close" aria-label="Fermer"><svg class="i"><use href="#i-close"/></svg></button>
+    </div>
+    <div class="seg" id="type-seg">
+      <button type="button" data-type="depense">Dépense</button>
+      <button type="button" data-type="revenu" class="rev">Revenu</button>
+    </div>
+    <label class="field"><span>Montant</span>
+      <div class="amount-wrap"><input id="f-amount" inputmode="decimal" placeholder="0,00" autocomplete="off" aria-label="Montant en euros"><span>€</span></div>
+    </label>
+    <label class="field"><span>À quoi ça correspond</span>
+      <input class="input" id="f-label" list="labels" autocomplete="off" maxlength="80">
+    </label>
+    <datalist id="labels"></datalist>
+    <label class="field"><span id="f-date-label">Date</span><input class="input" id="f-date" type="date"></label>
+    <label class="check" id="f-rec-row"><span>Revient chaque mois<small>Loyer, abonnement, crédit, salaire…</small></span><input type="checkbox" id="f-rec"></label>
+    <label class="check" id="f-urssaf-row"><span>Soumis à l'URSSAF<small>Ton chiffre d'affaires. Pas la CAF, France Travail ou un salaire.</small></span><input type="checkbox" id="f-urssaf"></label>
+    <p class="preview" id="f-preview" hidden></p>
+    <p class="hint" id="f-hint" hidden></p>
+    <p class="error" id="f-error" role="alert"></p>
+    <div class="sheet-actions">
+      <button type="button" class="btn ghost danger" id="f-delete" hidden>Supprimer</button>
+      <button type="button" class="btn ghost" id="f-stop" hidden></button>
+      <button type="submit" class="btn primary" id="f-save">Enregistrer</button>
+    </div>
+  </form>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

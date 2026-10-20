@@ -1,0 +1,10 @@
+{
+  "name": "P-Flow",
+  "short_name": "P-Flow",
+  "description": "Ce qui rentre, ce qui sort, ce qui reste.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#F1F4F6",
+  "theme_color": "#2453C4",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

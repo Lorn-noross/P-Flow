@@ -1,2 +1,34 @@
 # P-Flow
-Ce qui rentre, ce qui sort, ce qui reste.
+
+**Ce qui rentre, ce qui sort, ce qui reste.**
+
+Application de suivi de budget : revenus, dépenses, charges fixes et reste du mois, avec un mode auto-entrepreneur (calcul URSSAF, échéances de déclaration, seuils de la micro-entreprise).
+
+- **Android** : APK installable, fonctionne hors ligne et se synchronise au retour du réseau.
+- **PC** : même appli dans le navigateur, sans installation.
+- **Synchronisation** : Firebase (Authentication + Cloud Firestore).
+
+## Télécharger
+
+- APK Android : [dernière version](https://github.com/Lorn-noross/P-Flow/releases/latest/download/p-flow.apk)
+- Version PC : https://lorn-noross.github.io/P-Flow/
+
+L'accès est réservé aux personnes autorisées par l'administrateur.
+
+## Vie privée
+
+Ce dépôt ne contient **aucune donnée personnelle**. Chaque utilisateur a son propre espace dans Firestore, accessible uniquement par lui (voir `firestore.rules`). La configuration Firebase présente dans `src/firebase.js` est composée d'identifiants publics.
+
+## Développement
+
+```bash
+npm install
+npm run dev          # version web locale
+npm run build        # construit dist/
+npx cap sync android # copie dans le projet Android
+```
+
+Chaque push sur `main` déclenche `.github/workflows/build.yml` :
+1. construction de la version web, publiée sur GitHub Pages ;
+2. construction et signature de l'APK (secret `ANDROID_KEYSTORE_PASSWORD`), publié dans les Releases ;
+3. publication de `version.json`, que l'appli Android lit pour proposer les mises à jour.

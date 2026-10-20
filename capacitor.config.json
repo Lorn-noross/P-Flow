@@ -1,0 +1,8 @@
+{
+  "appId": "io.github.lornnoross.pflow",
+  "appName": "P-Flow",
+  "webDir": "dist",
+  "android": {
+    "adjustMarginsForEdgeToEdge": "auto"
+  }
+}
