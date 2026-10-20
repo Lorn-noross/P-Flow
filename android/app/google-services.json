@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "59632894514",
+    "project_id": "p-flow-a56b0",
+    "storage_bucket": "p-flow-a56b0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:59632894514:android:03756f5c9c881f7405722b",
+        "android_client_info": {
+          "package_name": "io.github.lornnoross.pflow"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "59632894514-0ohnt3579r5f9mivejeqsl1d3le42ta1.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDY-zhsYfQvUxv7GAfnkM7Mee88WIgCTl8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "59632894514-0ohnt3579r5f9mivejeqsl1d3le42ta1.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

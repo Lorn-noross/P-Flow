@@ -6,12 +6,13 @@ import './style.css';
 
 import {
   onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification,
-  sendPasswordResetEmail, signOut, GoogleAuthProvider, signInWithPopup, reload,
+  sendPasswordResetEmail, signOut, GoogleAuthProvider, signInWithPopup, signInWithCredential, reload,
 } from 'firebase/auth';
 import {
   collection, doc, query, where, onSnapshot, setDoc, addDoc, deleteDoc, getDoc, serverTimestamp,
 } from 'firebase/firestore';
 import { App as CapApp } from '@capacitor/app';
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { auth, db, isNative } from './firebase.js';
 
 /* global __APP_VERSION__, __APP_BUILD__, __PAGES_URL__ */
@@ -176,8 +177,24 @@ $('#login-form').addEventListener('submit', async e => {
 });
 $('#google-btn').addEventListener('click', async () => {
   $('#l-error').textContent = '';
-  try { await signInWithPopup(auth, new GoogleAuthProvider()); }
-  catch (x) { $('#l-error').textContent = authErr(x); }
+  const btn = $('#google-btn'); btn.disabled = true;
+  try {
+    if (isNative) {
+      // Connexion Google native d'Android, puis on transmet le jeton au SDK web Firebase.
+      const r = await FirebaseAuthentication.signInWithGoogle();
+      const idToken = r && r.credential && r.credential.idToken;
+      if (!idToken) throw new Error('no-token');
+      await signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
+    } else {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    }
+  } catch (x) {
+    const msg = String((x && (x.code || x.message)) || '');
+    if (/cancel|annul/i.test(msg)) return;
+    $('#l-error').textContent = isNative && !(x && x.code && String(x.code).startsWith('auth/'))
+      ? 'La connexion Google n\'a pas abouti (' + msg + '). Tu peux aussi te connecter avec ton email.'
+      : authErr(x);
+  } finally { btn.disabled = false; }
 });
 $('#v-resend').addEventListener('click', async () => {
   try { await sendEmailVerification(auth.currentUser); $('#v-error').textContent = 'Email renvoyé.'; }
@@ -193,6 +210,7 @@ $('#d-retry').addEventListener('click', () => { if (auth.currentUser) routeUser(
 
 async function logout() {
   stopData();
+  if (isNative) { try { await FirebaseAuthentication.signOut(); } catch (e) { /* pas de session Google native */ } }
   try { await signOut(auth); } catch (e) { /* déjà déconnecté */ }
 }
 
@@ -793,6 +811,22 @@ async function checkUpdate() {
       $('#update').hidden = false;
     }
   } catch (e) { /* hors ligne : on réessaiera au prochain lancement */ }
+}
+
+/* ---------- partage ---------- */
+const LINKS = { apk: 'https://github.com/Lorn-noross/P-Flow/releases/latest/download/p-flow.apk', web: PAGES_URL || location.href.split('#')[0] };
+$('#share-apk').textContent = LINKS.apk;
+$('#share-web').textContent = LINKS.web;
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-copy]'); if (!b) return;
+  const txt = LINKS[b.dataset.copy];
+  try { await navigator.clipboard.writeText(txt); toast('Lien copié'); }
+  catch (x) { const el = $('#share-' + b.dataset.copy); const r = document.createRange(); r.selectNodeContents(el); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+});
+
+/* ---------- appli web (iPhone, PC) : fonctionnement hors ligne ---------- */
+if (!isNative && 'serviceWorker' in navigator && location.protocol === 'https:') {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(() => {}); });
 }
 
 setLoginMode('login');
