@@ -261,10 +261,11 @@
     <label class="field"><span>Montant</span>
       <div class="amount-wrap"><input id="f-amount" inputmode="decimal" placeholder="0,00" autocomplete="off" aria-label="Montant en euros"><span>€</span></div>
     </label>
-    <label class="field"><span>À quoi ça correspond</span>
-      <input class="input" id="f-label" list="labels" autocomplete="off" maxlength="80">
-    </label>
-    <datalist id="labels"></datalist>
+    <div class="field">
+      <label for="f-label">À quoi ça correspond</label>
+      <input class="input" id="f-label" autocomplete="off" maxlength="80" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="f-suggest">
+      <ul class="suggest" id="f-suggest" role="listbox" aria-label="Libellés déjà utilisés" hidden></ul>
+    </div>
     <label class="field"><span id="f-date-label">Date</span><input class="input" id="f-date" type="date"></label>
     <label class="check" id="f-rec-row"><span>Revient chaque mois<small>Loyer, abonnement, crédit, salaire…</small></span><input type="checkbox" id="f-rec"></label>
     <label class="check" id="f-urssaf-row"><span>Soumis à l'URSSAF<small>Ton chiffre d'affaires. Pas la CAF, France Travail ou un salaire.</small></span><input type="checkbox" id="f-urssaf"></label>

@@ -59,6 +59,7 @@ const dump = page => page.evaluate(() => window.__PFLOW_DB__.dump());
 const CONFIGS = [
   { name: 'téléphone clair', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, colorScheme: 'light' },
   { name: 'téléphone sombre', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, colorScheme: 'dark' },
+  { name: 'tablette clair', viewport: { width: 800, height: 1280 }, isMobile: true, hasTouch: true, colorScheme: 'light' },
   { name: 'PC clair', viewport: { width: 1280, height: 800 }, colorScheme: 'light' },
   { name: 'PC sombre', viewport: { width: 1280, height: 800 }, colorScheme: 'dark' },
 ];
@@ -175,6 +176,94 @@ async function scenarioLectureSeule(cfg, fx, tag) {
   await ctx.close();
 }
 
+// Saisie : suggestions de libellés et fenêtre d'ajout au-dessus du clavier (rien n'est enregistré).
+async function scenarioSaisie(cfg, fx, tag) {
+  const { ctx, page, errors } = await open(cfg, fx.docs, { date: fx.expect._date });
+  await waitApp(page);
+  const H = cfg.viewport.height, W = cfg.viewport.width;
+  const items = () => page.$$eval('#f-suggest li', ls => ls.map(l => l.textContent));
+  const box = sel => page.locator(sel).first().boundingBox();
+  const shown = () => page.locator('#f-suggest').isVisible();
+
+  await page.locator('[data-act="add"]:visible').click();
+  await until(page, () => !document.getElementById('sheet-bg').hidden, null, 'fenêtre d\'ajout ouverte');
+  check(await page.locator('datalist').count() === 0, 'plus de liste de suggestions native (elle s\'affichait sur le clavier)');
+
+  // Suggestions : au focus, celles du type choisi seulement
+  await page.click('#f-label');
+  await until(page, () => !document.getElementById('f-suggest').hidden, null, 'suggestions affichées au toucher du champ');
+  let it = await items();
+  check(it.includes('Courses') && it.includes('Loyer') && !it.includes('Facture client A'), 'dépense : seulement des libellés de dépenses (' + it.join(', ') + ')');
+  const lb = await box('#f-label'), sb = await box('#f-suggest');
+  check(sb && lb && sb.y >= lb.y + lb.height - 1, 'suggestions placées sous le champ, dans la fenêtre');
+
+  // Filtrage en tapant, sans tenir compte des majuscules ni des accents
+  await page.fill('#f-label', 'LO');
+  it = await items();
+  check(it.length === 1 && it[0] === 'Loyer', 'filtrage « LO » → Loyer (' + it.join(', ') + ')');
+  await page.locator('#f-suggest li', { hasText: 'Loyer' }).click();
+  check(await page.inputValue('#f-label') === 'Loyer', 'toucher une suggestion remplit le champ');
+  check(!(await shown()), 'la liste se ferme après le choix');
+
+  // Changer de type : suggestions des revenus
+  await page.click('#type-seg [data-type="revenu"]');
+  await page.fill('#f-label', '');
+  await page.click('#f-label');
+  await page.fill('#f-label', 'fac');
+  it = await items();
+  check(it.length === 1 && it[0] === 'Facture client A', 'revenu : « fac » → Facture client A (' + it.join(', ') + ')');
+
+  // Clavier physique (PC) : flèches + Entrée choisissent sans enregistrer ; Échap ferme la liste, pas la fenêtre
+  await page.click('#type-seg [data-type="depense"]');
+  await page.click('#f-label');
+  await page.fill('#f-label', 'e');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  check(await page.inputValue('#f-label') === 'Essence', 'flèche bas + Entrée choisit la 1re suggestion');
+  check(await page.locator('#sheet-bg').isVisible(), 'Entrée sur une suggestion n\'enregistre pas');
+  await page.fill('#f-label', 'c');
+  check(await shown(), 'suggestions pour « c »');
+  await page.keyboard.press('Escape');
+  check(!(await shown()) && await page.locator('#sheet-bg').isVisible(), 'Échap ferme la liste, pas la fenêtre');
+
+  if (cfg.isMobile) {
+    // Android 15 et plus : le clavier recouvre l'appli sans la redimensionner
+    const KBH = Math.round(H * 0.4);
+    await page.fill('#f-label', '');
+    await page.click('#f-label');
+    await page.evaluate(h => window.__pfSetKeyboard(h), KBH);
+    await page.waitForTimeout(250);
+    const top = H - KBH;
+    const sh = await box('#sheet'), f = await box('#f-label'), li = await box('#f-suggest li');
+    check(sh && sh.y + sh.height <= top + 1, 'clavier qui recouvre : la fenêtre reste au-dessus (bas ' + Math.round(sh.y + sh.height) + ' ≤ ' + top + ')');
+    check(f && f.y >= 0 && f.y + f.height <= top + 1, 'clavier qui recouvre : le champ tapé reste visible');
+    check(li && li.y + li.height <= top + 1, 'clavier qui recouvre : les suggestions restent visibles');
+    check(await page.locator('.fab').evaluate(e => getComputedStyle(e).visibility) === 'hidden', 'bouton + masqué quand le clavier est ouvert');
+    await page.screenshot({ path: join(OUT, tag + '-clavier-recouvre.png') });
+    await page.evaluate(() => window.__pfSetKeyboard(0));
+    await page.waitForTimeout(100);
+    const sh2 = await box('#sheet');
+    if (W < 700) check(sh2 && Math.abs(sh2.y + sh2.height - H) <= 1, 'clavier fermé : la fenêtre redescend en bas');
+    else check(sh2 && Math.abs(sh2.y + sh2.height / 2 - H / 2) <= 2, 'clavier fermé : la fenêtre revient au centre (tablette)');
+
+    // Anciens Android / navigateurs : le clavier réduit la fenêtre
+    await page.click('#f-label');
+    const h2 = Math.round(H * 0.55);
+    await page.setViewportSize({ width: W, height: h2 });
+    await page.waitForTimeout(300);
+    const sh3 = await box('#sheet'), f3 = await box('#f-label');
+    check(sh3 && sh3.y + sh3.height <= h2 + 1, 'fenêtre réduite : la fenêtre tient dans la hauteur restante');
+    check(f3 && f3.y >= 0 && f3.y + f3.height <= h2 + 1, 'fenêtre réduite : le champ tapé reste visible');
+    await page.screenshot({ path: join(OUT, tag + '-clavier-reduit.png') });
+    await page.setViewportSize(cfg.viewport);
+  }
+
+  await page.click('#sheet-close');
+  check(await page.evaluate(() => window.__PFLOW_DB__.writes()) === 0, 'rien n\'a été enregistré pendant la saisie');
+  check(errors.length === 0, 'aucune erreur dans la console' + (errors.length ? ' : ' + errors.join(' | ') : ''));
+  await ctx.close();
+}
+
 async function scenarioNouveauCompte(cfg, tag) {
   const { ctx, page, errors } = await open(cfg, {}, { date: '2026-03-15' });
   await until(page, () => !document.getElementById('s-onboard').hidden, null, 'écran de bienvenue pour un nouveau compte');
@@ -197,10 +286,11 @@ for (const file of fixtures) {
     console.log('▶ ' + file + ' · ' + cfg.name);
     await run(() => scenarioDonnees(cfg, fx, tag));
     await run(() => scenarioLectureSeule(cfg, fx, tag));
+    await run(() => scenarioSaisie(cfg, fx, tag));
     console.log(failures === before ? '   ✓ ok' : '   ✗ ' + (failures - before) + ' échec(s)');
   }
 }
-for (const cfg of [CONFIGS[0], CONFIGS[2]]) {
+for (const cfg of CONFIGS.filter(c => c.name === 'téléphone clair' || c.name === 'PC clair')) {
   const before = failures;
   console.log('▶ nouveau compte · ' + cfg.name);
   await run(() => scenarioNouveauCompte(cfg, 'nouveau-' + cfg.name.replace(/\s+/g, '-')));

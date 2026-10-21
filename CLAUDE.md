@@ -9,6 +9,7 @@
 - APK publiée sous le nom `P-Flow-<version>.apk` ; lien de partage stable : `https://lorn-noross.github.io/P-Flow/telecharger.html` (lit `version.json`).
 - La clé de signature `android/app/p-flow-release.p12` est protégée par le secret GitHub `ANDROID_KEYSTORE_PASSWORD`. Ne jamais la régénérer : sinon les mises à jour ne s'installent plus par-dessus l'ancienne version.
 - Vérifier `npm run build` avant chaque push. Le build Android ne tourne que dans GitHub Actions.
+- Clavier : sur Android 15+ (bord à bord), le clavier recouvre la WebView sans la redimensionner. Sa hauteur arrive par `@capacitor/keyboard` (et `visualViewport` dans les navigateurs) dans la variable CSS `--kb` ; la fenêtre d'ajout se cale au-dessus. Ne pas redimensionner la WebView en natif (Chromium peut alors refermer le clavier). `adjustResize` est déclaré dans le manifeste.
 
 ## Règle n°1 : ne jamais perdre ni abîmer les données (exigence absolue du propriétaire)
 Des personnes (dont la famille du propriétaire) ont de vraies données dans l'appli. Une mise à jour ne doit **jamais** les effacer, les déplacer ni les rendre illisibles. Cette règle passe avant toute nouveauté.

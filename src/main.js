@@ -12,6 +12,7 @@ import {
   collection, doc, query, where, onSnapshot, setDoc, addDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore';
 import { App as CapApp } from '@capacitor/app';
+import { Keyboard } from '@capacitor/keyboard';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { auth, db, isNative } from './firebase.js';
 
@@ -372,7 +373,6 @@ function render() {
   else if (S.view === 'fixes') renderFixes();
   else if (S.view === 'annee') renderAnnee();
   else renderReglages();
-  renderDatalist();
 }
 function updateSync() {
   let s = 'connecting', t = 'Connexion…';
@@ -609,14 +609,6 @@ $('#rates').addEventListener('change', e => {
 });
 $('#rates').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('input')) e.target.blur(); });
 
-function renderDatalist() {
-  const freq = new Map();
-  const add = l => { const k = norm(l); if (!k) return; const c = freq.get(k) || { l, n: 0 }; c.n++; freq.set(k, c); };
-  S.entries.forEach(e => add(e.label)); S.recurring.forEach(r => add(r.label));
-  const opts = Array.from(freq.values()).sort((a, b) => b.n - a.n).slice(0, 60).map(c => '<option value="' + esc(c.l) + '"></option>').join('');
-  const dl = $('#labels'); if (dl.innerHTML !== opts) dl.innerHTML = opts;
-}
-
 /* ---------- export (version PC) ---------- */
 function exportCsv() {
   if (!ready()) return;
@@ -666,6 +658,7 @@ function openSheet(o) {
   setTimeout(() => { const a = $('#f-amount'); a.focus(); if (o.mode !== 'new') a.select(); }, 60);
 }
 function closeSheet() {
+  closeSuggest();
   bg.hidden = true; document.body.style.overflow = '';
   if (lastFocus && lastFocus.focus && document.contains(lastFocus)) { try { lastFocus.focus(); } catch (e) { /* ignoré */ } }
 }
@@ -686,6 +679,8 @@ function syncSheet() {
     hint.hidden = false; hint.textContent = 'Un nouveau montant compte à partir de ' + mLabel(F.ctx) + '. Les mois d\'avant gardent ' + eur(F.orig.amount) + '.';
   } else hint.hidden = true;
   updatePreview();
+  // Les suggestions dépendent du type (dépense ou revenu).
+  if (document.activeElement === $('#f-label')) suggest(); else closeSuggest();
 }
 function updatePreview() {
   const p = $('#f-preview'), a = parseAmount($('#f-amount').value);
@@ -753,6 +748,129 @@ $('#f-stop').addEventListener('click', () => {
   if (o.end) write(setDoc(doc(ucol('recurring'), o.id), Object.assign(plain(o), { end: null })), 'Repris chaque mois');
   else { const end = cm < o.start ? o.start : cm; write(setDoc(doc(ucol('recurring'), o.id), Object.assign(plain(o), { end })), 'Arrêté après ' + mLabel(end)); }
 });
+
+/* ---------- suggestions de libellés (dans la fenêtre, sous le champ) ---------- */
+const fold = s => norm(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const lab = $('#f-label'), sug = $('#f-suggest');
+const SG = { items: [], active: -1 };
+// Libellés déjà utilisés pour ce type, du plus fréquent au plus récent.
+function labelPool(type) {
+  const m = new Map();
+  const add = it => {
+    if (it.type !== type) return;
+    const k = fold(it.label); if (!k) return;
+    const c = m.get(k) || { l: it.label, n: 0, t: 0 };
+    c.n++; c.t = Math.max(c.t, Number(it.createdAt) || 0); m.set(k, c);
+  };
+  S.entries.forEach(add); S.recurring.forEach(add);
+  return Array.from(m.values()).sort((a, b) => b.n - a.n || b.t - a.t);
+}
+function suggest() {
+  const q = fold(lab.value), pool = labelPool(F.type);
+  let list;
+  if (!q) list = pool.slice(0, 5);
+  else {
+    const starts = [], has = [];
+    for (const c of pool) { const k = fold(c.l); if (k === q) continue; if (k.startsWith(q)) starts.push(c); else if (k.includes(q)) has.push(c); }
+    list = starts.concat(has).slice(0, 6);
+  }
+  SG.items = list.map(c => c.l); SG.active = -1;
+  if (!list.length) { closeSuggest(); return; }
+  sug.innerHTML = list.map((c, i) => '<li role="option" id="sg-' + i + '" data-i="' + i + '" aria-selected="false">' + esc(c.l) + '</li>').join('');
+  sug.hidden = false;
+  lab.setAttribute('aria-expanded', 'true'); lab.removeAttribute('aria-activedescendant');
+  keepFocusVisible();
+}
+function closeSuggest() {
+  sug.hidden = true; sug.innerHTML = ''; SG.items = []; SG.active = -1;
+  lab.setAttribute('aria-expanded', 'false'); lab.removeAttribute('aria-activedescendant');
+}
+function moveSuggest(d) {
+  const n = SG.items.length; if (!n) return;
+  const m = n + 1; // positions : -1 (le texte tapé), puis 0 … n-1
+  SG.active = (((SG.active + 1 + d) % m) + m) % m - 1;
+  $$('li', sug).forEach((li, i) => { li.classList.toggle('on', i === SG.active); li.setAttribute('aria-selected', String(i === SG.active)); });
+  if (SG.active >= 0) { lab.setAttribute('aria-activedescendant', 'sg-' + SG.active); $('#sg-' + SG.active).scrollIntoView({ block: 'nearest' }); }
+  else lab.removeAttribute('aria-activedescendant');
+}
+function pickSuggest(i) {
+  const v = SG.items[i]; if (v == null) return;
+  lab.value = v; closeSuggest();
+}
+lab.addEventListener('focus', suggest);
+lab.addEventListener('input', suggest);
+lab.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== lab) closeSuggest(); }, 150));
+lab.addEventListener('keydown', e => {
+  if (sug.hidden) { if (e.key === 'ArrowDown') { e.preventDefault(); suggest(); } return; }
+  if (e.key === 'ArrowDown') { e.preventDefault(); moveSuggest(1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); moveSuggest(-1); }
+  else if (e.key === 'Enter' && SG.active >= 0) { e.preventDefault(); pickSuggest(SG.active); }
+  else if (e.key === 'Escape') { e.stopPropagation(); closeSuggest(); }
+});
+// Garder le clavier ouvert quand on touche une suggestion ; le choix se fait au « clic »
+// (un glissement pour faire défiler la fenêtre ne choisit rien).
+sug.addEventListener('pointerdown', e => e.preventDefault());
+sug.addEventListener('click', e => { const li = e.target.closest('li[data-i]'); if (li) pickSuggest(+li.dataset.i); });
+
+/* ---------- clavier : la fenêtre d'ajout reste au-dessus ---------- */
+// Android 15 et plus (affichage bord à bord) : le clavier recouvre l'appli sans la redimensionner ;
+// sa hauteur vient du module natif Keyboard. Navigateurs (iPhone, Chrome) : visualViewport.
+// On garde le plus grand des deux recouvrements, jamais leur somme : c'est le même clavier.
+const KB = { native: 0, base: window.innerHeight, cover: 0, open: false };
+const isEditable = el => !!el && ((el.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|reset|range|color|file)$/.test(el.type)) || el.tagName === 'TEXTAREA' || el.isContentEditable);
+function kbUpdate() {
+  const vv = window.visualViewport;
+  let top = 0, cover = 0;
+  if (vv && vv.scale < 1.01) { // pas pendant un zoom au doigt
+    top = Math.max(0, vv.offsetTop);
+    cover = Math.max(0, window.innerHeight - vv.offsetTop - vv.height);
+  }
+  // Hauteur annoncée par Android, moins ce que la fenêtre a déjà perdu (anciens Android qui la redimensionnent).
+  const nat = Math.max(0, KB.native - Math.max(0, KB.base - window.innerHeight));
+  cover = Math.round(Math.max(cover, nat));
+  if (cover < 2) cover = 0;
+  const root = document.documentElement;
+  root.style.setProperty('--kb', cover + 'px');
+  root.style.setProperty('--kb-top', Math.round(top) + 'px');
+  const open = cover > 0 || (KB.base - window.innerHeight > 120 && isEditable(document.activeElement));
+  root.classList.toggle('kb-open', open);
+  const changed = cover !== KB.cover || open !== KB.open;
+  KB.cover = cover; KB.open = open;
+  if (open && changed) keepFocusVisible();
+}
+// Fait apparaître le champ actif (et ses suggestions) au-dessus du clavier.
+function keepFocusVisible() {
+  requestAnimationFrame(() => {
+    const a = document.activeElement;
+    if (!isEditable(a)) return;
+    a.scrollIntoView({ block: 'nearest' });
+    if (a === lab && !sug.hidden) sug.scrollIntoView({ block: 'nearest' });
+  });
+}
+window.addEventListener('resize', () => {
+  if (!KB.native && !isEditable(document.activeElement)) KB.base = window.innerHeight;
+  kbUpdate();
+});
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', kbUpdate);
+  window.visualViewport.addEventListener('scroll', kbUpdate);
+}
+document.addEventListener('focusin', e => {
+  if (!isEditable(e.target)) return;
+  setTimeout(() => { kbUpdate(); if (document.documentElement.classList.contains('kb-open')) keepFocusVisible(); }, 60);
+});
+if (isNative) {
+  const setKb = h => { KB.native = Math.max(0, Number(h) || 0); kbUpdate(); };
+  try {
+    Keyboard.addListener('keyboardWillShow', i => setKb(i && i.keyboardHeight)).catch(() => {});
+    Keyboard.addListener('keyboardDidShow', i => setKb(i && i.keyboardHeight)).catch(() => {});
+    Keyboard.addListener('keyboardWillHide', () => setKb(0)).catch(() => {});
+    Keyboard.addListener('keyboardDidHide', () => setKb(0)).catch(() => {});
+  } catch (e) { /* module clavier absent : on garde le calcul par visualViewport */ }
+}
+// Tests uniquement (tests/vite.config.js) : simule le clavier d'Android 15, qui recouvre sans redimensionner.
+/* global __PFLOW_TEST__ */
+if (typeof __PFLOW_TEST__ !== 'undefined') window.__pfSetKeyboard = h => { KB.native = h; kbUpdate(); };
 
 /* ---------- navigation ---------- */
 function setView(v) {

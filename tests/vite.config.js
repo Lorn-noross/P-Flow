@@ -9,6 +9,7 @@ const here = p => fileURLToPath(new URL(p, import.meta.url));
 export default mergeConfig(base, defineConfig({
   root: here('..'),
   logLevel: 'warn',
+  define: { __PFLOW_TEST__: 'true' },
   resolve: {
     alias: [
       { find: /^firebase\/app$/, replacement: here('./fakes/app.js') },

@@ -4,12 +4,13 @@ Garantit la règle n°1 de `CLAUDE.md` : une nouvelle version lit toujours les d
 
 ## Ce qui est vérifié
 
-Pour chaque jeu de données de `fixtures/` (format d'une ancienne version, données **fictives**), sur téléphone et PC, en thème clair et sombre :
+Pour chaque jeu de données de `fixtures/` (format d'une ancienne version, données **fictives**), sur téléphone, tablette et PC, en thème clair et sombre :
 
 - les montants du mois et les totaux de l'année ;
 - modifier une opération et un fixe garde tous les autres champs, y compris ceux qu'une version plus récente aurait ajoutés (`champFutur`) ;
 - supprimer une opération ne retire qu'elle ;
 - le garde-fou : des données marquées par une version plus récente (`dataVersion`) passent l'appli en lecture seule ;
+- la saisie : suggestions de libellés sous le champ (filtrées par type, au doigt et au clavier PC), fenêtre d'ajout au-dessus du clavier, que le clavier recouvre l'appli (Android 15 et plus) ou réduise la fenêtre (anciens Android, navigateurs) ;
 - l'écran de bienvenue d'un nouveau compte ;
 - aucune erreur dans la console.
 
