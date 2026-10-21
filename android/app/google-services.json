@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "59632894514-03upo5j4ijdcu3n8pbn9eodlm61mh684.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "io.github.lornnoross.pflow",
+            "certificate_hash": "df5417f6c100dcde3a5e23c6145af85b39081d80"
+          }
+        },
+        {
           "client_id": "59632894514-0ohnt3579r5f9mivejeqsl1d3le42ta1.apps.googleusercontent.com",
           "client_type": 3
         }
