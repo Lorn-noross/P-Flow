@@ -143,7 +143,8 @@
     </header>
 
     <div class="update warn" id="outdated" role="alert" hidden><span>Tes données ont été enregistrées avec une version plus récente de P-Flow. Mets l'appli à jour pour les modifier (sur PC : recharge la page). En attendant, tu peux seulement les consulter.</span></div>
-    <div class="update" id="update" hidden><span>Une nouvelle version de P-Flow est disponible.</span><a id="update-link" href="#" target="_blank" rel="noopener">Télécharger</a></div>
+    <div class="update" id="update" role="status" hidden></div>
+    <div class="update" id="backup-due" hidden><span>C'est le moment de la copie de tes données sur Google Drive.</span><button class="link" data-act="drive-due">Sauvegarder</button></div>
 
     <!-- MOIS -->
     <section class="view" id="v-mois">
@@ -251,9 +252,19 @@
           </article>
           <article class="card stack">
             <h3>Sauvegarde</h3>
-            <p class="hint">Tes données sont enregistrées dans ton compte et synchronisées entre tes appareils.</p>
+            <p class="hint">Tes données sont enregistrées dans ton compte et synchronisées entre tes appareils. Tu peux en plus garder des copies.</p>
+            <p class="h3">Google Drive</p>
+            <div class="stack" id="drive-box"></div>
+            <div class="stack" id="drive-list" hidden></div>
+            <p class="h3">Fichier</p>
+            <div class="btn-row">
+              <button class="btn ghost" data-act="backup-export">Exporter mes données</button>
+              <label class="btn ghost">Importer une sauvegarde<input type="file" id="import-file" accept=".json,application/json" hidden></label>
+            </div>
+            <p class="notice" id="backup-status" role="status" hidden></p>
+            <div class="notice stack" id="restore-panel" hidden></div>
             <div class="web-only"><button class="btn ghost" data-act="export" id="export-btn">Exporter l'année en CSV</button></div>
-            <p class="hint native-only">L'export CSV se fait depuis la version PC.</p>
+            <p class="hint native-only">L'export CSV (pour un tableur) se fait depuis la version PC.</p>
           </article>
           <article class="card stack">
             <h3>Installer P-Flow</h3>
@@ -274,6 +285,20 @@
               <button class="btn primary" type="submit">Autoriser</button>
             </form>
             <div id="allow-list"></div>
+          </article>
+          <article class="card stack" id="update-card">
+            <h3>Mises à jour</h3>
+            <p class="hint" id="upd-status" role="status" hidden></p>
+            <progress id="upd-progress" max="100" value="0" hidden></progress>
+            <div class="btn-row"><button class="btn ghost" data-act="upd-check" id="upd-check">Vérifier les mises à jour</button><span id="upd-actions"></span></div>
+            <label class="field"><span>Vérification automatique</span>
+              <select class="input" id="upd-auto">
+                <option value="ouverture">À chaque ouverture de l'appli</option>
+                <option value="jour">Une fois par jour</option>
+                <option value="semaine">Une fois par semaine</option>
+                <option value="jamais">Jamais</option>
+              </select>
+            </label>
           </article>
         </div>
       </div>

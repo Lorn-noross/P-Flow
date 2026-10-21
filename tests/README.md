@@ -12,10 +12,13 @@ Pour chaque jeu de données de `fixtures/` (format d'une ancienne version, donn�
 - le garde-fou : des données marquées par une version plus récente (`dataVersion`) passent l'appli en lecture seule ;
 - la saisie : suggestions de libellés sous le champ (filtrées par type, au doigt et au clavier PC), fenêtre d'ajout au-dessus du clavier, que le clavier recouvre l'appli (Android 15 et plus) ou réduise la fenêtre (anciens Android, navigateurs) ;
 - l'accès : un compte hors de la liste d'emails voit l'écran de refus ; l'administrateur ajoute et retire des emails ;
+- les couleurs : appliquées dès le chargement (venues d'un autre appareil), choix, retour par défaut, autres réglages intacts ;
+- les sauvegardes : export complet, import qui remet seulement ce qui manque (sans écraser ni doublonner), Google Drive simulé (dossier, 12 copies, corbeille, restauration, copie automatique due) ;
+- les mises à jour (navigateur) : bandeau « Recharger », intervalle, vérification manuelle ;
 - l'écran de bienvenue d'un nouveau compte ;
 - aucune erreur dans la console.
 
-L'appli est construite avec un faux Firebase en mémoire (`fakes/`, `vite.config.js`) : aucun accès au vrai projet, aucune donnée réelle. Ces fichiers ne sont jamais inclus dans l'appli publiée.
+L'appli est construite avec un faux Firebase en mémoire (`fakes/`, `vite.config.js`) et Internet est simulé (version publiée, bibliothèque Google, Google Drive) : aucun accès au vrai projet, aucune donnée réelle. Ces fichiers ne sont jamais inclus dans l'appli publiée.
 
 ## Lancer
 

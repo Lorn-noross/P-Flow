@@ -64,10 +64,56 @@ const CONFIGS = [
   { name: 'PC sombre', viewport: { width: 1280, height: 800 }, colorScheme: 'dark' },
 ];
 
+// ---------- faux Internet ----------
+// version.json publiée, bibliothèque Google Identity, et un petit Google Drive en mémoire (opts.drive).
+const GIS_STUB = 'window.google={accounts:{oauth2:{initTokenClient:function(c){return{requestAccessToken:function(){c.callback({access_token:"jeton-web",expires_in:3600})}}},hasGrantedAllScopes:function(){return true}}}};';
+let driveSeq = 0;
+async function fakeInternet(route, opts) {
+  const req = route.request(), u = new URL(req.url());
+  const json = (o, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(o) });
+  if (u.pathname.endsWith('/version.json')) return json(opts.version || { version: '0.1.0-beta', build: 0, apk: 'https://github.com/Lorn-noross/P-Flow/releases/download/v0.1.0-beta/P-Flow-0.1.0-beta.apk' });
+  if (u.host === 'accounts.google.com') return route.fulfill({ status: 200, contentType: 'text/javascript', body: GIS_STUB });
+  if (u.host === 'www.googleapis.com') {
+    const D = opts.drive || (opts.drive = { files: [], calls: [] });
+    D.calls.push(req.method() + ' ' + u.pathname);
+    if (!/^Bearer .+/.test(req.headers()['authorization'] || '')) return json({ error: { message: 'no token' } }, 401);
+    const qy = u.searchParams.get('q') || '';
+    const live = D.files.filter(f => !f.trashed);
+    if (req.method() === 'GET' && u.pathname === '/drive/v3/files') {
+      let r;
+      if (qy.includes("mimeType = 'application/vnd.google-apps.folder'")) r = live.filter(f => f.folder && qy.includes("'" + f.name + "'"));
+      else { const m = qy.match(/'([^']+)' in parents/); r = live.filter(f => !f.folder && m && f.parent === m[1]).sort((a, b) => b.createdTime.localeCompare(a.createdTime)); }
+      return json({ files: r.map(f => ({ id: f.id, name: f.name, createdTime: f.createdTime, size: String((f.content || '').length) })) });
+    }
+    if (req.method() === 'POST' && u.pathname === '/drive/v3/files') {
+      const meta = JSON.parse(req.postData()); const f = { id: 'f' + (++driveSeq), name: meta.name, folder: true, createdTime: new Date().toISOString() };
+      D.files.push(f); return json({ id: f.id });
+    }
+    if (req.method() === 'POST' && u.pathname === '/upload/drive/v3/files') {
+      const body = req.postData(), b = (req.headers()['content-type'].match(/boundary=(\S+)/) || [])[1];
+      const parts = body.split('--' + b).slice(1, 3).map(p => p.split('\r\n\r\n').slice(1).join('\r\n\r\n').replace(/\r\n$/, ''));
+      const meta = JSON.parse(parts[0]);
+      const f = { id: 'f' + (++driveSeq), name: meta.name, parent: meta.parents[0], content: parts[1], createdTime: new Date(Date.now() + driveSeq * 1000).toISOString() };
+      D.files.push(f); return json({ id: f.id, name: f.name, createdTime: f.createdTime, size: String(f.content.length) });
+    }
+    const m = u.pathname.match(/^\/drive\/v3\/files\/([^/]+)$/);
+    if (m) {
+      const f = D.files.find(x => x.id === decodeURIComponent(m[1]));
+      if (!f) return json({ error: { message: 'not found' } }, 404);
+      if (req.method() === 'PATCH') { Object.assign(f, JSON.parse(req.postData())); return json({ id: f.id }); }
+      if (u.searchParams.get('alt') === 'media') return route.fulfill({ status: 200, contentType: 'application/json', body: f.content });
+    }
+    return json({ error: { message: 'non simulé' } }, 400);
+  }
+  return route.fulfill({ status: 200, body: '' });
+}
+
 async function open(cfg, docs, opts = {}) {
   const ctx = await browser.newContext({ viewport: cfg.viewport, isMobile: !!cfg.isMobile, hasTouch: !!cfg.hasTouch, colorScheme: cfg.colorScheme, locale: 'fr-FR', timezoneId: 'Europe/Paris' });
   const page = await ctx.newPage();
   page.setDefaultTimeout(8000);
+  // Aucun accès à Internet pendant les tests : version publiée, bibliothèque Google et Drive sont simulés.
+  await page.route(u => !u.href.startsWith(URL_APP), route => fakeInternet(route, opts));
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
@@ -76,7 +122,7 @@ async function open(cfg, docs, opts = {}) {
   const seed = Object.assign({}, docs);
   if (!opts.denied) seed['allowlist/test@example.invalid'] = { addedAt: 1767225600000 };
   if (opts.admin) seed['admins/uid-test'] = { ok: true };
-  await page.addInitScript(([s, noUser]) => { window.__PFLOW_SEED__ = s; window.__PFLOW_NO_USER__ = noUser; }, [seed, !!opts.noUser]);
+  await page.addInitScript(([s, noUser, tok]) => { window.__PFLOW_SEED__ = s; window.__PFLOW_NO_USER__ = noUser; if (tok) window.__PFLOW_DRIVE_TOKEN__ = tok; }, [seed, !!opts.noUser, opts.driveToken || null]);
   await page.goto(URL_APP);
   return { ctx, page, errors };
 }
@@ -343,6 +389,114 @@ async function scenarioAcces(cfg, fx, tag) {
   await o.ctx.close();
 }
 
+// Sauvegardes : export complet, import qui remet seulement ce qui manque, Google Drive (simulé).
+async function scenarioSauvegardes(cfg, fx, tag) {
+  const E2 = 'users/uid-test/entries/e2', E3 = 'users/uid-test/entries/e3', R2 = 'users/uid-test/recurring/r2';
+  const reglages = p => p.locator('[data-act="view"][data-view="reglages"]:visible').click();
+
+  // 1. Exporter : un fichier avec tout le compte
+  let o = await open(cfg, fx.docs, { date: fx.expect._date });
+  await waitApp(o.page); await reglages(o.page);
+  const [dl] = await Promise.all([o.page.waitForEvent('download'), o.page.click('[data-act="backup-export"]')]);
+  // Nom de fichier sans accent : Chromium sans écran refuse les chemins accentués pour l'envoi de fichier.
+  const file = join(OUT, tag.normalize('NFD').replace(/[\u0300-\u036f]/g, '') + '-sauvegarde.json');
+  await dl.saveAs(file);
+  const bk = JSON.parse(readFileSync(file, 'utf8'));
+  check(bk.app === 'P-Flow' && bk.dataVersion === 1 && bk.entries.length === 4 && bk.recurring.length === 3, 'export : toutes les opérations et tous les fixes');
+  check(bk.entries.find(e => e.id === 'e2').champFutur === 'à conserver' && bk.settings.pro === true, 'export : champs et réglages complets');
+  check(/^p-flow-sauvegarde-\d{4}-\d{2}-\d{2}-\d{2}h\d{2}\.json$/.test(dl.suggestedFilename()), 'export : nom de fichier daté');
+  await o.ctx.close();
+
+  // 2. Importer dans un compte où il manque des choses, et où une opération a été modifiée depuis
+  const docs = JSON.parse(JSON.stringify(fx.docs));
+  delete docs[E3]; delete docs[R2]; docs[E2].amount = 99;
+  o = await open(cfg, docs, { date: fx.expect._date });
+  await waitApp(o.page); await reglages(o.page);
+  await o.page.setInputFiles('#import-file', file);
+  await until(o.page, () => !document.getElementById('restore-panel').hidden, null, 'import : résumé avant de restaurer');
+  const txt = await o.page.locator('#restore-panel').innerText();
+  check(txt.includes('1 opération et 1 fixe'), 'import : annonce exactement ce qui manque (' + txt.replace(/\s+/g, ' ').slice(0, 90) + '…)');
+  const writes0 = await o.page.evaluate(() => window.__PFLOW_DB__.writes());
+  check(writes0 === 0, 'import : rien n\'est écrit avant confirmation');
+  await o.page.click('[data-act="restore-go"]');
+  await until(o.page, ([a, b]) => { const d = window.__PFLOW_DB__.dump(); return a in d && b in d; }, [E3, R2], 'import : opération et fixe manquants remis');
+  const db = await dump(o.page);
+  check(JSON.stringify(db[E3]) === JSON.stringify(fx.docs[E3]) && JSON.stringify(db[R2]) === JSON.stringify(fx.docs[R2]), 'import : remis à l\'identique');
+  check(db[E2].amount === 99, 'import : une opération modifiée depuis n\'est pas écrasée');
+  check(Object.keys(db).filter(k => k.startsWith('users/')).length === Object.keys(fx.docs).length, 'import : aucun doublon, rien de supprimé');
+  // Fichier qui n'est pas une sauvegarde
+  await o.page.setInputFiles('#import-file', { name: 'photo.json', mimeType: 'application/json', buffer: Buffer.from('{"bonjour":1}') });
+  await until(o.page, () => document.getElementById('backup-status').textContent.includes('pas une sauvegarde'), null, 'import : fichier étranger refusé');
+  check(o.errors.length === 0, 'aucune erreur dans la console (fichier)' + (o.errors.length ? ' : ' + o.errors.join(' | ') : ''));
+  await o.ctx.close();
+
+  // 3. Google Drive : connexion, première copie, 12 copies gardées, restauration
+  const drive = { files: [], calls: [] };
+  o = await open(cfg, fx.docs, { date: fx.expect._date, driveToken: 'jeton-test', drive });
+  const page = o.page;
+  await waitApp(page); await reglages(page);
+  await page.click('[data-act="drive-connect"]');
+  await until(page, () => { const s = window.__PFLOW_DB__.dump()['users/uid-test/meta/settings'].sauvegarde; return s && s.drive === true && s.derniere > 0; }, null, 'Drive : connecté, date de la copie enregistrée dans le compte');
+  const folders = drive.files.filter(f => f.folder), copies = () => drive.files.filter(f => !f.folder && !f.trashed);
+  check(folders.length === 1 && folders[0].name === 'P-Flow Sauvegardes', 'Drive : dossier « P-Flow Sauvegardes » créé');
+  check(copies().length === 1 && JSON.parse(copies()[0].content).entries.length === 4, 'Drive : première copie complète');
+  for (let i = 2; i <= 13; i++) {
+    await until(page, () => !document.querySelector('[data-act="drive-now"]').disabled, null, 'Drive : prêt pour la copie ' + i);
+    await page.click('[data-act="drive-now"]');
+    await until(page, n => document.getElementById('backup-status').textContent.includes('Sauvegarde faite') && !document.querySelector('[data-act="drive-now"]').disabled, i, 'Drive : copie ' + i + ' faite');
+  }
+  check(copies().length === 12 && drive.files.filter(f => f.trashed).length === 1, 'Drive : 12 copies gardées, la plus ancienne à la corbeille (' + copies().length + ')');
+  check(drive.files.filter(f => f.folder).length === 1, 'Drive : toujours un seul dossier');
+  await page.click('[data-act="drive-list"]');
+  await until(page, () => document.querySelectorAll('#drive-list [data-act="drive-pick"]').length === 12, null, 'Drive : les 12 copies sont proposées');
+  await page.locator('#drive-list [data-act="drive-pick"]').first().click();
+  await until(page, () => document.getElementById('restore-panel').innerText.includes('déjà tout'), null, 'Drive : restauration d\'une copie complète → rien à remettre');
+  await page.click('[data-act="restore-cancel"]');
+  await page.screenshot({ path: join(OUT, tag + '-sauvegarde.png'), fullPage: true });
+  check(o.errors.length === 0, 'aucune erreur dans la console (Drive)' + (o.errors.length ? ' : ' + o.errors.join(' | ') : ''));
+  await o.ctx.close();
+
+  // 4. Copie automatique due : bandeau (navigateur), puis copie en un toucher
+  const due = JSON.parse(JSON.stringify(fx.docs));
+  due['users/uid-test/meta/settings'].sauvegarde = { drive: true, frequence: 'mensuelle', derniere: Date.parse('2026-01-01') };
+  const drive2 = { files: [], calls: [] };
+  o = await open(cfg, due, { date: fx.expect._date, driveToken: 'consent', drive: drive2 });
+  await waitApp(o.page);
+  await until(o.page, () => !document.getElementById('backup-due').hidden, null, 'copie due : bandeau affiché');
+  await o.page.click('[data-act="drive-due"]');
+  await until(o.page, () => document.getElementById('backup-due').hidden, null, 'copie due : bandeau retiré après la copie');
+  check(drive2.files.filter(f => !f.folder).length === 1, 'copie due : une copie envoyée');
+  await o.ctx.close();
+  const recent = JSON.parse(JSON.stringify(due));
+  recent['users/uid-test/meta/settings'].sauvegarde.derniere = Date.parse('2026-03-10');
+  o = await open(cfg, recent, { date: fx.expect._date, driveToken: 'consent' });
+  await waitApp(o.page); await o.page.waitForTimeout(300);
+  check(await o.page.locator('#backup-due').isHidden(), 'copie récente : pas de bandeau');
+  await o.ctx.close();
+}
+
+// Mises à jour (navigateur) : vérification automatique, bandeau « Recharger », vérification manuelle.
+async function scenarioMisesAJour(cfg, fx, tag) {
+  const v = { version: '0.1.1-beta', build: 999, apk: 'https://github.com/Lorn-noross/P-Flow/releases/download/v0.1.1-beta/P-Flow-0.1.1-beta.apk' };
+  let o = await open(cfg, fx.docs, { date: fx.expect._date, version: v });
+  await waitApp(o.page);
+  await until(o.page, () => document.getElementById('update').innerText.includes('0.1.1 bêta'), null, 'mise à jour : bandeau « 0.1.1 bêta disponible »');
+  check(await o.page.locator('#update [data-act="upd-reload"]').count() === 1, 'mise à jour : bouton Recharger (navigateur)');
+  await o.page.locator('[data-act="view"][data-view="reglages"]:visible').click();
+  check((await o.page.locator('#upd-status').innerText()).includes('0.1.1 bêta'), 'Réglages : nouvelle version annoncée');
+  await o.page.selectOption('#upd-auto', 'semaine');
+  check(await o.page.evaluate(() => localStorage.getItem('pf-maj-auto')) === 'semaine', 'Réglages : intervalle de vérification enregistré');
+  await o.ctx.close();
+  o = await open(cfg, fx.docs, { date: fx.expect._date });
+  await waitApp(o.page);
+  await o.page.locator('[data-act="view"][data-view="reglages"]:visible').click();
+  await o.page.click('#upd-check');
+  await until(o.page, () => document.getElementById('upd-status').textContent.includes('dernière version'), null, 'vérification manuelle : « Tu as la dernière version »');
+  check(await o.page.locator('#update').isHidden(), 'pas de bandeau sans nouvelle version');
+  check(o.errors.length === 0, 'aucune erreur dans la console' + (o.errors.length ? ' : ' + o.errors.join(' | ') : ''));
+  await o.ctx.close();
+}
+
 async function scenarioNouveauCompte(cfg, tag) {
   const { ctx, page, errors } = await open(cfg, {}, { date: '2026-03-15' });
   await until(page, () => !document.getElementById('s-onboard').hidden, null, 'écran de bienvenue pour un nouveau compte');
@@ -368,6 +522,8 @@ for (const file of fixtures) {
     await run(() => scenarioSaisie(cfg, fx, tag));
     await run(() => scenarioCouleurs(cfg, fx, tag));
     await run(() => scenarioAcces(cfg, fx, tag));
+    await run(() => scenarioSauvegardes(cfg, fx, tag));
+    await run(() => scenarioMisesAJour(cfg, fx, tag));
     console.log(failures === before ? '   ✓ ok' : '   ✗ ' + (failures - before) + ' échec(s)');
   }
 }

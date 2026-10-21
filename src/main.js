@@ -9,15 +9,21 @@ import {
   sendPasswordResetEmail, signOut, GoogleAuthProvider, signInWithPopup, signInWithCredential, reload,
 } from 'firebase/auth';
 import {
-  collection, doc, query, where, onSnapshot, setDoc, addDoc, deleteDoc, getDoc, serverTimestamp,
+  collection, doc, query, where, onSnapshot, setDoc, addDoc, deleteDoc, getDoc, getDocs, serverTimestamp,
 } from 'firebase/firestore';
+import { registerPlugin } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { Keyboard } from '@capacitor/keyboard';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { auth, db, isNative } from './firebase.js';
+import * as Drive from './drive.js';
+
+// Module natif de P-Flow (Android) : Drive, Enregistrer sous, mises à jour.
+const PFlowNative = registerPlugin('PFlowNative');
 
 /* global __APP_VERSION__, __APP_BUILD__, __PAGES_URL__ */
-const APP_VERSION = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev').replace(/-beta/, ' bêta').replace(/-test(\d+)$/, ' (test $1)');
+const RAW_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
+const APP_VERSION = RAW_VERSION.replace(/-beta/, ' bêta').replace(/-test(\d+)$/, ' (test $1)');
 const APP_BUILD = typeof __APP_BUILD__ !== 'undefined' ? __APP_BUILD__ : '0';
 const PAGES_URL = typeof __PAGES_URL__ !== 'undefined' ? __PAGES_URL__ : '';
 // Version du format des données que cette appli sait lire et écrire (CLAUDE.md, règle n°1).
@@ -45,6 +51,8 @@ const COLORS = [['brut', 'Revenus bruts', true], ['urssaf', 'URSSAF', true], ['n
 const PRESETS = [['#2453c4', 'Bleu'], ['#7da3ff', 'Bleu clair'], ['#0e9aa7', 'Turquoise'], ['#16845a', 'Vert'], ['#4dc48b', 'Vert clair'], ['#c2810c', 'Ambre'],
   ['#e4a940', 'Jaune'], ['#e0662e', 'Orange'], ['#c23b35', 'Rouge'], ['#d9488f', 'Rose'], ['#7a5af8', 'Violet'], ['#6a7d90', 'Gris']];
 const isHex = v => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
+// Fréquences des copies automatiques sur Google Drive (en jours).
+const BK_FREQ = { hebdomadaire: 7, mensuelle: 30, annuelle: 365 };
 const pad = n => String(n).padStart(2, '0');
 const NOW = new Date();
 const CUR = NOW.getFullYear() + '-' + pad(NOW.getMonth() + 1);
@@ -97,7 +105,10 @@ function normSettings(d) {
   // Champ facultatif `couleurs` (absent dans les données d'avant le patch 1) : null ou absent = couleur par défaut.
   const couleurs = {};
   if (d.couleurs && typeof d.couleurs === 'object') for (const [k] of COLORS) if (isHex(d.couleurs[k])) couleurs[k] = d.couleurs[k].toLowerCase();
-  return { pro: !!d.pro, taux, periodicite: d.periodicite === 'trimestrielle' ? 'trimestrielle' : 'mensuelle', couleurs };
+  // Champ facultatif `sauvegarde` (patch 1) : copies automatiques sur Google Drive.
+  const sv = d.sauvegarde && typeof d.sauvegarde === 'object' ? d.sauvegarde : {};
+  const sauvegarde = { drive: sv.drive === true, frequence: BK_FREQ[sv.frequence] ? sv.frequence : 'mensuelle', derniere: Number(sv.derniere) || 0 };
+  return { pro: !!d.pro, taux, periodicite: d.periodicite === 'trimestrielle' ? 'trimestrielle' : 'mensuelle', couleurs, sauvegarde };
 }
 // Applique les couleurs du compte (les mêmes sur tous les appareils).
 function applyColors() {
@@ -317,6 +328,8 @@ function startData() {
     document.body.classList.toggle('pro', isPro());
     if (!S.settingsExists) { openOnboarding(); return; }
     enterApp();
+    // Copie Drive automatique : seulement sur des réglages confirmés par le serveur (date de la dernière copie à jour).
+    if (!snap.metadata.fromCache) maybeAutoBackup();
   }, dbError));
   S.unsubs.push(onSnapshot(ucol('recurring'), opts, snap => {
     S.recurring = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
@@ -331,7 +344,7 @@ function startData() {
   ensureYearSub();
 }
 function enterApp() {
-  if (!S.ready) { S.ready = true; show('app'); $('#admin-card').hidden = !S.isAdmin; checkUpdate(); }
+  if (!S.ready) { S.ready = true; show('app'); $('#admin-card').hidden = !S.isAdmin; maybeAutoUpdate(); }
   render();
 }
 function neededYear() { return S.view === 'mois' ? pYM(S.month).y : S.year; }
@@ -625,6 +638,8 @@ function renderReglages() {
   $('#admin-card').hidden = !S.isAdmin;
   renderAllow();
   renderColors();
+  renderBackup();
+  renderUpdate();
   calc();
 }
 function renderColors() {
@@ -980,6 +995,26 @@ document.addEventListener('click', e => {
   else if (a === 'toggle-ended') { S.showEnded = !S.showEnded; renderFixes(); }
   else if (a === 'goto-month') { S.month = t.dataset.month; S.year = pYM(S.month).y; setView('mois'); }
   else if (a === 'export') exportCsv();
+  // mises à jour
+  else if (a === 'upd-check') checkUpdate(true);
+  else if (a === 'upd-download') { if (isNative) downloadUpdate(); }
+  else if (a === 'upd-install') installUpdate();
+  else if (a === 'upd-reload') location.reload();
+  // sauvegardes (Drive : driveBackup / driveList / drivePick demandent le jeton dès le clic)
+  else if (a === 'backup-export') exportBackup();
+  else if (a === 'drive-connect' || a === 'drive-now' || a === 'drive-due') driveBackup(true, false);
+  else if (a === 'drive-list') driveList();
+  else if (a === 'drive-list-close') { BK.list = null; renderBackup(); }
+  else if (a === 'drive-pick') drivePick(t.dataset.id);
+  else if (a === 'drive-freq') {
+    const f = t.dataset.f;
+    if (BK_FREQ[f] && f !== bkCfg().frequence && !blocked()) write(setDoc(uref('meta', 'settings'), { sauvegarde: { frequence: f } }, { merge: true }));
+  } else if (a === 'drive-stop') {
+    if (!t.classList.contains('armed')) { t.classList.add('armed'); t.textContent = 'Confirmer : arrêter les copies sur Drive'; return; }
+    if (!blocked()) write(setDoc(uref('meta', 'settings'), { sauvegarde: { drive: false } }, { merge: true }), 'Copies sur Google Drive arrêtées (les anciennes restent sur ton Drive)');
+    BK.due = false; BK.list = null;
+  } else if (a === 'restore-go') { if (BK.plan) applyRestore(BK.plan); }
+  else if (a === 'restore-cancel') { BK.plan = null; renderBackup(); }
   else if (a === 'color-open') { S.colorOpen = S.colorOpen === t.dataset.k ? null : t.dataset.k; renderColors(); }
   else if (a === 'color-set') setColor(t.dataset.k, t.dataset.c);
   else if (a === 'color-reset') setColor(t.dataset.k, null);
@@ -1016,18 +1051,283 @@ if (isNative) {
     CapApp.exitApp();
   });
 }
-async function checkUpdate() {
-  if (!isNative || !PAGES_URL) return;
+/* ---------- mises à jour ---------- */
+// Android : l'appli télécharge la nouvelle version en arrière-plan, puis propose de l'installer
+// (Android demande toujours une confirmation). Navigateur : il suffit de recharger la page.
+// Vérification automatique à l'ouverture, selon l'intervalle choisi (réglage propre à chaque appareil).
+const UPD_FREQ = { ouverture: 0, jour: 864e5, semaine: 7 * 864e5, jamais: Infinity };
+const UPD = { state: 'idle', info: null, pct: 0, msg: '', manual: false };
+const updAuto = () => { const v = lsGet('pf-maj-auto'); return v in UPD_FREQ ? v : 'jour'; };
+const verLabel = v => String(v || '').replace(/-beta/, ' bêta').replace(/-test(\d+)$/, ' (test $1)');
+function maybeAutoUpdate() {
+  const f = UPD_FREQ[updAuto()];
+  if (f === Infinity || UPD.state === 'checking' || UPD.state === 'downloading' || UPD.state === 'ready') return;
+  if (Date.now() - (Number(lsGet('pf-maj-last')) || 0) < f) return;
+  checkUpdate(false);
+}
+async function checkUpdate(manual) {
+  if (!PAGES_URL) return;
+  UPD.manual = manual; UPD.state = 'checking'; UPD.msg = ''; renderUpdate();
   try {
-    const info = await CapApp.getInfo();
     const res = await fetch(PAGES_URL + 'version.json', { cache: 'no-store' });
-    if (!res.ok) return;
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     const v = await res.json();
-    if (Number(v.build) > Number(info.build)) {
-      $('#update-link').href = v.apk;
-      $('#update').hidden = false;
+    lsSet('pf-maj-last', String(Date.now()));
+    if (Number(v.build) > Number(APP_BUILD)) {
+      UPD.info = v; UPD.state = 'available';
+      renderUpdate();
+      if (isNative) downloadUpdate(); // en arrière-plan
+      return;
     }
-  } catch (e) { /* hors ligne : on réessaiera au prochain lancement */ }
+    UPD.state = 'none';
+  } catch (e) {
+    UPD.state = manual ? 'error' : 'idle';
+    UPD.msg = 'Impossible de vérifier : vérifie ta connexion internet.';
+  }
+  renderUpdate();
+}
+async function downloadUpdate() {
+  if (!UPD.info || UPD.state === 'downloading') return;
+  UPD.state = 'downloading'; UPD.pct = 0; UPD.msg = ''; renderUpdate();
+  let h = null;
+  try {
+    h = await PFlowNative.addListener('downloadProgress', p => { UPD.pct = Number(p && p.percent) || 0; renderUpdate(); });
+    await PFlowNative.downloadApk({ url: UPD.info.apk });
+    UPD.state = 'ready';
+  } catch (e) {
+    UPD.state = 'error'; UPD.msg = 'Le téléchargement n\'a pas abouti.';
+  } finally {
+    if (h) { try { h.remove(); } catch (e) { /* ignoré */ } }
+    renderUpdate();
+  }
+}
+async function installUpdate() {
+  try {
+    const r = await PFlowNative.installApk();
+    UPD.msg = r && r.needsPermission
+      ? 'Android demande d\'autoriser P-Flow à installer des applis : active l\'option, reviens ici, puis touche « Installer ».'
+      : '';
+  } catch (e) {
+    UPD.state = 'error'; UPD.msg = (e && e.message) || 'L\'installation n\'a pas pu démarrer.';
+  }
+  renderUpdate();
+}
+function renderUpdate() {
+  const v = UPD.info ? verLabel(UPD.info.version) : '';
+  const fallback = UPD.info && UPD.info.apk ? ' <a href="' + esc(UPD.info.apk) + '" target="_blank" rel="noopener">Télécharger depuis le navigateur</a>' : '';
+  // Bandeau en haut de l'appli
+  const b = $('#update');
+  let bh = '';
+  if (UPD.state === 'available' && !isNative) bh = '<span>P-Flow ' + esc(v) + ' est disponible.</span><button class="link" data-act="upd-reload">Recharger</button>';
+  else if (UPD.state === 'downloading') bh = '<span>Téléchargement de P-Flow ' + esc(v) + '… ' + UPD.pct + ' %</span>';
+  else if (UPD.state === 'ready') bh = '<span>P-Flow ' + esc(v) + ' est prêt à être installé.</span><button class="link" data-act="upd-install">Installer</button>';
+  else if (UPD.state === 'error' && UPD.info) bh = '<span>' + esc(UPD.msg) + '</span><span><button class="link" data-act="upd-download">Réessayer</button>' + fallback + '</span>';
+  if (UPD.state === 'ready' && UPD.msg) bh += '<span class="hint" style="flex-basis:100%">' + esc(UPD.msg) + '</span>';
+  b.innerHTML = bh; b.hidden = !bh;
+  // Réglages → Mises à jour
+  const st = $('#upd-status');
+  if (!st) return;
+  let t = '', act = '';
+  if (UPD.state === 'checking') t = 'Recherche d\'une mise à jour…';
+  else if (UPD.state === 'none') t = UPD.manual ? 'Tu as la dernière version.' : '';
+  else if (UPD.state === 'available') { t = 'P-Flow ' + v + ' est disponible.'; act = isNative ? '<button class="btn primary" data-act="upd-download">Télécharger</button>' : '<button class="btn primary" data-act="upd-reload">Recharger la page</button>'; }
+  else if (UPD.state === 'downloading') t = 'Téléchargement de P-Flow ' + v + '… ' + UPD.pct + ' %';
+  else if (UPD.state === 'ready') { t = 'P-Flow ' + v + ' est téléchargé.' + (UPD.msg ? ' ' + UPD.msg : ''); act = '<button class="btn primary" data-act="upd-install">Installer</button>'; }
+  else if (UPD.state === 'error') { t = UPD.msg; if (UPD.info && isNative) act = '<button class="btn ghost" data-act="upd-download">Réessayer</button>'; }
+  st.textContent = t; st.hidden = !t;
+  $('#upd-actions').innerHTML = act;
+  $('#upd-check').disabled = UPD.state === 'checking' || UPD.state === 'downloading';
+  const sel = $('#upd-auto'); if (sel.value !== updAuto()) sel.value = updAuto();
+  const pr = $('#upd-progress'); pr.hidden = UPD.state !== 'downloading'; pr.value = UPD.pct;
+}
+$('#upd-auto').addEventListener('change', e => { if (e.target.value in UPD_FREQ) lsSet('pf-maj-auto', e.target.value); });
+if (isNative) CapApp.addListener('appStateChange', st => { if (st && st.isActive && S.ready) maybeAutoUpdate(); });
+
+/* ---------- sauvegardes : fichier et Google Drive ---------- */
+// Une sauvegarde contient tout le compte. La restaurer remet seulement ce qui manque :
+// rien n'est écrasé ni supprimé (CLAUDE.md, règle n°1). Les réglages ne sont pas modifiés.
+const BK = { busy: false, status: '', err: false, due: false, triedAuto: false, list: null, plan: null, link: null };
+const bkCfg = () => (S.settings && S.settings.sauvegarde) || { drive: false, frequence: 'mensuelle', derniere: 0 };
+const plainVal = v => (v && typeof v.toMillis === 'function' ? v.toMillis() : v);
+const cleanDoc = d => { const o = {}; for (const k of Object.keys(d)) o[k] = plainVal(d[k]); return o; };
+const pad2 = n => String(n).padStart(2, '0');
+function bkName() {
+  const d = new Date();
+  return 'p-flow-sauvegarde-' + d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + '-' + pad2(d.getHours()) + 'h' + pad2(d.getMinutes()) + '.json';
+}
+async function buildBackup() {
+  const [st, es, rs] = await Promise.all([getDoc(uref('meta', 'settings')), getDocs(ucol('entries')), getDocs(ucol('recurring'))]);
+  return {
+    app: 'P-Flow', format: 1, dataVersion: DATA_VERSION, appVersion: RAW_VERSION, exportedAt: new Date().toISOString(),
+    settings: st.exists() ? cleanDoc(st.data()) : null,
+    entries: es.docs.map(d => Object.assign({ id: d.id }, cleanDoc(d.data()))),
+    recurring: rs.docs.map(d => Object.assign({ id: d.id }, cleanDoc(d.data()))),
+  };
+}
+const ID_RE = /^[A-Za-z0-9_-]{1,128}$/, YM_RE = /^\d{4}-\d{2}$/, DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+function validItem(it, kind) {
+  if (!it || typeof it !== 'object' || !ID_RE.test(String(it.id))) return false;
+  if (it.type !== 'revenu' && it.type !== 'depense') return false;
+  if (!(typeof it.amount === 'number' && isFinite(it.amount) && it.amount > 0)) return false;
+  if (typeof it.label !== 'string' || !it.label.trim()) return false;
+  if (kind === 'entries') return DATE_RE.test(it.date) && YM_RE.test(it.month);
+  return YM_RE.test(it.start) && (it.end == null || YM_RE.test(it.end));
+}
+function parseBackup(text) {
+  let o = null;
+  try { o = JSON.parse(text); } catch (e) { /* pas du JSON */ }
+  if (!o || o.app !== 'P-Flow' || !Array.isArray(o.entries) || !Array.isArray(o.recurring)) throw new Error('Ce fichier n\'est pas une sauvegarde P-Flow.');
+  if ((Number(o.dataVersion) || 1) > DATA_VERSION) throw new Error('Cette sauvegarde vient d\'une version plus récente de P-Flow : mets l\'appli à jour pour la restaurer.');
+  const entries = o.entries.filter(x => validItem(x, 'entries')), recurring = o.recurring.filter(x => validItem(x, 'recurring'));
+  return { when: o.exportedAt, entries, recurring, invalid: o.entries.length - entries.length + o.recurring.length - recurring.length };
+}
+async function planRestore(bk, source) {
+  const [es, rs] = await Promise.all([getDocs(ucol('entries')), getDocs(ucol('recurring'))]);
+  const haveE = new Set(es.docs.map(d => d.id)), haveR = new Set(rs.docs.map(d => d.id));
+  return { source, when: bk.when, total: [bk.entries.length, bk.recurring.length], invalid: bk.invalid,
+    addE: bk.entries.filter(x => !haveE.has(x.id)), addR: bk.recurring.filter(x => !haveR.has(x.id)) };
+}
+function applyRestore(plan) {
+  if (blocked()) return;
+  const strip = o => { const c = {}; for (const k of Object.keys(o)) if (k !== 'id' && !k.startsWith('__')) c[k] = o[k]; return c; };
+  const jobs = plan.addE.map(x => setDoc(doc(ucol('entries'), x.id), strip(x))).concat(plan.addR.map(x => setDoc(doc(ucol('recurring'), x.id), strip(x))));
+  const n = plan.addE.length, m = plan.addR.length;
+  write(Promise.all(jobs), n + ' opération' + (n > 1 ? 's' : '') + ' et ' + m + ' fixe' + (m > 1 ? 's' : '') + ' remis');
+  BK.plan = null; renderBackup();
+}
+const plural = (n, w) => n + ' ' + w + (n > 1 ? 's' : '');
+function fmtWhen(iso) {
+  const d = new Date(iso); if (isNaN(d)) return 'date inconnue';
+  return d.getDate() + ' ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear() + ' à ' + pad2(d.getHours()) + 'h' + pad2(d.getMinutes());
+}
+function setBk(msg, err, keepLink) { BK.status = msg || ''; BK.err = !!err; if (!keepLink) BK.link = null; renderBackup(); }
+function driveErr(e) { return (e && e.message) || 'Google Drive est indisponible pour le moment.'; }
+
+// Fichier : exporter (téléchargement sur PC, « Enregistrer sous » sur Android).
+async function exportBackup() {
+  if (!ready()) return;
+  setBk('Préparation de la sauvegarde…');
+  try {
+    const text = JSON.stringify(await buildBackup(), null, 1), name = bkName();
+    if (isNative) {
+      await PFlowNative.saveFile({ name, data: text, mime: 'application/json' });
+    } else {
+      const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+      const a = document.createElement('a'); a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      // Si le navigateur n'a pas lancé le téléchargement (iPhone notamment), un lien reste proposé une minute.
+      BK.link = { url, name };
+      setTimeout(() => { URL.revokeObjectURL(url); if (BK.link && BK.link.url === url) { BK.link = null; renderBackup(); } }, 60000);
+      setBk('Sauvegarde prête : ' + name, false, true);
+      return;
+    }
+    setBk('Sauvegarde enregistrée : ' + name);
+  } catch (e) {
+    setBk(e && e.code === 'CANCELED' ? '' : 'La sauvegarde n\'a pas pu être enregistrée.', !(e && e.code === 'CANCELED'));
+  }
+}
+// Fichier : importer (le fichier choisi est seulement lu, puis on montre ce qui sera remis).
+$('#import-file').addEventListener('change', async e => {
+  const f = e.target.files && e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  if (blocked()) return;
+  setBk('Lecture du fichier…');
+  try {
+    if (f.size > 20e6) throw new Error('Ce fichier est trop gros pour être une sauvegarde P-Flow.');
+    BK.plan = await planRestore(parseBackup(await f.text()), 'fichier');
+    setBk('');
+  } catch (x) { BK.plan = null; setBk(x.message || 'Ce fichier n\'a pas pu être lu.', true); }
+});
+
+// Google Drive. ATTENTION : dans un clic, appeler driveToken() avant tout « await » (fenêtre Google).
+const driveToken = interactive => Drive.getToken({ native: isNative, plugin: PFlowNative, interactive, hint: S.user && S.user.email });
+async function driveBackup(interactive, auto) {
+  if (BK.busy || !ready()) return false;
+  if (S.readOnly) { if (!auto) blocked(); return false; }
+  BK.busy = true;
+  const tok = driveToken(interactive); // tout de suite : garde le geste de l'utilisateur
+  if (!auto) setBk('Sauvegarde sur Google Drive…');
+  try {
+    await tok;
+    const f = await Drive.upload(bkName(), JSON.stringify(await buildBackup()));
+    write(setDoc(uref('meta', 'settings'), { sauvegarde: { drive: true, frequence: bkCfg().frequence, derniere: Date.now() } }, { merge: true }));
+    BK.due = false; BK.list = null;
+    setBk('Sauvegarde faite sur Google Drive' + (f && f.name ? ' : ' + f.name : '') + '.');
+    if (auto) toast('Sauvegarde automatique faite sur Google Drive');
+    return true;
+  } catch (e) {
+    if (auto) { BK.due = true; BK.status = ''; } else setBk(driveErr(e), true);
+    return false;
+  } finally { BK.busy = false; renderBackup(); }
+}
+function maybeAutoBackup() {
+  const c = bkCfg();
+  if (BK.triedAuto || !c.drive || S.readOnly) return;
+  if (Date.now() - c.derniere < BK_FREQ[c.frequence] * 864e5) { BK.due = false; renderBackup(); return; }
+  BK.triedAuto = true;
+  if (isNative) driveBackup(false, true); // sans fenêtre si l'accès est déjà accordé
+  else { BK.due = true; Drive.prepareWeb(S.user && S.user.email).catch(() => {}); renderBackup(); }
+}
+async function driveList() {
+  if (BK.busy) return;
+  BK.busy = true;
+  const tok = driveToken(true);
+  setBk('Recherche de tes sauvegardes sur Google Drive…');
+  try {
+    await tok;
+    BK.list = await Drive.list(); BK.plan = null;
+    setBk(BK.list.length ? '' : 'Aucune sauvegarde dans ton Google Drive pour l\'instant.');
+  } catch (e) { setBk(driveErr(e), true); } finally { BK.busy = false; renderBackup(); }
+}
+async function drivePick(id) {
+  if (BK.busy || blocked()) return;
+  BK.busy = true;
+  const tok = driveToken(true);
+  setBk('Lecture de la sauvegarde…');
+  try {
+    await tok;
+    BK.plan = await planRestore(parseBackup(await Drive.download(id)), 'Google Drive');
+    BK.list = null; setBk('');
+  } catch (e) { setBk(driveErr(e), true); } finally { BK.busy = false; renderBackup(); }
+}
+function renderBackup() {
+  const box = $('#drive-box'); if (!box || !S.settings) return;
+  const c = bkCfg();
+  if (!isNative) Drive.prepareWeb(S.user && S.user.email).catch(() => {});
+  let h;
+  if (!c.drive) {
+    h = '<p class="hint">Copie automatique de tes données dans ton Google Drive, dans un dossier « P-Flow Sauvegardes ». P-Flow ne voit que les fichiers qu\'il crée, rien d\'autre de ton Drive.</p>' +
+      '<div><button class="btn ghost" data-act="drive-connect"' + (BK.busy ? ' disabled' : '') + '>Connecter Google Drive</button></div>';
+  } else {
+    h = '<div class="meta-line"><span>Dernière copie sur Drive</span><b>' + (c.derniere ? esc(fmtWhen(c.derniere)) : 'pas encore') + '</b></div>' +
+      '<div class="seg seg3" role="group" aria-label="Fréquence des copies">' +
+      [['hebdomadaire', 'Chaque semaine'], ['mensuelle', 'Chaque mois'], ['annuelle', 'Chaque année']].map(([k, l]) => '<button type="button" data-act="drive-freq" data-f="' + k + '" aria-pressed="' + (c.frequence === k) + '">' + l + '</button>').join('') + '</div>' +
+      '<div class="btn-row"><button class="btn ghost" data-act="drive-now"' + (BK.busy ? ' disabled' : '') + '>Sauvegarder maintenant</button>' +
+      '<button class="btn ghost" data-act="drive-list"' + (BK.busy ? ' disabled' : '') + '>Restaurer depuis Drive</button></div>' +
+      '<div><button class="link" data-act="drive-stop">Arrêter les copies sur Drive</button></div>';
+  }
+  if (box.innerHTML !== h) box.innerHTML = h;
+  const st = $('#backup-status');
+  st.innerHTML = esc(BK.status) + (BK.link && !BK.err ? ' <a href="' + BK.link.url + '" download="' + esc(BK.link.name) + '">Si le téléchargement n\'a pas commencé, touche ici.</a>' : '');
+  st.hidden = !BK.status; st.classList.toggle('err', BK.err);
+  // Liste des sauvegardes Drive
+  const l = $('#drive-list');
+  l.hidden = !(BK.list && BK.list.length);
+  l.innerHTML = BK.list && BK.list.length ? '<p class="h3">Choisis une sauvegarde</p>' + BK.list.map(f => '<button class="row" data-act="drive-pick" data-id="' + esc(f.id) + '"><span class="row-main"><span class="row-label">' + esc(fmtWhen(f.createdTime)) + '</span><span class="row-meta">' + esc(f.name) + '</span></span><span class="row-amt">' + (Number(f.size) ? Math.max(1, Math.round(f.size / 1024)) + ' Ko' : '') + '</span></button>').join('') + '<div><button class="link" data-act="drive-list-close">Fermer</button></div>' : '';
+  // Confirmation de restauration
+  const p = $('#restore-panel'), plan = BK.plan;
+  p.hidden = !plan;
+  if (plan) {
+    const n = plan.addE.length, m = plan.addR.length;
+    p.innerHTML = '<p><b>Sauvegarde du ' + esc(fmtWhen(plan.when)) + '</b> (' + esc(plan.source) + ')</p>' +
+      '<p class="hint">Elle contient ' + plural(plan.total[0], 'opération') + ' et ' + plural(plan.total[1], 'fixe') + '.' + (plan.invalid ? ' ' + plural(plan.invalid, 'ligne illisible') + ' ignorée' + (plan.invalid > 1 ? 's' : '') + '.' : '') + '</p>' +
+      (n + m ? '<p>À remettre dans ton compte : <b>' + plural(n, 'opération') + ' et ' + plural(m, 'fixe') + '</b> qui manquent. Ce qui est déjà dans ton compte ne change pas, et rien n\'est supprimé.</p>' +
+        '<div class="btn-row"><button class="btn primary" data-act="restore-go">Remettre ce qui manque</button><button class="btn ghost" data-act="restore-cancel">Annuler</button></div>'
+        : '<p>Ton compte contient déjà tout ce qu\'il y a dans cette sauvegarde.</p><div><button class="btn ghost" data-act="restore-cancel">Fermer</button></div>');
+  }
+  // Bandeau « copie à faire » (navigateur, ou Android sans autorisation)
+  const due = $('#backup-due');
+  due.hidden = !(BK.due && c.drive && S.ready);
 }
 
 /* ---------- partage ---------- */
