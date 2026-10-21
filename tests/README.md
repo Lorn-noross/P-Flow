@@ -11,6 +11,7 @@ Pour chaque jeu de données de `fixtures/` (format d'une ancienne version, donn�
 - supprimer une opération ne retire qu'elle ;
 - le garde-fou : des données marquées par une version plus récente (`dataVersion`) passent l'appli en lecture seule ;
 - la saisie : suggestions de libellés sous le champ (filtrées par type, au doigt et au clavier PC), fenêtre d'ajout au-dessus du clavier, que le clavier recouvre l'appli (Android 15 et plus) ou réduise la fenêtre (anciens Android, navigateurs) ;
+- l'accès : un compte hors de la liste d'emails voit l'écran de refus ; l'administrateur ajoute et retire des emails ;
 - l'écran de bienvenue d'un nouveau compte ;
 - aucune erreur dans la console.
 

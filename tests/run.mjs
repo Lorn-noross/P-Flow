@@ -72,7 +72,11 @@ async function open(cfg, docs, opts = {}) {
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   await page.clock.setFixedTime(new Date(opts.date + 'T12:00:00+01:00'));
-  await page.addInitScript(([seed, noUser]) => { window.__PFLOW_SEED__ = seed; window.__PFLOW_NO_USER__ = noUser; }, [docs, !!opts.noUser]);
+  // Accès : le compte fictif est dans la liste d'emails autorisés (sauf opts.denied), administrateur si opts.admin.
+  const seed = Object.assign({}, docs);
+  if (!opts.denied) seed['allowlist/test@example.invalid'] = { addedAt: 1767225600000 };
+  if (opts.admin) seed['admins/uid-test'] = { ok: true };
+  await page.addInitScript(([s, noUser]) => { window.__PFLOW_SEED__ = s; window.__PFLOW_NO_USER__ = noUser; }, [seed, !!opts.noUser]);
   await page.goto(URL_APP);
   return { ctx, page, errors };
 }
@@ -308,6 +312,37 @@ async function scenarioCouleurs(cfg, fx, tag) {
   await ctx.close();
 }
 
+// Accès : liste d'emails autorisés gérée par l'administrateur.
+async function scenarioAcces(cfg, fx, tag) {
+  let o = await open(cfg, fx.docs, { date: fx.expect._date, denied: true });
+  await until(o.page, () => !document.getElementById('s-denied').hidden, null, 'compte hors liste : écran « accès pas encore autorisé »');
+  check(await o.page.evaluate(() => window.__PFLOW_DB__.writes()) === 0, 'compte hors liste : rien n\'est écrit');
+  check(o.errors.length === 0, 'aucune erreur dans la console (refus)' + (o.errors.length ? ' : ' + o.errors.join(' | ') : ''));
+  await o.ctx.close();
+
+  o = await open(cfg, fx.docs, { date: fx.expect._date });
+  await waitApp(o.page);
+  await o.page.locator('[data-act="view"][data-view="reglages"]:visible').click();
+  check(await o.page.locator('#admin-card').isHidden(), 'non-administrateur : pas de gestion des accès');
+  await o.ctx.close();
+
+  o = await open(cfg, fx.docs, { date: fx.expect._date, admin: true });
+  const page = o.page;
+  await waitApp(page);
+  await page.locator('[data-act="view"][data-view="reglages"]:visible').click();
+  check(await page.locator('#admin-card').isVisible(), 'administrateur : carte de gestion des accès visible');
+  await page.fill('#allow-email', 'Parent@Example.invalid');
+  await page.locator('#allow-form [type="submit"]').click();
+  await until(page, () => 'allowlist/parent@example.invalid' in window.__PFLOW_DB__.dump(), null, 'email ajouté à la liste (en minuscules)');
+  await until(page, () => document.getElementById('allow-list').textContent.includes('parent@example.invalid'), null, 'email affiché dans la liste');
+  const del = page.locator('#allow-list [data-act="allow-del"][data-email="parent@example.invalid"]');
+  await del.click(); await del.click();
+  await until(page, () => !('allowlist/parent@example.invalid' in window.__PFLOW_DB__.dump()), null, 'email retiré après confirmation');
+  check('allowlist/test@example.invalid' in (await dump(page)), 'son propre email reste dans la liste');
+  check(o.errors.length === 0, 'aucune erreur dans la console' + (o.errors.length ? ' : ' + o.errors.join(' | ') : ''));
+  await o.ctx.close();
+}
+
 async function scenarioNouveauCompte(cfg, tag) {
   const { ctx, page, errors } = await open(cfg, {}, { date: '2026-03-15' });
   await until(page, () => !document.getElementById('s-onboard').hidden, null, 'écran de bienvenue pour un nouveau compte');
@@ -332,6 +367,7 @@ for (const file of fixtures) {
     await run(() => scenarioLectureSeule(cfg, fx, tag));
     await run(() => scenarioSaisie(cfg, fx, tag));
     await run(() => scenarioCouleurs(cfg, fx, tag));
+    await run(() => scenarioAcces(cfg, fx, tag));
     console.log(failures === before ? '   ✓ ok' : '   ✗ ' + (failures - before) + ' échec(s)');
   }
 }

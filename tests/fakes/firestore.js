@@ -56,6 +56,8 @@ function snapFor(ref) {
   }
   return { docs, size: docs.length, metadata };
 }
+export async function getDoc(ref) { return snapFor(ref); }
+export async function getDocs(ref) { return snapFor(ref); }
 export function onSnapshot(ref, opts, next) {
   if (typeof opts === 'function') next = opts;
   const l = { ref, next };

@@ -13,7 +13,7 @@ Application de suivi de budget : revenus, dépenses, charges fixes et reste du m
 - APK Android : [page de téléchargement](https://lorn-noross.github.io/P-Flow/telecharger.html) (toujours la dernière version)
 - Version PC : https://lorn-noross.github.io/P-Flow/
 
-Chacun crée son compte (Google ou email) ; chaque compte ne voit que ses propres données.
+L'accès est réservé aux personnes autorisées par l'administrateur.
 
 ## Vie privée
 

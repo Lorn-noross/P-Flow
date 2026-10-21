@@ -9,7 +9,7 @@ import {
   sendPasswordResetEmail, signOut, GoogleAuthProvider, signInWithPopup, signInWithCredential, reload,
 } from 'firebase/auth';
 import {
-  collection, doc, query, where, onSnapshot, setDoc, addDoc, deleteDoc, serverTimestamp,
+  collection, doc, query, where, onSnapshot, setDoc, addDoc, deleteDoc, getDoc, serverTimestamp,
 } from 'firebase/firestore';
 import { App as CapApp } from '@capacitor/app';
 import { Keyboard } from '@capacitor/keyboard';
@@ -69,19 +69,19 @@ function parseAmount(s) {
 if (isNative) document.body.classList.add('native');
 
 /* ---------- écrans ---------- */
-const SCREENS = ['s-boot', 's-login', 's-verify', 's-onboard', 'app'];
+const SCREENS = ['s-boot', 's-login', 's-verify', 's-denied', 's-onboard', 'app'];
 function show(id) { SCREENS.forEach(s => { $('#' + s).hidden = s !== id; }); }
 
 /* ---------- état ---------- */
 const S = {
-  user: null, ready: false,
+  user: null, isAdmin: false, ready: false,
   view: 'mois', month: CUR, year: NOW.getFullYear(),
   entries: [], entriesYear: null, unsubEntries: null,
   recurring: [], settings: null, settingsExists: false, readOnly: false,
   loaded: { entries: false, recurring: false, settings: false },
   pend: { entries: false, recurring: false, settings: false },
   showFixed: lsGet('pf-showFixed') === '1', showEnded: false, colorOpen: null,
-  unsubs: [],
+  unsubs: [], allow: [],
 };
 { const h = (location.hash || '').slice(1); if (VIEWS.includes(h)) S.view = h; }
 
@@ -253,6 +253,7 @@ $('#v-done').addEventListener('click', async () => {
   if (u.emailVerified) { await u.getIdToken(true); routeUser(u); }
   else $('#v-error').textContent = 'L\'email n\'est pas encore vérifié. Ouvre le lien reçu, puis réessaie.';
 });
+$('#d-retry').addEventListener('click', () => { if (auth.currentUser) routeUser(auth.currentUser); });
 
 async function logout() {
   stopData();
@@ -267,10 +268,26 @@ onAuthStateChanged(auth, user => {
 
 async function routeUser(user) {
   S.user = user;
-  // Accès ouvert à tout le monde : seule condition, une adresse email vérifiée
-  // (automatique avec Google, par lien reçu par mail pour un compte email).
   const pwd = user.providerData.some(p => p.providerId === 'password');
   if (pwd && !user.emailVerified) { $('#v-email').textContent = user.email; $('#v-error').textContent = ''; show('s-verify'); return; }
+  const email = (user.email || '').toLowerCase();
+  const flag = 'pf-allowed-' + user.uid;
+  let allowed = false;
+  $('#d-error').textContent = '';
+  try {
+    const snap = await getDoc(doc(db, 'allowlist', email));
+    allowed = snap.exists();
+  } catch (e) {
+    if (e && e.code === 'unavailable' && lsGet(flag) === '1') allowed = true;
+    else if (e && e.code === 'unavailable') $('#d-error').textContent = 'Pas de connexion internet. Réessaie une fois connecté.';
+  }
+  if (!allowed) {
+    $('#d-email').textContent = user.email || ''; $('#d-uid').textContent = user.uid; $('#d-mail').textContent = email;
+    show('s-denied'); return;
+  }
+  lsSet(flag, '1');
+  try { S.isAdmin = (await getDoc(doc(db, 'admins', user.uid))).exists(); } catch (e) { S.isAdmin = lsGet('pf-admin-' + user.uid) === '1'; }
+  lsSet('pf-admin-' + user.uid, S.isAdmin ? '1' : '0');
   startData();
 }
 
@@ -279,7 +296,7 @@ function stopData() {
   S.unsubs.forEach(u => { try { u(); } catch (e) { /* ignoré */ } });
   S.unsubs = [];
   if (S.unsubEntries) { try { S.unsubEntries(); } catch (e) { /* ignoré */ } }
-  S.unsubEntries = null; S.entriesYear = null; S.entries = []; S.recurring = []; S.settings = null;
+  S.unsubEntries = null; S.entriesYear = null; S.entries = []; S.recurring = []; S.settings = null; S.allow = [];
   S.readOnly = false; $('#outdated').hidden = true; applyColors();
   S.loaded = { entries: false, recurring: false, settings: false };
   S.ready = false;
@@ -306,10 +323,15 @@ function startData() {
     S.pend.recurring = snap.metadata.hasPendingWrites;
     S.loaded.recurring = true; render();
   }, dbError));
+  if (S.isAdmin) {
+    S.unsubs.push(onSnapshot(collection(db, 'allowlist'), snap => {
+      S.allow = snap.docs.map(d => d.id).sort(); renderAllow();
+    }, () => {}));
+  }
   ensureYearSub();
 }
 function enterApp() {
-  if (!S.ready) { S.ready = true; show('app'); checkUpdate(); }
+  if (!S.ready) { S.ready = true; show('app'); $('#admin-card').hidden = !S.isAdmin; checkUpdate(); }
   render();
 }
 function neededYear() { return S.view === 'mois' ? pYM(S.month).y : S.year; }
@@ -600,6 +622,8 @@ function renderReglages() {
   }
   $$('#period-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.p === S.settings.periodicite)));
   $('#export-btn').textContent = 'Exporter ' + S.year + ' en CSV';
+  $('#admin-card').hidden = !S.isAdmin;
+  renderAllow();
   renderColors();
   calc();
 }
@@ -630,6 +654,19 @@ function setColor(k, v) {
 // Aperçu en direct pendant qu'on choisit, enregistrement quand le choix est fait.
 $('#colors').addEventListener('input', e => { const i = e.target.closest('input[type="color"]'); if (i && isHex(i.value)) document.documentElement.style.setProperty('--c-' + i.dataset.k, i.value); });
 $('#colors').addEventListener('change', e => { const i = e.target.closest('input[type="color"]'); if (i) setColor(i.dataset.k, i.value); });
+function renderAllow() {
+  if (!S.isAdmin) return;
+  const me = ((S.user && S.user.email) || '').toLowerCase();
+  $('#allow-list').innerHTML = S.allow.length ? S.allow.map(e => '<div class="allow-row"><span>' + esc(e) + '</span>' +
+    (e === me ? '<span class="hint">toi</span>' : '<button class="btn ghost danger" data-act="allow-del" data-email="' + esc(e) + '">Retirer</button>') + '</div>').join('') : '<p class="empty">Aucun email pour l\'instant.</p>';
+}
+$('#allow-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const v = $('#allow-email').value.trim().toLowerCase();
+  if (!/^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/.test(v)) { toast('Email invalide.', true); return; }
+  write(setDoc(doc(db, 'allowlist', v), { addedAt: serverTimestamp() }), v + ' peut maintenant utiliser P-Flow');
+  $('#allow-email').value = '';
+});
 function calc() {
   if (!isPro()) return;
   const y = NOW.getFullYear(), rate = rateFor(y);
@@ -923,6 +960,7 @@ function setView(v) {
 }
 function setMonth(m) { S.month = m; S.year = pYM(m).y; ensureYearSub(); render(); }
 function setYear(y) { S.year = y; ensureYearSub(); render(); }
+const armedAllow = new Set();
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-act]'); if (!t) return;
   const a = t.dataset.act;
@@ -956,6 +994,11 @@ document.addEventListener('click', e => {
     const patch = { pro };
     if (pro && !Object.keys(S.settings.taux).length) patch.taux = { [String(NOW.getFullYear())]: 21.2 };
     write(setDoc(uref('meta', 'settings'), patch, { merge: true }), pro ? 'Profil auto-entrepreneur : vérifie ton taux URSSAF' : 'Profil particulier');
+  } else if (a === 'allow-del') {
+    const em = t.dataset.email;
+    if (!armedAllow.has(em)) { armedAllow.add(em); t.textContent = 'Confirmer'; t.classList.add('armed'); return; }
+    armedAllow.delete(em);
+    write(deleteDoc(doc(db, 'allowlist', em)), em + ' retiré');
   }
 });
 
