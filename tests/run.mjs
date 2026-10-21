@@ -264,6 +264,50 @@ async function scenarioSaisie(cfg, fx, tag) {
   await ctx.close();
 }
 
+// Couleurs : appliquées dès le chargement (synchro entre appareils), choix, retour par défaut,
+// et aucun autre réglage touché.
+async function scenarioCouleurs(cfg, fx, tag) {
+  const SET = 'users/uid-test/meta/settings';
+  const docs = JSON.parse(JSON.stringify(fx.docs));
+  docs[SET].couleurs = { reste: '#7A5AF8', dep: 'pas-une-couleur' };
+  const { ctx, page, errors } = await open(cfg, docs, { date: fx.expect._date });
+  await waitApp(page);
+  const css = (sel, prop) => page.locator(sel).first().evaluate((e, p) => getComputedStyle(e)[p], prop);
+  const inline = k => page.evaluate(k => document.documentElement.style.getPropertyValue('--c-' + k), k);
+
+  check(await css('#hero-amount', 'color') === 'rgb(122, 90, 248)', 'couleur du reste venue d\'un autre appareil appliquée au chargement');
+  check(await inline('dep') === '', 'une couleur invalide est ignorée (couleur par défaut)');
+
+  await page.locator('[data-act="view"][data-view="reglages"]:visible').click();
+  await until(page, () => document.querySelectorAll('#colors .color-head').length === 5, null, '5 couleurs réglables (profil auto-entrepreneur)');
+  await page.click('#colors [data-act="color-open"][data-k="dep"]');
+  await page.click('#colors [data-act="color-set"][data-k="dep"][data-c="#c23b35"]');
+  await until(page, () => (window.__PFLOW_DB__.dump()['users/uid-test/meta/settings'].couleurs || {}).dep === '#c23b35', null, 'couleur des dépenses enregistrée dans le compte');
+  await until(page, () => document.documentElement.style.getPropertyValue('--c-dep') === '#c23b35', null, 'couleur des dépenses appliquée tout de suite');
+  await until(page, () => !!document.querySelector('#colors [data-c="#c23b35"][aria-pressed="true"]'), null, 'la couleur choisie est marquée');
+  let s = (await dump(page))[SET];
+  check(s.pro === true && s.taux['2026'] === 21.2 && s.periodicite === 'mensuelle' && s.createdAt === fx.docs[SET].createdAt, 'les autres réglages sont intacts');
+  check(s.couleurs.reste === '#7A5AF8', 'les autres couleurs sont intactes');
+  await page.screenshot({ path: join(OUT, tag + '-couleurs.png'), fullPage: true });
+
+  await page.locator('[data-act="view"][data-view="mois"]:visible').click();
+  check(await css('#legend .s-dep', 'backgroundColor') === 'rgb(194, 59, 53)', 'vue Mois : légende des dépenses à la nouvelle couleur');
+  await page.locator('[data-act="view"][data-view="annee"]:visible').click();
+  check(await css('#chart .b-dep', 'fill') === 'rgb(194, 59, 53)', 'vue Année : barres des dépenses à la nouvelle couleur');
+
+  await page.locator('[data-act="view"][data-view="reglages"]:visible').click();
+  await page.click('#colors [data-act="color-reset"][data-k="dep"]');
+  await until(page, () => window.__PFLOW_DB__.dump()['users/uid-test/meta/settings'].couleurs.dep === null, null, '« Par défaut » enregistré');
+  await until(page, () => document.documentElement.style.getPropertyValue('--c-dep') === '', null, 'couleur des dépenses revenue par défaut');
+  await page.click('[data-act="colors-reset"]');
+  await until(page, () => window.__PFLOW_DB__.dump()['users/uid-test/meta/settings'].couleurs.reste === null, null, 'toutes les couleurs remises par défaut');
+  await until(page, () => document.documentElement.style.getPropertyValue('--c-reste') === '', null, 'couleur du reste revenue par défaut');
+  s = (await dump(page))[SET];
+  check(s.pro === true && s.taux['2026'] === 21.2 && s.periodicite === 'mensuelle', 'réglages toujours intacts après remise à zéro');
+  check(errors.length === 0, 'aucune erreur dans la console' + (errors.length ? ' : ' + errors.join(' | ') : ''));
+  await ctx.close();
+}
+
 async function scenarioNouveauCompte(cfg, tag) {
   const { ctx, page, errors } = await open(cfg, {}, { date: '2026-03-15' });
   await until(page, () => !document.getElementById('s-onboard').hidden, null, 'écran de bienvenue pour un nouveau compte');
@@ -287,6 +331,7 @@ for (const file of fixtures) {
     await run(() => scenarioDonnees(cfg, fx, tag));
     await run(() => scenarioLectureSeule(cfg, fx, tag));
     await run(() => scenarioSaisie(cfg, fx, tag));
+    await run(() => scenarioCouleurs(cfg, fx, tag));
     console.log(failures === before ? '   ✓ ok' : '   ✗ ' + (failures - before) + ' échec(s)');
   }
 }

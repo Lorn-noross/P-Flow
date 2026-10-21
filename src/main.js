@@ -40,6 +40,11 @@ const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet'
 const MS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 const MI = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 const VIEWS = ['mois', 'fixes', 'annee', 'reglages'];
+// Couleurs personnalisables : clé (variable CSS --c-<clé>), libellé, réservée au profil auto-entrepreneur.
+const COLORS = [['brut', 'Revenus bruts', true], ['urssaf', 'URSSAF', true], ['net', 'Revenus nets', false], ['dep', 'Dépenses', false], ['reste', 'Reste', false]];
+const PRESETS = [['#2453c4', 'Bleu'], ['#7da3ff', 'Bleu clair'], ['#0e9aa7', 'Turquoise'], ['#16845a', 'Vert'], ['#4dc48b', 'Vert clair'], ['#c2810c', 'Ambre'],
+  ['#e4a940', 'Jaune'], ['#e0662e', 'Orange'], ['#c23b35', 'Rouge'], ['#d9488f', 'Rose'], ['#7a5af8', 'Violet'], ['#6a7d90', 'Gris']];
+const isHex = v => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
 const pad = n => String(n).padStart(2, '0');
 const NOW = new Date();
 const CUR = NOW.getFullYear() + '-' + pad(NOW.getMonth() + 1);
@@ -75,7 +80,7 @@ const S = {
   recurring: [], settings: null, settingsExists: false, readOnly: false,
   loaded: { entries: false, recurring: false, settings: false },
   pend: { entries: false, recurring: false, settings: false },
-  showFixed: lsGet('pf-showFixed') === '1', showEnded: false,
+  showFixed: lsGet('pf-showFixed') === '1', showEnded: false, colorOpen: null,
   unsubs: [],
 };
 { const h = (location.hash || '').slice(1); if (VIEWS.includes(h)) S.view = h; }
@@ -89,7 +94,15 @@ function normSettings(d) {
   d = d || {};
   const taux = {};
   if (d.taux && typeof d.taux === 'object') for (const k of Object.keys(d.taux)) { const v = Number(d.taux[k]); if (isFinite(v)) taux[k] = v; }
-  return { pro: !!d.pro, taux, periodicite: d.periodicite === 'trimestrielle' ? 'trimestrielle' : 'mensuelle' };
+  // Champ facultatif `couleurs` (absent dans les données d'avant le patch 1) : null ou absent = couleur par défaut.
+  const couleurs = {};
+  if (d.couleurs && typeof d.couleurs === 'object') for (const [k] of COLORS) if (isHex(d.couleurs[k])) couleurs[k] = d.couleurs[k].toLowerCase();
+  return { pro: !!d.pro, taux, periodicite: d.periodicite === 'trimestrielle' ? 'trimestrielle' : 'mensuelle', couleurs };
+}
+// Applique les couleurs du compte (les mêmes sur tous les appareils).
+function applyColors() {
+  const c = (S.settings && S.settings.couleurs) || {}, st = document.documentElement.style;
+  for (const [k] of COLORS) { if (c[k]) st.setProperty('--c-' + k, c[k]); else st.removeProperty('--c-' + k); }
 }
 function rateFor(y) {
   if (!isPro()) return 0;
@@ -267,7 +280,7 @@ function stopData() {
   S.unsubs = [];
   if (S.unsubEntries) { try { S.unsubEntries(); } catch (e) { /* ignoré */ } }
   S.unsubEntries = null; S.entriesYear = null; S.entries = []; S.recurring = []; S.settings = null;
-  S.readOnly = false; $('#outdated').hidden = true;
+  S.readOnly = false; $('#outdated').hidden = true; applyColors();
   S.loaded = { entries: false, recurring: false, settings: false };
   S.ready = false;
 }
@@ -282,6 +295,7 @@ function startData() {
     // Données écrites par une version plus récente : lecture seule, pour ne rien abîmer.
     S.readOnly = (snap.exists() && Number(snap.data().dataVersion) || 1) > DATA_VERSION;
     $('#outdated').hidden = !S.readOnly;
+    applyColors();
     S.loaded.settings = true;
     document.body.classList.toggle('pro', isPro());
     if (!S.settingsExists) { openOnboarding(); return; }
@@ -431,9 +445,9 @@ function renderMois() {
     split.innerHTML = segs.filter(s => s[1] > 0.004).map(s => '<i class="' + s[0] + '" style="flex:' + (s[1] / tot).toFixed(4) + ' 1 0" title="' + esc(s[2] + ' : ' + eur(s[1])) + '"></i>').join('');
   }
   const L = pro ? [
-    ['none', 'Revenus bruts', d.brut], ['s-urssaf', 'URSSAF (' + pctf(d.rate) + ')', d.urssaf],
-    ['none', 'Revenus nets', d.net], ['s-dep', 'Dépenses', d.dep],
-  ] : [['none', 'Revenus', d.brut], ['s-dep', 'Dépenses', d.dep]];
+    ['s-brut', 'Revenus bruts', d.brut], ['s-urssaf', 'URSSAF (' + pctf(d.rate) + ')', d.urssaf],
+    ['s-net', 'Revenus nets', d.net], ['s-dep', 'Dépenses', d.dep],
+  ] : [['s-net', 'Revenus', d.brut], ['s-dep', 'Dépenses', d.dep]];
   L.push([d.reste < 0 ? 's-manque' : 's-reste', d.reste < 0 ? 'Il manque' : 'Reste', Math.abs(d.reste)]);
   $('#legend').innerHTML = L.map(l => '<div><dt><i class="sw ' + (l[0] === 'none' ? 'none' : l[0]) + '"></i>' + esc(l[1]) + '</dt><dd>' + (ok ? eur(l[2]) : '…') + '</dd></div>').join('');
 
@@ -512,10 +526,11 @@ function renderAnnee() {
   const y = S.year, ok = ready(), yd = yearData(y), T = yd.T, pro = isPro();
   const n = yd.counted.length;
   $('#y-period').textContent = !ok ? 'Chargement…' : n === 0 ? 'Cette année n\'a pas encore commencé.' : n === 12 ? 'Année ' + y + ' complète' : 'De janvier à ' + MONTHS[n - 1] + ' ' + y + ' (les mois suivants sont affichés en pâle)';
-  const k = (label, v, cls) => '<div class="kpi' + (cls ? ' ' + cls : '') + '"><span>' + label + '</span><strong>' + (ok ? eur(v) : '…') + '</strong></div>';
+  const k = (sw, label, v, cls) => '<div class="kpi' + (cls ? ' ' + cls : '') + '"><span><i class="sw ' + sw + '"></i>' + label + '</span><strong>' + (ok ? eur(v) : '…') + '</strong></div>';
+  const kr = k(T.reste < 0 ? 's-manque' : 's-reste', T.reste < 0 ? 'Il manque' : 'Reste', T.reste, 'wide ' + (T.reste < 0 ? 'neg' : 'pos'));
   $('#kpis').innerHTML = pro
-    ? k('Revenus bruts', T.brut) + k('URSSAF', T.urssaf) + k('Revenus nets', T.net) + k('Dépenses', T.dep) + k(T.reste < 0 ? 'Il manque' : 'Reste', T.reste, 'wide ' + (T.reste < 0 ? 'neg' : 'pos'))
-    : k('Revenus', T.brut) + k('Dépenses', T.dep) + k(T.reste < 0 ? 'Il manque' : 'Reste', T.reste, 'wide ' + (T.reste < 0 ? 'neg' : 'pos'));
+    ? k('s-brut', 'Revenus bruts', T.brut) + k('s-urssaf', 'URSSAF', T.urssaf) + k('s-net', 'Revenus nets', T.net) + k('s-dep', 'Dépenses', T.dep) + kr
+    : k('s-net', 'Revenus', T.brut) + k('s-dep', 'Dépenses', T.dep) + kr;
   $('#kpis').style.gridTemplateColumns = pro ? '' : 'repeat(2,minmax(0,1fr))';
   lastChartW = 0; renderChart();
   let rows = '';
@@ -585,8 +600,36 @@ function renderReglages() {
   }
   $$('#period-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.p === S.settings.periodicite)));
   $('#export-btn').textContent = 'Exporter ' + S.year + ' en CSV';
+  renderColors();
   calc();
 }
+function renderColors() {
+  const box = $('#colors');
+  if (box.contains(document.activeElement) && document.activeElement.type === 'color') return; // sélecteur ouvert
+  const c = S.settings.couleurs, cs = getComputedStyle(document.documentElement);
+  const html = COLORS.filter(([, , proOnly]) => !proOnly || isPro()).map(([k, label]) => {
+    const name = k === 'net' && !isPro() ? 'Revenus' : label;
+    const open = S.colorOpen === k, cur = c[k] || '';
+    const val = cur || (cs.getPropertyValue('--c-' + k).trim().toLowerCase());
+    return '<div class="color-row">' +
+      '<button type="button" class="color-head" data-act="color-open" data-k="' + k + '" aria-expanded="' + open + '"><i class="sw s-' + k + '"></i><span>' + esc(name) + '</span><small>' + (cur ? 'Personnalisée' : 'Par défaut') + '</small>' + ico('right', 'chev') + '</button>' +
+      (open ? '<div class="palette" role="group" aria-label="Couleur : ' + esc(name) + '">' +
+        PRESETS.map(([hex, n]) => '<button type="button" class="dot" data-act="color-set" data-k="' + k + '" data-c="' + hex + '" style="background:' + hex + '" aria-label="' + n + '" aria-pressed="' + (cur === hex) + '"></button>').join('') +
+        '<label class="dot other" title="Autre couleur"><input type="color" data-k="' + k + '" value="' + (isHex(val) ? val : '#2453c4') + '" aria-label="Autre couleur"></label>' +
+        (cur ? '<button type="button" class="link" data-act="color-reset" data-k="' + k + '">Par défaut</button>' : '') +
+        '</div>' : '') +
+      '</div>';
+  }).join('');
+  if (box.innerHTML !== html) box.innerHTML = html;
+}
+function setColor(k, v) {
+  if (blocked()) { applyColors(); renderColors(); return; }
+  if (!COLORS.some(([x]) => x === k) || (v !== null && !isHex(v))) return;
+  write(setDoc(uref('meta', 'settings'), { couleurs: { [k]: v ? v.toLowerCase() : null } }, { merge: true }));
+}
+// Aperçu en direct pendant qu'on choisit, enregistrement quand le choix est fait.
+$('#colors').addEventListener('input', e => { const i = e.target.closest('input[type="color"]'); if (i && isHex(i.value)) document.documentElement.style.setProperty('--c-' + i.dataset.k, i.value); });
+$('#colors').addEventListener('change', e => { const i = e.target.closest('input[type="color"]'); if (i) setColor(i.dataset.k, i.value); });
 function calc() {
   if (!isPro()) return;
   const y = NOW.getFullYear(), rate = rateFor(y);
@@ -899,6 +942,13 @@ document.addEventListener('click', e => {
   else if (a === 'toggle-ended') { S.showEnded = !S.showEnded; renderFixes(); }
   else if (a === 'goto-month') { S.month = t.dataset.month; S.year = pYM(S.month).y; setView('mois'); }
   else if (a === 'export') exportCsv();
+  else if (a === 'color-open') { S.colorOpen = S.colorOpen === t.dataset.k ? null : t.dataset.k; renderColors(); }
+  else if (a === 'color-set') setColor(t.dataset.k, t.dataset.c);
+  else if (a === 'color-reset') setColor(t.dataset.k, null);
+  else if (a === 'colors-reset') {
+    if (!Object.keys(S.settings.couleurs).length || blocked()) return;
+    write(setDoc(uref('meta', 'settings'), { couleurs: Object.fromEntries(COLORS.map(([k]) => [k, null])) }, { merge: true }), 'Couleurs par défaut');
+  }
   else if (a === 'period') { if (S.settings.periodicite !== t.dataset.p && !blocked()) write(setDoc(uref('meta', 'settings'), { periodicite: t.dataset.p }, { merge: true }), t.dataset.p === 'mensuelle' ? 'Déclaration mensuelle' : 'Déclaration trimestrielle'); }
   else if (a === 'profile') {
     const pro = t.dataset.pro === '1';

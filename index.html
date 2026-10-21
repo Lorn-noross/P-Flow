@@ -158,7 +158,7 @@
       <article class="card chart-card">
         <div class="chart-head">
           <h3>Revenus nets et dépenses, mois par mois</h3>
-          <div class="chart-legend"><span><i class="sw" style="background:var(--accent)"></i>Revenus nets</span><span><i class="sw" style="background:var(--dep)"></i>Dépenses</span></div>
+          <div class="chart-legend"><span><i class="sw s-net"></i>Revenus nets</span><span><i class="sw s-dep"></i>Dépenses</span></div>
         </div>
         <div id="chart"></div>
       </article>
@@ -216,6 +216,12 @@
             </div>
             <p class="out" id="c-out2"></p>
             <p class="hint">En micro-entreprise, les frais pro ne sont pas déduits : prévois-les en plus.</p>
+          </article>
+          <article class="card stack">
+            <h3>Couleurs</h3>
+            <p class="hint">Choisis la couleur de chaque montant. Elle s'applique au mois et à l'année, sur tous tes appareils.</p>
+            <div class="colors" id="colors"></div>
+            <div><button class="btn ghost" data-act="colors-reset">Remettre les couleurs par défaut</button></div>
           </article>
           <article class="card stack">
             <h3>Sauvegarde</h3>
