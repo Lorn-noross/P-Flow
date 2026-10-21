@@ -1,0 +1,107 @@
+{
+  "_info": "Données FICTIVES au format de la version 0.1.1-beta (patch 1 : réglages facultatifs couleurs et sauvegarde). Ne jamais modifier ni supprimer ce fichier. Les champs « champFutur » simulent un champ ajouté par une version plus récente : ils doivent survivre à toute modification.",
+  "docs": {
+    "users/uid-test/meta/settings": {
+      "pro": true,
+      "taux": {
+        "2026": 21.2
+      },
+      "periodicite": "mensuelle",
+      "createdAt": 1767225600000,
+      "couleurs": {
+        "brut": null,
+        "urssaf": "#e0662e",
+        "net": null,
+        "dep": "#6a7d90",
+        "reste": "#16845a"
+      },
+      "sauvegarde": {
+        "drive": false,
+        "frequence": "mensuelle",
+        "derniere": 0
+      }
+    },
+    "users/uid-test/entries/e1": {
+      "type": "revenu",
+      "label": "Facture client A",
+      "amount": 1000,
+      "urssaf": true,
+      "date": "2026-03-05",
+      "month": "2026-03",
+      "createdAt": 1772668800000
+    },
+    "users/uid-test/entries/e2": {
+      "type": "depense",
+      "label": "Courses",
+      "amount": 85.4,
+      "urssaf": false,
+      "date": "2026-03-07",
+      "month": "2026-03",
+      "createdAt": 1772841600000,
+      "champFutur": "à conserver"
+    },
+    "users/uid-test/entries/e3": {
+      "type": "revenu",
+      "label": "Remboursement",
+      "amount": 50,
+      "urssaf": false,
+      "date": "2026-03-10",
+      "month": "2026-03",
+      "createdAt": 1773100800000
+    },
+    "users/uid-test/entries/e4": {
+      "type": "depense",
+      "label": "Essence",
+      "amount": 60,
+      "urssaf": false,
+      "date": "2026-02-12",
+      "month": "2026-02",
+      "createdAt": 1770854400000
+    },
+    "users/uid-test/recurring/r1": {
+      "type": "depense",
+      "label": "Loyer",
+      "amount": 500,
+      "urssaf": false,
+      "start": "2025-09",
+      "end": null,
+      "createdAt": 1756684800000
+    },
+    "users/uid-test/recurring/r2": {
+      "type": "depense",
+      "label": "Abonnement",
+      "amount": 20,
+      "urssaf": false,
+      "start": "2026-01",
+      "end": "2026-02",
+      "createdAt": 1767225600000
+    },
+    "users/uid-test/recurring/r3": {
+      "type": "revenu",
+      "label": "Aide",
+      "amount": 100,
+      "urssaf": false,
+      "start": "2026-01",
+      "end": null,
+      "createdAt": 1767225600000,
+      "champFutur": "fixe à conserver"
+    }
+  },
+  "expect": {
+    "_date": "2026-03-15",
+    "mars": {
+      "reste": 352.6,
+      "brut": 1150,
+      "urssaf": 212,
+      "net": 938,
+      "dep": 585.4
+    },
+    "annee2026": {
+      "brut": 1350,
+      "urssaf": 212,
+      "net": 1138,
+      "dep": 1685.4,
+      "reste": -547.4
+    }
+  }
+}
