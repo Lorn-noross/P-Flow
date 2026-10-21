@@ -188,8 +188,8 @@ async function nativeGoogle(useCM) {
   alt.hidden = true;
   const timer = setTimeout(() => {
     if (id !== gAttempt) return;
-    st.textContent = 'Google ne répond pas (méthode ' + (useCM ? '1' : '2') + ').';
-    if (useCM) alt.hidden = false;
+    st.textContent = 'Google ne répond pas.';
+    alt.dataset.cm = useCM ? '0' : '1'; alt.hidden = false;
   }, 12000);
   try {
     const r = await FirebaseAuthentication.signInWithGoogle({ useCredentialManager: useCM });
@@ -205,13 +205,14 @@ async function nativeGoogle(useCM) {
     const code = x && x.code ? String(x.code) : '';
     const msg = code.startsWith('auth/') ? authErr(x) : ((x && x.message) || code || 'erreur inconnue');
     st.className = 'notice err';
-    st.textContent = 'Échec méthode ' + (useCM ? '1' : '2') + ' : ' + msg;
-    alt.hidden = !useCM;
+    st.textContent = 'La connexion Google n\'a pas abouti : ' + msg;
+    alt.dataset.cm = useCM ? '0' : '1'; alt.hidden = false;
   }
 }
 $('#google-btn').addEventListener('click', async () => {
   $('#l-error').textContent = '';
-  if (isNative) { nativeGoogle(true); return; }
+  // Sur Android, le sélecteur de compte classique est le plus fiable : on commence par lui.
+  if (isNative) { nativeGoogle(false); return; }
   try { await signInWithPopup(auth, new GoogleAuthProvider()); }
   catch (x) {
     const code = x && x.code ? String(x.code) : '';
@@ -219,7 +220,7 @@ $('#google-btn').addEventListener('click', async () => {
     $('#l-error').textContent = authErr(x);
   }
 });
-$('#g-alt').addEventListener('click', () => nativeGoogle(false));
+$('#g-alt').addEventListener('click', e => nativeGoogle(e.currentTarget.dataset.cm === '1'));
 $('#login-version').textContent = 'P-Flow ' + APP_VERSION;
 // Toute erreur imprévue s'affiche sur l'écran de connexion au lieu de rester invisible.
 function showDiag(m) { if (!$('#s-login').hidden) { const e = $('#l-error'); e.textContent = 'Erreur : ' + m; } }
