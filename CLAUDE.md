@@ -23,7 +23,7 @@ Des personnes (dont la famille du propriétaire) ont de vraies données dans l'a
   2. sauvegarde complète du compte avant toute conversion ;
   3. conversion idempotente (relançable sans dégât), étape par étape (1→2, puis 2→3…), en gardant l'ancienne forme lisible tant que des versions qui l'utilisent circulent ;
   4. écrire `dataVersion` seulement après une conversion réussie.
-- **Test de non-régression des données avant chaque publication** (voir `tests/README.md`) : des jeux de données fictifs au format de chaque ancienne version sont chargés dans les émulateurs Firebase ; on vérifie que tout s'affiche à l'identique et que modifier ou supprimer ne fait rien perdre d'autre. Quand le format évolue, on ajoute un nouveau jeu de données sans retirer les anciens.
+- **Test de non-régression des données avant chaque publication** (voir `tests/README.md`) : des jeux de données fictifs au format de chaque ancienne version sont chargés dans l'appli, construite avec un faux Firebase en mémoire (`tests/fakes/`) ; on vérifie que tout s'affiche à l'identique et que modifier ou supprimer ne fait rien perdre d'autre. Quand le format évolue, on ajoute un nouveau jeu de données sans retirer les anciens.
 
 ## Qualité avant chaque publication (exigence du propriétaire)
 1. Relire intégralement chaque modification (diff complet), puis lancer le plugin Code Review sur les changements.
