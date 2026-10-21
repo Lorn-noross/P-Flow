@@ -175,39 +175,56 @@ $('#login-form').addEventListener('submit', async e => {
   } catch (x) { err.textContent = authErr(x); }
   finally { btn.disabled = false; }
 });
-$('#google-btn').addEventListener('click', async () => {
-  const errEl = $('#l-error'); errEl.textContent = '';
-  const btn = $('#google-btn'); btn.disabled = true;
+// Connexion Google.
+// Android : module natif (méthode 1 = sélecteur moderne, méthode 2 = sélecteur classique),
+// puis le jeton est transmis au SDK web Firebase. Chaque étape est affichée à l'écran.
+let gAttempt = 0;
+async function nativeGoogle(useCM) {
+  const st = $('#g-status'), alt = $('#g-alt'), err = $('#l-error');
+  const id = ++gAttempt;
+  err.textContent = '';
+  st.hidden = false; st.className = 'notice';
+  st.textContent = useCM ? 'Ouverture de Google…' : 'Ouverture du sélecteur de compte Google…';
+  alt.hidden = true;
+  const timer = setTimeout(() => {
+    if (id !== gAttempt) return;
+    st.textContent = 'Google ne répond pas (méthode ' + (useCM ? '1' : '2') + ').';
+    if (useCM) alt.hidden = false;
+  }, 12000);
   try {
-    if (isNative) {
-      // 1) Sélecteur de compte moderne d'Android (Credential Manager).
-      // 2) En cas d'échec, sélecteur Google classique.
-      // Le jeton obtenu est ensuite transmis au SDK web Firebase.
-      let r = null, first = '';
-      try { r = await FirebaseAuthentication.signInWithGoogle({ useCredentialManager: true }); }
-      catch (e1) { first = String((e1 && (e1.message || e1.code)) || e1); }
-      if (!r || !r.credential || !r.credential.idToken) {
-        try { r = await FirebaseAuthentication.signInWithGoogle({ useCredentialManager: false }); }
-        catch (e2) {
-          const second = String((e2 && (e2.message || e2.code)) || e2);
-          throw new Error('Google : ' + (first ? first + ' / ' : '') + second);
-        }
-      }
-      const idToken = r && r.credential && r.credential.idToken;
-      if (!idToken) throw new Error('Google n\'a pas renvoyé de jeton de connexion.');
-      await signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
-    } else {
-      await signInWithPopup(auth, new GoogleAuthProvider());
-    }
+    const r = await FirebaseAuthentication.signInWithGoogle({ useCredentialManager: useCM });
+    clearTimeout(timer);
+    const idToken = r && r.credential && r.credential.idToken;
+    if (!idToken) throw new Error('Google n\'a pas renvoyé de jeton.');
+    st.textContent = 'Compte Google reçu, connexion à P-Flow…';
+    await signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
+    st.hidden = true; alt.hidden = true;
   } catch (x) {
+    clearTimeout(timer);
+    if (id !== gAttempt) return;
     const code = x && x.code ? String(x.code) : '';
-    if (!isNative && /popup-closed|cancelled-popup/.test(code)) return;
-    const msg = code.startsWith('auth/') ? authErr(x) : 'La connexion Google n\'a pas abouti. ' + ((x && x.message) || '') + ' Tu peux aussi te connecter avec ton email.';
-    errEl.textContent = msg;
-    toast(msg, true);
-    errEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  } finally { btn.disabled = false; }
+    const msg = code.startsWith('auth/') ? authErr(x) : ((x && x.message) || code || 'erreur inconnue');
+    st.className = 'notice err';
+    st.textContent = 'Échec méthode ' + (useCM ? '1' : '2') + ' : ' + msg;
+    alt.hidden = !useCM;
+  }
+}
+$('#google-btn').addEventListener('click', async () => {
+  $('#l-error').textContent = '';
+  if (isNative) { nativeGoogle(true); return; }
+  try { await signInWithPopup(auth, new GoogleAuthProvider()); }
+  catch (x) {
+    const code = x && x.code ? String(x.code) : '';
+    if (/popup-closed|cancelled-popup/.test(code)) return;
+    $('#l-error').textContent = authErr(x);
+  }
 });
+$('#g-alt').addEventListener('click', () => nativeGoogle(false));
+$('#login-version').textContent = 'P-Flow ' + APP_VERSION + ' (build ' + APP_BUILD + ')';
+// Toute erreur imprévue s'affiche sur l'écran de connexion au lieu de rester invisible.
+function showDiag(m) { if (!$('#s-login').hidden) { const e = $('#l-error'); e.textContent = 'Erreur : ' + m; } }
+window.addEventListener('error', e => showDiag(e.message || 'inconnue'));
+window.addEventListener('unhandledrejection', e => showDiag((e.reason && (e.reason.message || e.reason.code)) || String(e.reason)));
 $('#v-resend').addEventListener('click', async () => {
   try { await sendEmailVerification(auth.currentUser); $('#v-error').textContent = 'Email renvoyé.'; }
   catch (x) { $('#v-error').textContent = authErr(x); }
