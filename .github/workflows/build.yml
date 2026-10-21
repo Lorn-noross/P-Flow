@@ -1,5 +1,9 @@
 name: Build et publication
 
+# - Push sur main : publie une nouvelle version SEULEMENT si la version de package.json
+#   n'a pas encore été publiée (tag v<version> absent). Sinon, simple vérification du build.
+# - Lancement manuel (Actions → Run workflow) : APK de test interne, téléchargeable
+#   dans les « Artifacts » du lancement, sans publication.
 on:
   push:
     branches: [main]
@@ -17,6 +21,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.version.outputs.publish }}
     env:
       APP_BUILD: ${{ github.run_number }}
       HAS_KEY: ${{ secrets.ANDROID_KEYSTORE_PASSWORD != '' }}
@@ -31,29 +37,36 @@ jobs:
       - name: Installer les dépendances
         run: npm ci
 
-      - name: Calculer le numéro de version
+      - name: Déterminer la version
+        id: version
         run: |
-          # package.json donne la base (ex. 0.1.0-beta) ; le dernier chiffre est le numéro de compilation.
-          BASE=$(node -p "require('./package.json').version.split('-')[0].split('.').slice(0,2).join('.')")
-          CHANNEL=$(node -p "(require('./package.json').version.split('-')[1] || '')")
-          V="${BASE}.${{ github.run_number }}"
-          if [ -n "$CHANNEL" ]; then V="${V}-${CHANNEL}"; fi
-          echo "APP_VERSION=$V" >> "$GITHUB_ENV"
-          echo "APK_NAME=P-Flow-$V.apk" >> "$GITHUB_ENV"
-          echo "IS_PRERELEASE=$([ -n "$CHANNEL" ] && echo true || echo false)" >> "$GITHUB_ENV"
+          V=$(node -p "require('./package.json').version")
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            MODE=test; PUBLISH=false; APP_VERSION="${V}-test${{ github.run_number }}"
+          elif git ls-remote --exit-code --tags origin "refs/tags/v${V}" >/dev/null; then
+            MODE=check; PUBLISH=false; APP_VERSION="$V"
+          else
+            MODE=release; PUBLISH=true; APP_VERSION="$V"
+          fi
+          echo "Version $APP_VERSION — mode $MODE"
+          echo "MODE=$MODE" >> "$GITHUB_ENV"
+          echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
+          echo "APK_NAME=P-Flow-$APP_VERSION.apk" >> "$GITHUB_ENV"
+          echo "IS_PRERELEASE=$([[ "$V" == *-* ]] && echo true || echo false)" >> "$GITHUB_ENV"
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
 
       - name: Construire la version web
         run: npm run build
 
       - uses: actions/setup-java@v4
-        if: env.HAS_KEY == 'true'
+        if: env.HAS_KEY == 'true' && env.MODE != 'check'
         with:
           distribution: temurin
           java-version: 21
           cache: gradle
 
       - name: Construire l'APK Android
-        if: env.HAS_KEY == 'true'
+        if: env.HAS_KEY == 'true' && env.MODE != 'check'
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
@@ -63,8 +76,16 @@ jobs:
           ./gradlew assembleRelease --no-daemon --stacktrace
           cp app/build/outputs/apk/release/app-release.apk "../${APK_NAME}"
 
-      - name: Publier l'APK
-        if: env.HAS_KEY == 'true'
+      - name: APK de test (téléchargeable dans les Artifacts)
+        if: env.HAS_KEY == 'true' && env.MODE == 'test'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APK_NAME }}
+          path: ${{ env.APK_NAME }}
+          retention-days: 14
+
+      - name: Publier la version
+        if: env.HAS_KEY == 'true' && env.MODE == 'release'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.APP_VERSION }}
@@ -75,16 +96,18 @@ jobs:
           prerelease: ${{ env.IS_PRERELEASE }}
 
       - name: Annoncer la nouvelle version à l'appli
-        if: env.HAS_KEY == 'true'
+        if: env.HAS_KEY == 'true' && env.MODE == 'release'
         run: |
           echo "{\"version\":\"${APP_VERSION}\",\"build\":${APP_BUILD},\"apk\":\"https://github.com/${{ github.repository }}/releases/download/v${APP_VERSION}/${APK_NAME}\"}" > dist/version.json
 
       - uses: actions/upload-pages-artifact@v3
+        if: env.MODE == 'release'
         with:
           path: dist
 
   deploy:
     needs: build
+    if: needs.build.outputs.publish == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

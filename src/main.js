@@ -16,7 +16,7 @@ import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { auth, db, isNative } from './firebase.js';
 
 /* global __APP_VERSION__, __APP_BUILD__, __PAGES_URL__ */
-const APP_VERSION = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev').replace(/-beta$/, ' bêta');
+const APP_VERSION = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev').replace(/-beta/, ' bêta').replace(/-test(\d+)$/, ' (test $1)');
 const APP_BUILD = typeof __APP_BUILD__ !== 'undefined' ? __APP_BUILD__ : '0';
 const PAGES_URL = typeof __PAGES_URL__ !== 'undefined' ? __PAGES_URL__ : '';
 

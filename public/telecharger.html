@@ -32,7 +32,7 @@
 </main>
 <script>
 fetch('./version.json', { cache: 'no-store' }).then(r => r.json()).then(v => {
-  const label = String(v.version).replace(/-beta$/, ' bêta');
+  const label = String(v.version).replace(/-beta/, ' bêta');
   document.getElementById('v').textContent = 'Dernière version : ' + label;
   const a = document.getElementById('dl'); a.href = v.apk; a.hidden = false;
   a.textContent = 'Télécharger P-Flow ' + label;
