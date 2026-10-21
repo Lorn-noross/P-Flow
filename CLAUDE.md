@@ -40,3 +40,9 @@ Des personnes (dont la famille du propriétaire) ont de vraies données dans l'a
 6. Poids : budget actuel JS ≈ 167 Ko gzip depuis le patch 1 (dont ~140 Ko Firebase), CSS ≈ 6 Ko gzip, APK ≈ 5 Mo. Ne pas ajouter de bibliothèque lourde ; préférer le code natif du navigateur ; charger à la demande ce qui n'est pas nécessaire au démarrage.
 7. Donner au propriétaire la liste des changements, le numéro de version proposé, et attendre son accord avant de monter la version.
 
+
+## Prévu pour le patch 2 (demandé par le propriétaire, à faire dans une prochaine conversation)
+- **Refonte visuelle façon Revolut** : barre de navigation flottante en pilule avec léger flou, surlignage de l'onglet actif qui glisse, transitions en glissement entre les vues, fond en dégradé, gros montant centré, boutons d'action ronds translucides, cartes aux coins très arrondis. Doit rester fluide sur les vieux téléphones (flou limité aux éléments fixes, réglage « Effets réduits »).
+- **Demander l'accès** : sur l'écran « Accès pas encore autorisé » (après connexion, pour prouver l'adresse), bouton qui enregistre une demande ; l'administrateur voit une alerte dans l'appli et accepte ou refuse (Accepter = ajout à `allowlist`). Nouvelle collection et règles Firestore à recopier dans la console. Notification hors appli = Cloud Functions, donc offre Blaze : à décider avec le propriétaire.
+- **Nouveautés après une mise à jour** : à la première ouverture d'une nouvelle version, afficher les nouveautés de cette version (contenu de `notes-de-version/<version>.md`, intégré à la construction), une seule fois par appareil (nouvelle clé `localStorage`).
+- À tester à part de la refonte visuelle, comme le patch 1. Facultatif : restreindre la clé d'API Firebase aux adresses de l'appli dans Google Cloud (prudemment).
