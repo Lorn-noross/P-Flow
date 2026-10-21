@@ -1269,7 +1269,10 @@ async function driveBackup(interactive, auto) {
     if (auto) toast('Sauvegarde automatique faite sur Google Drive');
     return true;
   } catch (e) {
-    if (auto) { BK.due = true; BK.status = ''; } else setBk(driveErr(e), true);
+    if (auto) { BK.due = true; BK.status = ''; } else {
+      setBk(driveErr(e), true);
+      if (S.view !== 'reglages') toast(driveErr(e), true); // lancé depuis le bandeau : le message doit se voir
+    }
     return false;
   } finally { BK.busy = false; renderBackup(); }
 }
