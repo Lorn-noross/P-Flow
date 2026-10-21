@@ -9,3 +9,13 @@
 - APK publiée sous le nom `P-Flow-<version>.apk` ; lien de partage stable : `https://lorn-noross.github.io/P-Flow/telecharger.html` (lit `version.json`).
 - La clé de signature `android/app/p-flow-release.p12` est protégée par le secret GitHub `ANDROID_KEYSTORE_PASSWORD`. Ne jamais la régénérer : sinon les mises à jour ne s'installent plus par-dessus l'ancienne version.
 - Vérifier `npm run build` avant chaque push. Le build Android ne tourne que dans GitHub Actions.
+
+## Qualité avant chaque publication (exigence du propriétaire)
+1. Relire intégralement chaque modification (diff complet), puis lancer le plugin Code Review sur les changements.
+2. Vérifier les API utilisées dans la documentation officielle à jour (Firebase, Capacitor, plugins) : pas de mémoire approximative.
+3. `npm run build` sans erreur ni avertissement nouveau.
+4. Tester l'interface en local (Playwright) : téléphone et PC, thème clair et sombre, parcours ajout / modification / suppression.
+5. Si le modèle de données change : mettre à jour `firestore.rules` et prévenir le propriétaire qu'il doit les recopier dans la console.
+6. Poids : budget actuel JS ≈ 160 Ko gzip (dont ~140 Ko Firebase), CSS ≈ 6 Ko gzip, APK ≈ 5 Mo. Ne pas ajouter de bibliothèque lourde ; préférer le code natif du navigateur ; charger à la demande ce qui n'est pas nécessaire au démarrage.
+7. Donner au propriétaire la liste des changements, le numéro de version proposé, et attendre son accord avant de monter la version.
+
