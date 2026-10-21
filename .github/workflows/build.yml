@@ -84,14 +84,22 @@ jobs:
           path: ${{ env.APK_NAME }}
           retention-days: 14
 
+      # Notes de version obligatoires (souhait du propriétaire) : notes-de-version/<version>.md.
+      # Sans ce fichier, rien n'est publié.
+      - name: Préparer les notes de version
+        if: env.HAS_KEY == 'true' && env.MODE == 'release'
+        run: |
+          NOTES="notes-de-version/${APP_VERSION}.md"
+          if [ ! -f "$NOTES" ]; then echo "::error::$NOTES manquant : écrire les nouveautés de la version avant de publier."; exit 1; fi
+          { cat "$NOTES"; echo; echo "---"; echo "Page de téléchargement : https://lorn-noross.github.io/P-Flow/telecharger.html"; } > release-notes.md
+
       - name: Publier la version
         if: env.HAS_KEY == 'true' && env.MODE == 'release'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.APP_VERSION }}
           name: P-Flow ${{ env.APP_VERSION }}
-          body: |
-            Page de téléchargement : https://lorn-noross.github.io/P-Flow/telecharger.html
+          body_path: release-notes.md
           files: ${{ env.APK_NAME }}
           prerelease: ${{ env.IS_PRERELEASE }}
 
