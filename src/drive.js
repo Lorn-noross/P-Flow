@@ -16,15 +16,17 @@ export class DriveError extends Error {
 }
 
 let token = null, tokenExp = 0;
-let gisClient = null, gisLoading = null, gisFailAt = 0, waiting = null;
+let gisClient = null, gisHint = null, gisLoading = null, gisFailAt = 0, waiting = null;
 
 /* ---------- jeton d'accès ---------- */
 
 // Navigateur : charge la bibliothèque Google à l'avance, pour que le clic ouvre la fenêtre tout de suite.
+// Le client est recréé si le compte change (l'indication du compte Google ne doit jamais rester celle d'un autre).
 export function prepareWeb(hint) {
-  if (gisClient || typeof window === 'undefined') return Promise.resolve();
-  if (!gisLoading && Date.now() - gisFailAt < 30000) return Promise.reject(new DriveError('Google ne répond pas. Vérifie ta connexion internet.', 'NETWORK'));
+  if (typeof window === 'undefined') return Promise.resolve();
+  if (gisClient && gisHint === (hint || '')) return Promise.resolve();
   if (!gisLoading) {
+    if (Date.now() - gisFailAt < 30000) return Promise.reject(new DriveError('Google ne répond pas. Vérifie ta connexion internet.', 'NETWORK'));
     gisLoading = new Promise((resolve, reject) => {
       if (window.google && window.google.accounts && window.google.accounts.oauth2) { resolve(); return; }
       const s = document.createElement('script');
@@ -32,33 +34,36 @@ export function prepareWeb(hint) {
       s.onload = () => resolve();
       s.onerror = () => { s.remove(); gisLoading = null; gisFailAt = Date.now(); reject(new DriveError('Google ne répond pas. Vérifie ta connexion internet.', 'NETWORK')); };
       document.head.appendChild(s);
-    }).then(() => {
-      gisClient = window.google.accounts.oauth2.initTokenClient({
-        client_id: WEB_CLIENT_ID,
-        scope: SCOPE,
-        prompt: '',
-        login_hint: hint || undefined,
-        callback: resp => {
-          const w = waiting; waiting = null;
-          if (!w) return;
-          if (!resp || resp.error) { w.reject(new DriveError('Google n\'a pas donné l\'accès à Drive.', 'AUTH_ERROR')); return; }
-          if (!window.google.accounts.oauth2.hasGrantedAllScopes(resp, SCOPE)) { w.reject(new DriveError('L\'accès à Google Drive n\'a pas été accordé.', 'NO_TOKEN')); return; }
-          token = resp.access_token;
-          tokenExp = Date.now() + (Number(resp.expires_in) || 3600) * 1000;
-          w.resolve(token);
-        },
-        error_callback: err => {
-          const w = waiting; waiting = null;
-          if (!w) return;
-          const t = err && err.type;
-          w.reject(t === 'popup_failed_to_open'
-            ? new DriveError('La fenêtre Google a été bloquée. Autorise les fenêtres pop-up pour ce site, puis réessaie.', 'POPUP')
-            : new DriveError('Connexion à Google Drive annulée.', 'CANCELED'));
-        },
-      });
     });
   }
-  return gisLoading;
+  return gisLoading.then(() => initClient(hint));
+}
+function initClient(hint) {
+  if (gisClient && gisHint === (hint || '')) return;
+  gisHint = hint || '';
+  gisClient = window.google.accounts.oauth2.initTokenClient({
+    client_id: WEB_CLIENT_ID,
+    scope: SCOPE,
+    prompt: '',
+    login_hint: hint || undefined,
+    callback: resp => {
+      const w = waiting; waiting = null;
+      if (!w) return;
+      if (!resp || resp.error) { w.reject(new DriveError('Google n\'a pas donné l\'accès à Drive.', 'AUTH_ERROR')); return; }
+      if (!window.google.accounts.oauth2.hasGrantedAllScopes(resp, SCOPE)) { w.reject(new DriveError('L\'accès à Google Drive n\'a pas été accordé.', 'NO_TOKEN')); return; }
+      token = resp.access_token;
+      tokenExp = Date.now() + (Number(resp.expires_in) || 3600) * 1000;
+      w.resolve(token);
+    },
+    error_callback: err => {
+      const w = waiting; waiting = null;
+      if (!w) return;
+      const t = err && err.type;
+      w.reject(t === 'popup_failed_to_open'
+        ? new DriveError('La fenêtre Google a été bloquée. Autorise les fenêtres pop-up pour ce site, puis réessaie.', 'POPUP')
+        : new DriveError('Connexion à Google Drive annulée.', 'CANCELED'));
+    },
+  });
 }
 
 // Donne un jeton d'accès valable. ATTENTION navigateur : à appeler directement dans le clic
@@ -73,7 +78,11 @@ export function getToken({ native, plugin, interactive, hint }) {
     return Promise.resolve(token);
   }
   if (native) {
-    return plugin.authorizeDrive({ interactive: !!interactive }).then(r => {
+    // Si Google ne répond pas (vu sur certains appareils), on abandonne au lieu de bloquer les boutons.
+    const limit = interactive ? 180000 : 15000;
+    let timer;
+    const timeout = new Promise((resolve, reject) => { timer = setTimeout(() => reject({ code: 'TIMEOUT', message: 'Google ne répond pas. Réessaie dans un moment.' }), limit); });
+    return Promise.race([plugin.authorizeDrive({ interactive: !!interactive }), timeout]).finally(() => clearTimeout(timer)).then(r => {
       token = r.accessToken; tokenExp = Date.now() + 50 * 60000;
       return token;
     }, e => {
@@ -94,6 +103,11 @@ export function getToken({ native, plugin, interactive, hint }) {
 }
 
 export function forgetToken() { token = null; tokenExp = 0; }
+// Déconnexion ou changement de compte : plus de jeton, et le client Google sera recréé pour le nouveau compte.
+export function resetAccount() {
+  forgetToken(); gisClient = null;
+  if (waiting) { waiting.reject(new DriveError('Connexion à Google Drive annulée.', 'CANCELED')); waiting = null; }
+}
 
 /* ---------- appels à l'API Drive ---------- */
 

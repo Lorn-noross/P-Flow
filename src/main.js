@@ -9,7 +9,7 @@ import {
   sendPasswordResetEmail, signOut, GoogleAuthProvider, signInWithPopup, signInWithCredential, reload,
 } from 'firebase/auth';
 import {
-  collection, doc, query, where, onSnapshot, setDoc, addDoc, deleteDoc, getDoc, getDocs, serverTimestamp,
+  collection, doc, query, where, onSnapshot, setDoc, addDoc, deleteDoc, getDoc, getDocFromServer, getDocsFromServer, serverTimestamp,
 } from 'firebase/firestore';
 import { registerPlugin } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
@@ -308,7 +308,8 @@ function stopData() {
   S.unsubs = [];
   if (S.unsubEntries) { try { S.unsubEntries(); } catch (e) { /* ignoré */ } }
   S.unsubEntries = null; S.entriesYear = null; S.entries = []; S.recurring = []; S.settings = null; S.allow = [];
-  S.readOnly = false; $('#outdated').hidden = true; applyColors();
+  S.readOnly = false; S.settingsServer = false; $('#outdated').hidden = true; applyColors();
+  resetBackupState();
   S.loaded = { entries: false, recurring: false, settings: false };
   S.ready = false;
 }
@@ -329,7 +330,7 @@ function startData() {
     if (!S.settingsExists) { openOnboarding(); return; }
     enterApp();
     // Copie Drive automatique : seulement sur des réglages confirmés par le serveur (date de la dernière copie à jour).
-    if (!snap.metadata.fromCache) maybeAutoBackup();
+    if (!snap.metadata.fromCache) { S.settingsServer = true; maybeAutoBackup(); }
   }, dbError));
   S.unsubs.push(onSnapshot(ucol('recurring'), opts, snap => {
     S.recurring = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
@@ -422,6 +423,7 @@ function render() {
   else if (S.view === 'fixes') renderFixes();
   else if (S.view === 'annee') renderAnnee();
   else renderReglages();
+  maybeAutoBackup();
 }
 function updateSync() {
   let s = 'connecting', t = 'Connexion…';
@@ -1147,6 +1149,11 @@ if (isNative) CapApp.addListener('appStateChange', st => { if (st && st.isActive
 // Une sauvegarde contient tout le compte. La restaurer remet seulement ce qui manque :
 // rien n'est écrasé ni supprimé (CLAUDE.md, règle n°1). Les réglages ne sont pas modifiés.
 const BK = { busy: false, status: '', err: false, due: false, triedAuto: false, list: null, plan: null, link: null };
+// Déconnexion / changement de compte : on oublie tout (jeton Google, restauration en attente…).
+function resetBackupState() {
+  Object.assign(BK, { busy: false, status: '', err: false, due: false, triedAuto: false, list: null, plan: null, link: null });
+  Drive.resetAccount();
+}
 const bkCfg = () => (S.settings && S.settings.sauvegarde) || { drive: false, frequence: 'mensuelle', derniere: 0 };
 const plainVal = v => (v && typeof v.toMillis === 'function' ? v.toMillis() : v);
 const cleanDoc = d => { const o = {}; for (const k of Object.keys(d)) o[k] = plainVal(d[k]); return o; };
@@ -1155,8 +1162,14 @@ function bkName() {
   const d = new Date();
   return 'p-flow-sauvegarde-' + d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + '-' + pad2(d.getHours()) + 'h' + pad2(d.getMinutes()) + '.json';
 }
+// Toujours lu sur le serveur, jamais dans le cache de l'appareil (qui peut être incomplet hors ligne) :
+// une sauvegarde partielle, ou une restauration qui croirait manquants des documents existants, est impossible.
+const OFFLINE_MSG = 'Il faut être connecté à internet pour cette action.';
+async function fromServer(p) {
+  try { return await p; } catch (e) { throw (e && (e.code === 'unavailable' || e.code === 'failed-precondition')) ? new Error(OFFLINE_MSG) : e; }
+}
 async function buildBackup() {
-  const [st, es, rs] = await Promise.all([getDoc(uref('meta', 'settings')), getDocs(ucol('entries')), getDocs(ucol('recurring'))]);
+  const [st, es, rs] = await fromServer(Promise.all([getDocFromServer(uref('meta', 'settings')), getDocsFromServer(ucol('entries')), getDocsFromServer(ucol('recurring'))]));
   return {
     app: 'P-Flow', format: 1, dataVersion: DATA_VERSION, appVersion: RAW_VERSION, exportedAt: new Date().toISOString(),
     settings: st.exists() ? cleanDoc(st.data()) : null,
@@ -1182,7 +1195,7 @@ function parseBackup(text) {
   return { when: o.exportedAt, entries, recurring, invalid: o.entries.length - entries.length + o.recurring.length - recurring.length };
 }
 async function planRestore(bk, source) {
-  const [es, rs] = await Promise.all([getDocs(ucol('entries')), getDocs(ucol('recurring'))]);
+  const [es, rs] = await fromServer(Promise.all([getDocsFromServer(ucol('entries')), getDocsFromServer(ucol('recurring'))]));
   const haveE = new Set(es.docs.map(d => d.id)), haveR = new Set(rs.docs.map(d => d.id));
   return { source, when: bk.when, total: [bk.entries.length, bk.recurring.length], invalid: bk.invalid,
     addE: bk.entries.filter(x => !haveE.has(x.id)), addR: bk.recurring.filter(x => !haveR.has(x.id)) };
@@ -1223,7 +1236,7 @@ async function exportBackup() {
     }
     setBk('Sauvegarde enregistrée : ' + name);
   } catch (e) {
-    setBk(e && e.code === 'CANCELED' ? '' : 'La sauvegarde n\'a pas pu être enregistrée.', !(e && e.code === 'CANCELED'));
+    setBk(e && e.code === 'CANCELED' ? '' : (e && e.message === OFFLINE_MSG ? OFFLINE_MSG : 'La sauvegarde n\'a pas pu être enregistrée.'), !(e && e.code === 'CANCELED'));
   }
 }
 // Fichier : importer (le fichier choisi est seulement lu, puis on montre ce qui sera remis).
@@ -1261,10 +1274,11 @@ async function driveBackup(interactive, auto) {
   } finally { BK.busy = false; renderBackup(); }
 }
 function maybeAutoBackup() {
+  if (BK.triedAuto || !S.settingsServer || !ready()) return; // réessayé à chaque affichage tant que tout n'est pas chargé
   const c = bkCfg();
-  if (BK.triedAuto || !c.drive || S.readOnly) return;
-  if (Date.now() - c.derniere < BK_FREQ[c.frequence] * 864e5) { BK.due = false; renderBackup(); return; }
+  if (!c.drive || S.readOnly) return;
   BK.triedAuto = true;
+  if (Date.now() - c.derniere < BK_FREQ[c.frequence] * 864e5) { BK.due = false; renderBackup(); return; }
   if (isNative) driveBackup(false, true); // sans fenêtre si l'accès est déjà accordé
   else { BK.due = true; Drive.prepareWeb(S.user && S.user.email).catch(() => {}); renderBackup(); }
 }

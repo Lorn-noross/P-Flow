@@ -58,6 +58,8 @@ function snapFor(ref) {
 }
 export async function getDoc(ref) { return snapFor(ref); }
 export async function getDocs(ref) { return snapFor(ref); }
+export async function getDocFromServer(ref) { if (window.__PFLOW_OFFLINE__) throw Object.assign(new Error('offline'), { code: 'unavailable' }); return snapFor(ref); }
+export async function getDocsFromServer(ref) { if (window.__PFLOW_OFFLINE__) throw Object.assign(new Error('offline'), { code: 'unavailable' }); return snapFor(ref); }
 export function onSnapshot(ref, opts, next) {
   if (typeof opts === 'function') next = opts;
   const l = { ref, next };

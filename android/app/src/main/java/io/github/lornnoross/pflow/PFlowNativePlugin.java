@@ -101,7 +101,7 @@ public class PFlowNativePlugin extends Plugin {
 
     private void resolveToken(PluginCall call, AuthorizationResult ar) {
         String token = ar.getAccessToken();
-        if (token == null || ar.getGrantedScopes() == null || !ar.getGrantedScopes().contains(DRIVE_SCOPE)) {
+        if (token == null) {
             call.reject("L'accès à Google Drive n'a pas été accordé.", "NO_TOKEN");
             return;
         }

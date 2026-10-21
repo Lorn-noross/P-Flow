@@ -424,6 +424,15 @@ async function scenarioSauvegardes(cfg, fx, tag) {
   check(JSON.stringify(db[E3]) === JSON.stringify(fx.docs[E3]) && JSON.stringify(db[R2]) === JSON.stringify(fx.docs[R2]), 'import : remis à l\'identique');
   check(db[E2].amount === 99, 'import : une opération modifiée depuis n\'est pas écrasée');
   check(Object.keys(db).filter(k => k.startsWith('users/')).length === Object.keys(fx.docs).length, 'import : aucun doublon, rien de supprimé');
+  // Hors ligne : ni sauvegarde partielle, ni restauration calculée sur le cache de l'appareil
+  await o.page.evaluate(() => { window.__PFLOW_OFFLINE__ = true; });
+  const w1 = await o.page.evaluate(() => window.__PFLOW_DB__.writes());
+  await o.page.setInputFiles('#import-file', file);
+  await until(o.page, () => document.getElementById('backup-status').textContent.includes('connecté à internet'), null, 'hors ligne : import refusé avec un message clair');
+  check(await o.page.locator('#restore-panel').isHidden() && await o.page.evaluate(() => window.__PFLOW_DB__.writes()) === w1, 'hors ligne : rien n\'est restauré');
+  await o.page.click('[data-act="backup-export"]');
+  await until(o.page, () => document.getElementById('backup-status').textContent.includes('connecté à internet'), null, 'hors ligne : export refusé (pas de sauvegarde incomplète)');
+  await o.page.evaluate(() => { window.__PFLOW_OFFLINE__ = false; });
   // Fichier qui n'est pas une sauvegarde
   await o.page.setInputFiles('#import-file', { name: 'photo.json', mimeType: 'application/json', buffer: Buffer.from('{"bonjour":1}') });
   await until(o.page, () => document.getElementById('backup-status').textContent.includes('pas une sauvegarde'), null, 'import : fichier étranger refusé');
