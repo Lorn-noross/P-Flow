@@ -1,0 +1,27 @@
+name: Supprimer les anciennes versions de test
+
+# Lancement manuel uniquement (onglet Actions → ce workflow → Run workflow).
+# Supprime les publications de l'ancienne numérotation (ex. v1.1.2-6) et leurs tags.
+# Les bêtas (ex. v0.1.7-beta) et les futures versions finales (ex. v1.0.0) sont conservées.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  nettoyage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Supprimer les anciennes versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release list -R "$GITHUB_REPOSITORY" --limit 200 --json tagName --jq '.[].tagName' | while read -r t; do
+            if [[ "$t" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$ ]]; then
+              echo "Suppression de $t"
+              gh release delete "$t" -R "$GITHUB_REPOSITORY" --cleanup-tag -y
+            else
+              echo "Conservée : $t"
+            fi
+          done
