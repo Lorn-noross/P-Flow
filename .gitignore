@@ -3,3 +3,7 @@ dist/
 *.apk
 .DS_Store
 .env
+
+# Tests locaux
+tests/.dist/
+tests/.out/

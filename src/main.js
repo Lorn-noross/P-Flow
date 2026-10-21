@@ -19,6 +19,9 @@ import { auth, db, isNative } from './firebase.js';
 const APP_VERSION = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev').replace(/-beta/, ' bêta').replace(/-test(\d+)$/, ' (test $1)');
 const APP_BUILD = typeof __APP_BUILD__ !== 'undefined' ? __APP_BUILD__ : '0';
 const PAGES_URL = typeof __PAGES_URL__ !== 'undefined' ? __PAGES_URL__ : '';
+// Version du format des données que cette appli sait lire et écrire (CLAUDE.md, règle n°1).
+// Champ `dataVersion` de meta/settings, absent = 1. Ne monter qu'avec une conversion validée.
+const DATA_VERSION = 1;
 
 /* ---------- outils ---------- */
 const $ = (s, r) => (r || document).querySelector(s);
@@ -68,7 +71,7 @@ const S = {
   user: null, ready: false,
   view: 'mois', month: CUR, year: NOW.getFullYear(),
   entries: [], entriesYear: null, unsubEntries: null,
-  recurring: [], settings: null, settingsExists: false,
+  recurring: [], settings: null, settingsExists: false, readOnly: false,
   loaded: { entries: false, recurring: false, settings: false },
   pend: { entries: false, recurring: false, settings: false },
   showFixed: lsGet('pf-showFixed') === '1', showEnded: false,
@@ -263,6 +266,7 @@ function stopData() {
   S.unsubs = [];
   if (S.unsubEntries) { try { S.unsubEntries(); } catch (e) { /* ignoré */ } }
   S.unsubEntries = null; S.entriesYear = null; S.entries = []; S.recurring = []; S.settings = null;
+  S.readOnly = false; $('#outdated').hidden = true;
   S.loaded = { entries: false, recurring: false, settings: false };
   S.ready = false;
 }
@@ -274,6 +278,9 @@ function startData() {
     if (!snap.exists() && snap.metadata.fromCache) return; // attendre la réponse du serveur
     S.settingsExists = snap.exists();
     S.settings = normSettings(snap.exists() ? snap.data() : null);
+    // Données écrites par une version plus récente : lecture seule, pour ne rien abîmer.
+    S.readOnly = (snap.exists() && Number(snap.data().dataVersion) || 1) > DATA_VERSION;
+    $('#outdated').hidden = !S.readOnly;
     S.loaded.settings = true;
     document.body.classList.toggle('pro', isPro());
     if (!S.settingsExists) { openOnboarding(); return; }
@@ -314,6 +321,12 @@ function errText(e) {
   if (c === 'permission-denied') return 'Enregistrement refusé : accès non autorisé.';
   if (c === 'resource-exhausted') return 'Limite du serveur atteinte. Réessaie plus tard.';
   return 'Pas enregistré (' + (c || 'erreur') + ').';
+}
+// Lecture seule (données d'une version plus récente) : toute modification est refusée.
+function blocked() {
+  if (!S.readOnly) return false;
+  toast('Mets P-Flow à jour pour pouvoir modifier tes données.', true);
+  return true;
 }
 // Écriture « optimiste » : enregistrée tout de suite sur l'appareil, envoyée dès que le réseau est là.
 function write(p, okMsg) {
@@ -590,6 +603,7 @@ function calc() {
 $('#rates').addEventListener('change', e => {
   const inp = e.target.closest('input[data-year]'); if (!inp) return;
   const v = parseAmount(inp.value), y = inp.dataset.year;
+  if (blocked()) { inp.value = NUM.format(rateFor(+y)); return; }
   if (!(v >= 0 && v < 100)) { toast('Taux invalide : écris par exemple 21,2', true); inp.value = NUM.format(rateFor(+y)); return; }
   write(setDoc(uref('meta', 'settings'), { taux: { [y]: v } }, { merge: true }), 'Taux ' + y + ' : ' + pctf(v));
 });
@@ -628,6 +642,7 @@ const F = { mode: 'new', type: 'depense', orig: null, ctx: CUR, armed: false };
 const bg = $('#sheet-bg'), form = $('#sheet');
 let lastFocus = null;
 function openSheet(o) {
+  if (blocked()) return;
   lastFocus = document.activeElement;
   F.mode = o.mode; F.armed = false; F.ctx = S.view === 'mois' ? S.month : CUR;
   $('#f-error').textContent = '';
@@ -694,6 +709,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && !bg.hidden
 
 form.addEventListener('submit', e => {
   e.preventDefault();
+  if (blocked()) { closeSheet(); return; }
   const err = m => { $('#f-error').textContent = m; };
   const amount = parseAmount($('#f-amount').value);
   const label = $('#f-label').value.trim().replace(/\s+/g, ' ');
@@ -708,14 +724,15 @@ form.addEventListener('submit', e => {
     if ($('#f-rec').checked) write(addDoc(ucol('recurring'), { type, label, amount, urssaf, start: month, end: null, createdAt: Date.now() }), 'Fixe ajouté à partir de ' + mLabel(month));
     else write(addDoc(ucol('entries'), { type, label, amount, urssaf, date, month, createdAt: Date.now() }), (S.view === 'mois' && month !== S.month) ? 'Enregistré en ' + mLabel(month) : 'Enregistré');
   } else if (mode === 'edit-entry') {
-    write(setDoc(doc(ucol('entries'), o.id), { type, label, amount, urssaf, date, month, createdAt: o.createdAt || Date.now() }), 'Modifié');
+    // Repartir du document lu : un champ ajouté par une version plus récente n'est jamais effacé.
+    write(setDoc(doc(ucol('entries'), o.id), Object.assign(plain(o), { type, label, amount, urssaf, date, month, createdAt: o.createdAt || Date.now() })), 'Modifié');
   } else {
     const startChanged = month !== o.start;
     const valueChanged = amount !== o.amount || type !== o.type || urssaf !== !!o.urssaf;
     if (!startChanged && valueChanged && o.start < cm && (!o.end || o.end >= cm)) {
       write(Promise.all([
         setDoc(doc(ucol('recurring'), o.id), Object.assign(plain(o), { label, end: addM(cm, -1) })),
-        addDoc(ucol('recurring'), { type, label, amount, urssaf, start: cm, end: o.end || null, createdAt: Date.now() }),
+        addDoc(ucol('recurring'), Object.assign(plain(o), { type, label, amount, urssaf, start: cm, end: o.end || null, createdAt: Date.now() })),
       ]), 'Nouveau montant à partir de ' + mLabel(cm));
     } else {
       write(setDoc(doc(ucol('recurring'), o.id), Object.assign(plain(o), { type, label, amount, urssaf, start: month })), 'Modifié');
@@ -723,6 +740,7 @@ form.addEventListener('submit', e => {
   }
 });
 $('#f-delete').addEventListener('click', () => {
+  if (blocked()) { closeSheet(); return; }
   const b = $('#f-delete');
   if (!F.armed) { F.armed = true; b.classList.add('armed'); b.textContent = F.mode === 'edit-rec' ? 'Confirmer : retirer de tous les mois' : 'Confirmer la suppression'; return; }
   const o = F.orig, mode = F.mode; closeSheet();
@@ -730,6 +748,7 @@ $('#f-delete').addEventListener('click', () => {
   else write(deleteDoc(doc(ucol('recurring'), o.id)), 'Fixe supprimé');
 });
 $('#f-stop').addEventListener('click', () => {
+  if (blocked()) { closeSheet(); return; }
   const o = F.orig, cm = F.ctx; closeSheet();
   if (o.end) write(setDoc(doc(ucol('recurring'), o.id), Object.assign(plain(o), { end: null })), 'Repris chaque mois');
   else { const end = cm < o.start ? o.start : cm; write(setDoc(doc(ucol('recurring'), o.id), Object.assign(plain(o), { end })), 'Arrêté après ' + mLabel(end)); }
@@ -762,10 +781,10 @@ document.addEventListener('click', e => {
   else if (a === 'toggle-ended') { S.showEnded = !S.showEnded; renderFixes(); }
   else if (a === 'goto-month') { S.month = t.dataset.month; S.year = pYM(S.month).y; setView('mois'); }
   else if (a === 'export') exportCsv();
-  else if (a === 'period') { if (S.settings.periodicite !== t.dataset.p) write(setDoc(uref('meta', 'settings'), { periodicite: t.dataset.p }, { merge: true }), t.dataset.p === 'mensuelle' ? 'Déclaration mensuelle' : 'Déclaration trimestrielle'); }
+  else if (a === 'period') { if (S.settings.periodicite !== t.dataset.p && !blocked()) write(setDoc(uref('meta', 'settings'), { periodicite: t.dataset.p }, { merge: true }), t.dataset.p === 'mensuelle' ? 'Déclaration mensuelle' : 'Déclaration trimestrielle'); }
   else if (a === 'profile') {
     const pro = t.dataset.pro === '1';
-    if (pro === isPro()) return;
+    if (pro === isPro() || blocked()) return;
     const patch = { pro };
     if (pro && !Object.keys(S.settings.taux).length) patch.taux = { [String(NOW.getFullYear())]: 21.2 };
     write(setDoc(uref('meta', 'settings'), patch, { merge: true }), pro ? 'Profil auto-entrepreneur : vérifie ton taux URSSAF' : 'Profil particulier');
