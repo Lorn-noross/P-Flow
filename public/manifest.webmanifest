@@ -1,7 +1,7 @@
 {
   "name": "P-Flow",
   "short_name": "P-Flow",
-  "description": "Ce qui rentre, ce qui sort, ce qui reste.",
+  "description": "Know where your money flows.",
   "lang": "fr",
   "start_url": "./",
   "scope": "./",

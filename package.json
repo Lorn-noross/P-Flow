@@ -2,7 +2,7 @@
   "name": "p-flow",
   "private": true,
   "version": "0.1.0-beta",
-  "description": "Ce qui rentre, ce qui sort, ce qui reste.",
+  "description": "Know where your money flows.",
   "type": "module",
   "scripts": {
     "dev": "vite",
