@@ -1,6 +1,6 @@
 # P-Flow
 
-**Ce qui rentre, ce qui sort, ce qui reste.**
+**Know where your money flows.**
 
 Application de suivi de budget : revenus, dépenses, charges fixes et reste du mois, avec un mode auto-entrepreneur (calcul URSSAF, échéances de déclaration, seuils de la micro-entreprise).
 
