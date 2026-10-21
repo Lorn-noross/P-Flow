@@ -10,7 +10,7 @@ Application de suivi de budget : revenus, dépenses, charges fixes et reste du m
 
 ## Télécharger
 
-- APK Android : [dernière version](https://github.com/Lorn-noross/P-Flow/releases/latest/download/p-flow.apk)
+- APK Android : [page de téléchargement](https://lorn-noross.github.io/P-Flow/telecharger.html) (toujours la dernière version)
 - Version PC : https://lorn-noross.github.io/P-Flow/
 
 L'accès est réservé aux personnes autorisées par l'administrateur.
@@ -30,5 +30,5 @@ npx cap sync android # copie dans le projet Android
 
 Chaque push sur `main` déclenche `.github/workflows/build.yml` :
 1. construction de la version web, publiée sur GitHub Pages ;
-2. construction et signature de l'APK (secret `ANDROID_KEYSTORE_PASSWORD`), publié dans les Releases ;
+2. construction et signature de l'APK (secret `ANDROID_KEYSTORE_PASSWORD`), publié dans les Releases sous le nom `P-Flow-<version>.apk` ;
 3. publication de `version.json`, que l'appli Android lit pour proposer les mises à jour.

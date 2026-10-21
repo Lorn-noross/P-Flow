@@ -1,7 +1,7 @@
 {
   "name": "p-flow",
   "private": true,
-  "version": "1.1.2",
+  "version": "0.1.0-beta",
   "description": "Ce qui rentre, ce qui sort, ce qui reste.",
   "type": "module",
   "scripts": {

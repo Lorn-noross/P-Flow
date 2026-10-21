@@ -16,7 +16,7 @@ import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { auth, db, isNative } from './firebase.js';
 
 /* global __APP_VERSION__, __APP_BUILD__, __PAGES_URL__ */
-const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
+const APP_VERSION = (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev').replace(/-beta$/, ' bêta');
 const APP_BUILD = typeof __APP_BUILD__ !== 'undefined' ? __APP_BUILD__ : '0';
 const PAGES_URL = typeof __PAGES_URL__ !== 'undefined' ? __PAGES_URL__ : '';
 
@@ -220,7 +220,7 @@ $('#google-btn').addEventListener('click', async () => {
   }
 });
 $('#g-alt').addEventListener('click', () => nativeGoogle(false));
-$('#login-version').textContent = 'P-Flow ' + APP_VERSION + ' (build ' + APP_BUILD + ')';
+$('#login-version').textContent = 'P-Flow ' + APP_VERSION;
 // Toute erreur imprévue s'affiche sur l'écran de connexion au lieu de rester invisible.
 function showDiag(m) { if (!$('#s-login').hidden) { const e = $('#l-error'); e.textContent = 'Erreur : ' + m; } }
 window.addEventListener('error', e => showDiag(e.message || 'inconnue'));
@@ -583,7 +583,7 @@ if (window.ResizeObserver) new ResizeObserver(() => renderChart()).observe($('#c
 
 function renderReglages() {
   $('#acc-email').textContent = (S.user && S.user.email) || '';
-  $('#acc-version').textContent = APP_VERSION + ' (' + APP_BUILD + ')';
+  $('#acc-version').textContent = APP_VERSION;
   $$('#profile-seg button').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.pro === '1') === isPro())));
   const rates = $('#rates');
   if (isPro() && !rates.contains(document.activeElement)) {
@@ -843,7 +843,7 @@ async function checkUpdate() {
 }
 
 /* ---------- partage ---------- */
-const LINKS = { apk: 'https://github.com/Lorn-noross/P-Flow/releases/latest/download/p-flow.apk', web: PAGES_URL || location.href.split('#')[0] };
+const LINKS = { apk: (PAGES_URL || location.href.split('#')[0].replace(/[^/]*$/, '')) + 'telecharger.html', web: PAGES_URL || location.href.split('#')[0] };
 $('#share-apk').textContent = LINKS.apk;
 $('#share-web').textContent = LINKS.web;
 document.addEventListener('click', async e => {

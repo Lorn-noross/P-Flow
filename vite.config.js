@@ -7,7 +7,7 @@ const build = process.env.GITHUB_RUN_NUMBER || '0';
 export default defineConfig({
   base: './',
   define: {
-    __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_VERSION__: JSON.stringify(process.env.APP_VERSION || pkg.version),
     __APP_BUILD__: JSON.stringify(build),
     __PAGES_URL__: JSON.stringify('https://lorn-noross.github.io/P-Flow/'),
   },
