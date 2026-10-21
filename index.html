@@ -75,32 +75,6 @@
   </div>
 </div>
 
-<!-- Accès refusé -->
-<div class="screen" id="s-denied" hidden>
-  <div class="screen-card">
-    <div class="auth-brand"><span class="mark"><svg class="i"><use href="#i-wave"/></svg></span></div>
-    <h2>Accès pas encore autorisé</h2>
-    <p>Le compte <b id="d-email"></b> n'est pas dans la liste des personnes autorisées. Demande à la personne qui t'a donné P-Flow de t'ajouter, puis touche « Réessayer ».</p>
-    <details>
-      <summary class="link" style="cursor:pointer">Tu es l'administrateur ? Premier démarrage</summary>
-      <div class="stack" style="margin-top:12px">
-        <p class="hint">Dans la console Firebase, ouvre Firestore et crée ces deux documents (un champ <code>ok</code> = <code>true</code> suffit) :</p>
-        <ol class="steps">
-          <li>Collection <b>admins</b>, ID du document :</li>
-        </ol>
-        <p class="code" id="d-uid"></p>
-        <ol class="steps" start="2">
-          <li>Collection <b>allowlist</b>, ID du document :</li>
-        </ol>
-        <p class="code" id="d-mail"></p>
-      </div>
-    </details>
-    <p class="error" id="d-error" role="alert"></p>
-    <button class="btn primary block" id="d-retry">Réessayer</button>
-    <button class="link" data-act="logout">Se déconnecter</button>
-  </div>
-</div>
-
 <!-- Premier démarrage -->
 <div class="screen" id="s-onboard" hidden>
   <form class="screen-card" id="onboard-form" novalidate>
@@ -258,15 +232,6 @@
               <p class="code" id="share-web"></p>
               <div><button class="btn ghost" data-copy="web">Copier le lien iPhone / PC</button></div>
             </div>
-          </article>
-          <article class="card stack" id="admin-card" hidden>
-            <h3>Personnes autorisées</h3>
-            <p class="hint">Seuls ces emails peuvent utiliser P-Flow. Chaque personne a ses propres comptes, invisibles pour les autres.</p>
-            <form class="inline-form" id="allow-form" novalidate>
-              <input class="input" id="allow-email" type="email" placeholder="email@exemple.fr" autocomplete="off">
-              <button class="btn primary" type="submit">Autoriser</button>
-            </form>
-            <div id="allow-list"></div>
           </article>
         </div>
       </div>
