@@ -176,24 +176,36 @@ $('#login-form').addEventListener('submit', async e => {
   finally { btn.disabled = false; }
 });
 $('#google-btn').addEventListener('click', async () => {
-  $('#l-error').textContent = '';
+  const errEl = $('#l-error'); errEl.textContent = '';
   const btn = $('#google-btn'); btn.disabled = true;
   try {
     if (isNative) {
-      // Connexion Google native d'Android, puis on transmet le jeton au SDK web Firebase.
-      const r = await FirebaseAuthentication.signInWithGoogle();
+      // 1) Sélecteur de compte moderne d'Android (Credential Manager).
+      // 2) En cas d'échec, sélecteur Google classique.
+      // Le jeton obtenu est ensuite transmis au SDK web Firebase.
+      let r = null, first = '';
+      try { r = await FirebaseAuthentication.signInWithGoogle({ useCredentialManager: true }); }
+      catch (e1) { first = String((e1 && (e1.message || e1.code)) || e1); }
+      if (!r || !r.credential || !r.credential.idToken) {
+        try { r = await FirebaseAuthentication.signInWithGoogle({ useCredentialManager: false }); }
+        catch (e2) {
+          const second = String((e2 && (e2.message || e2.code)) || e2);
+          throw new Error('Google : ' + (first ? first + ' / ' : '') + second);
+        }
+      }
       const idToken = r && r.credential && r.credential.idToken;
-      if (!idToken) throw new Error('no-token');
+      if (!idToken) throw new Error('Google n\'a pas renvoyé de jeton de connexion.');
       await signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
     } else {
       await signInWithPopup(auth, new GoogleAuthProvider());
     }
   } catch (x) {
-    const msg = String((x && (x.code || x.message)) || '');
-    if (/cancel|annul/i.test(msg)) return;
-    $('#l-error').textContent = isNative && !(x && x.code && String(x.code).startsWith('auth/'))
-      ? 'La connexion Google n\'a pas abouti (' + msg + '). Tu peux aussi te connecter avec ton email.'
-      : authErr(x);
+    const code = x && x.code ? String(x.code) : '';
+    if (!isNative && /popup-closed|cancelled-popup/.test(code)) return;
+    const msg = code.startsWith('auth/') ? authErr(x) : 'La connexion Google n\'a pas abouti. ' + ((x && x.message) || '') + ' Tu peux aussi te connecter avec ton email.';
+    errEl.textContent = msg;
+    toast(msg, true);
+    errEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
   } finally { btn.disabled = false; }
 });
 $('#v-resend').addEventListener('click', async () => {
