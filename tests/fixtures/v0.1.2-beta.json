@@ -1,0 +1,39 @@
+{
+  "_info": "Données FICTIVES au format de la version 0.1.2-beta (patch 2 : collections epargne et periodiques, réglage facultatif epargne). Ne jamais modifier ni supprimer ce fichier. Les champs « champFutur » simulent un champ ajouté par une version plus récente : ils doivent survivre à toute modification.",
+  "docs": {
+    "users/uid-test/meta/settings": {
+      "pro": true,
+      "taux": { "2026": 21.2 },
+      "periodicite": "mensuelle",
+      "createdAt": 1767225600000,
+      "couleurs": { "brut": null, "urssaf": "#e0662e", "net": null, "dep": "#6a7d90", "reste": "#16845a" },
+      "sauvegarde": { "drive": false, "frequence": "mensuelle", "derniere": 0 },
+      "epargne": true
+    },
+    "users/uid-test/entries/e1": { "type": "revenu", "label": "Facture client A", "amount": 1000, "urssaf": true, "date": "2026-03-05", "month": "2026-03", "createdAt": 1772668800000 },
+    "users/uid-test/entries/e2": { "type": "depense", "label": "Courses", "amount": 85.4, "urssaf": false, "date": "2026-03-07", "month": "2026-03", "createdAt": 1772841600000, "champFutur": "à conserver" },
+    "users/uid-test/entries/e3": { "type": "revenu", "label": "Remboursement", "amount": 50, "urssaf": false, "date": "2026-03-10", "month": "2026-03", "createdAt": 1773100800000 },
+    "users/uid-test/entries/e4": { "type": "depense", "label": "Essence", "amount": 60, "urssaf": false, "date": "2026-02-12", "month": "2026-02", "createdAt": 1770854400000 },
+    "users/uid-test/recurring/r1": { "type": "depense", "label": "Loyer", "amount": 500, "urssaf": false, "start": "2025-09", "end": null, "createdAt": 1756684800000 },
+    "users/uid-test/recurring/r2": { "type": "depense", "label": "Abonnement", "amount": 20, "urssaf": false, "start": "2026-01", "end": "2026-02", "createdAt": 1767225600000 },
+    "users/uid-test/recurring/r3": { "type": "revenu", "label": "Aide", "amount": 100, "urssaf": false, "start": "2026-01", "end": null, "createdAt": 1767225600000, "champFutur": "fixe à conserver" },
+    "users/uid-test/periodiques/p1": { "type": "depense", "label": "Assurance auto", "amount": 240, "urssaf": false, "freq": "trimestre", "start": "2026-01", "end": null, "createdAt": 1767225600000 },
+    "users/uid-test/periodiques/p2": { "type": "depense", "label": "Assurance habitation", "amount": 180, "urssaf": false, "freq": "annee", "start": "2025-03", "end": null, "createdAt": 1740787200000 },
+    "users/uid-test/periodiques/p3": { "type": "epargne", "label": "Livret A", "amount": 50, "urssaf": false, "freq": "mois", "start": "2026-02", "end": null, "createdAt": 1769904000000 },
+    "users/uid-test/periodiques/p4": { "type": "revenu", "label": "Prime", "amount": 300, "urssaf": false, "freq": "trimestre", "start": "2025-12", "end": null, "createdAt": 1764547200000, "champFutur": "périodique à conserver" },
+    "users/uid-test/epargne/ep1": { "op": "solde", "label": "Livret A", "amount": 1000, "date": "2026-01-10", "month": "2026-01", "createdAt": 1768003200000 },
+    "users/uid-test/epargne/ep2": { "op": "depot", "label": "Livret A", "amount": 150, "date": "2026-03-08", "month": "2026-03", "createdAt": 1772928000000, "champFutur": "épargne à conserver" },
+    "users/uid-test/epargne/ep3": { "op": "retrait", "label": "Livret A", "amount": 30, "date": "2026-03-12", "month": "2026-03", "createdAt": 1773273600000 },
+    "users/uid-test/epargne/ep4": { "op": "solde", "label": "PEL", "amount": 5000, "date": "2026-02-01", "month": "2026-02", "createdAt": 1769904000000 }
+  },
+  "expect": {
+    "_date": "2026-03-15",
+    "chargesFixes": 2,
+    "mars": { "reste": 302.6, "brut": 1450, "urssaf": 212, "net": 1238, "dep": 765.4, "ep": 170 },
+    "annee2026": { "brut": 1650, "urssaf": 212, "net": 1438, "dep": 2105.4, "ep": 220, "reste": -887.4 },
+    "apresModif": 268,
+    "epargne": { "total": 6220, "Livret A": 1220, "PEL": 5000 },
+    "fixesParMois": { "reste": -445, "charges": 595, "revenus": 200, "epargne": 50 },
+    "nb": { "entries": 4, "recurring": 3, "periodiques": 4, "epargne": 4 }
+  }
+}

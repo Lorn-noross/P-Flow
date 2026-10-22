@@ -12,6 +12,7 @@ import { readFileSync, readdirSync, existsSync, mkdirSync, statSync } from 'node
 import { join, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { latestNotes } from '../vite.config.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const DIST = join(ROOT, 'tests/.dist');
@@ -48,13 +49,24 @@ function check(ok, label) {
   checks++;
   if (ok) return;
   failures++;
-  console.log('   ✗ ' + label);
+  console.log('   ✗ ' + (typeof current === 'string' && current ? '[' + current + '] ' : '') + label);
 }
 async function until(page, fn, arg, label) {
   try { await page.waitForFunction(fn, arg, { timeout: 5000 }); check(true, label); }
   catch (e) { check(false, label + ' (délai dépassé)'); }
 }
 const dump = page => page.evaluate(() => window.__PFLOW_DB__.dump());
+const NOTES_VERSION = latestNotes().version;
+// Réglages en sections (patch 2) : ouvre une sous-page (compte, pro, apparence, donnees, partage, admin, apropos).
+async function reglages(page, sub) {
+  await page.locator('[data-act="view"][data-view="reglages"]:visible').click();
+  if (await page.locator('[data-act="sub-back"]').count()) await page.click('[data-act="sub-back"]');
+  if (sub) {
+    await page.click('[data-act="sub"][data-sub="' + sub + '"]');
+    await until(page, s => !document.getElementById('sub-' + s).hidden, sub, 'Réglages → ' + sub);
+  }
+}
+const noErr = (errors, what) => check(errors.length === 0, 'aucune erreur dans la console' + (what ? ' (' + what + ')' : '') + (errors.length ? ' : ' + errors.join(' | ') : ''));
 
 const CONFIGS = [
   { name: 'téléphone clair', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, colorScheme: 'light' },
@@ -122,15 +134,21 @@ async function open(cfg, docs, opts = {}) {
   const seed = Object.assign({}, docs);
   if (!opts.denied) seed['allowlist/test@example.invalid'] = { addedAt: 1767225600000 };
   if (opts.admin) seed['admins/uid-test'] = { ok: true };
-  await page.addInitScript(([s, noUser, tok]) => { window.__PFLOW_SEED__ = s; window.__PFLOW_NO_USER__ = noUser; if (tok) window.__PFLOW_DRIVE_TOKEN__ = tok; }, [seed, !!opts.noUser, opts.driveToken || null]);
+  const ls = Object.assign(opts.news ? {} : { 'pf-nouveautes': NOTES_VERSION }, opts.ls || {});
+  await page.addInitScript(([s, noUser, tok, ls]) => {
+    window.__PFLOW_SEED__ = s; window.__PFLOW_NO_USER__ = noUser; if (tok) window.__PFLOW_DRIVE_TOKEN__ = tok;
+    if (!sessionStorage.getItem('pf-test-init')) { sessionStorage.setItem('pf-test-init', '1'); for (const [k, v] of Object.entries(ls)) localStorage.setItem(k, v); }
+  }, [seed, !!opts.noUser, opts.driveToken || null, ls]);
   await page.goto(URL_APP);
   return { ctx, page, errors };
 }
 async function waitApp(page) {
-  await until(page, () => { const a = document.getElementById('app'); const h = document.getElementById('hero-amount'); return a && !a.hidden && h && h.textContent !== '…'; }, null, 'l\'appli s\'affiche');
+  // L'appli s'ouvre sur la dernière vue utilisée (#mois, #reglages…) : montant du mois chargé, ou données synchronisées.
+  await until(page, () => { const a = document.getElementById('app'); const h = document.getElementById('hero-amount'); return a && !a.hidden && ((h && h.textContent !== '…') || (location.hash.length > 1 && location.hash !== '#mois' && document.querySelector('.top .sync').dataset.s === 'ok')); }, null, 'l\'appli s\'affiche');
 }
 const txt = (page, sel) => page.locator(sel).first().innerText().then(clean);
-const legend = page => page.$$eval('#legend > div', ds => ds.map(d => [d.querySelector('dt').innerText.trim(), d.querySelector('dd').innerText]));
+// Cascade du mois (Brut → URSSAF → Net → Dépenses → Épargne → Reste) : libellé sans le signe −, = ou +.
+const legend = page => page.$$eval('#legend > div', ds => ds.map(d => [d.querySelector('dt').innerText.replace(/^[\s−=+]+/, '').trim(), d.querySelector('dd').innerText]));
 
 // ---------- scénarios ----------
 async function scenarioDonnees(cfg, fx, tag) {
@@ -145,15 +163,19 @@ async function scenarioDonnees(cfg, fx, tag) {
   check(L['URSSAF'] === eur(E.mars.urssaf), 'URSSAF');
   check(L['Revenus nets'] === eur(E.mars.net), 'revenus nets');
   check(L['Dépenses'] === eur(E.mars.dep), 'dépenses');
+  if (E.mars.ep != null) check(L['Épargne'] === eur(E.mars.ep), 'épargne du mois = ' + eur(E.mars.ep));
+  else check(!('Épargne' in L), 'pas de ligne Épargne sans épargne');
   for (const l of ['Facture client A', 'Remboursement', 'Aide', 'Courses']) check(await page.locator('#lists .row', { hasText: l }).count() === 1, 'ligne « ' + l + ' » affichée');
-  check(await page.locator('#lists', { hasText: 'Charges fixes · 1' }).count() === 1, 'une charge fixe active (l\'abonnement terminé est exclu)');
+  const nf = E.chargesFixes || 1;
+  check(await page.locator('#lists', { hasText: 'Charges fixes · ' + nf }).count() === 1, nf + ' charge(s) fixe(s) ce mois-ci (l\'abonnement terminé est exclu)');
   await page.screenshot({ path: join(OUT, tag + '-mois.png'), fullPage: true });
 
   // Année : totaux
   await page.locator('[data-act="view"][data-view="annee"]:visible').click();
   await until(page, () => !document.getElementById('v-annee').hidden && !document.getElementById('kpis').innerText.includes('…'), null, 'vue Année affichée');
   const K = clean(await page.locator('#kpis').innerText());
-  for (const k of ['brut', 'urssaf', 'net', 'dep', 'reste']) check(K.includes(eur(E.annee2026[k])), 'total année ' + k + ' = ' + eur(E.annee2026[k]));
+  for (const k of ['brut', 'urssaf', 'net', 'dep', 'ep']) if (E.annee2026[k] != null) check(K.includes(eur(E.annee2026[k])), 'total année ' + k + ' = ' + eur(E.annee2026[k]));
+  check(K.includes(eur(Math.abs(E.annee2026.reste))) && K.includes(E.annee2026.reste < 0 ? 'manque' : 'Reste'), 'reste de l\'année = ' + eur(E.annee2026.reste));
   await page.screenshot({ path: join(OUT, tag + '-annee.png'), fullPage: true });
   await page.locator('[data-act="view"][data-view="mois"]:visible').click();
   await until(page, () => !document.getElementById('v-mois').hidden, null, 'retour au mois');
@@ -201,9 +223,9 @@ async function scenarioDonnees(cfg, fx, tag) {
     if (path in db) for (const f of Object.keys(d)) check(f in db[path], 'champ « ' + f + ' » toujours présent dans ' + path);
   }
   // Affichage après modifications : 1 000 + 120 bruts, 212 URSSAF, 90 + 500 de dépenses
-  await until(page, v => document.getElementById('hero-amount').textContent.replace(/[\s  ]/g, '') === v, eur(318), 'reste recalculé après modifications');
+  await until(page, v => document.getElementById('hero-amount').textContent.replace(/[\s  ]/g, '') === v, eur(E.apresModif != null ? E.apresModif : 318), 'reste recalculé après modifications');
 
-  check(errors.length === 0, 'aucune erreur dans la console' + (errors.length ? ' : ' + errors.join(' | ') : ''));
+  noErr(errors);
   await ctx.close();
 }
 
@@ -328,7 +350,7 @@ async function scenarioCouleurs(cfg, fx, tag) {
   check(await css('#hero-amount', 'color') === 'rgb(122, 90, 248)', 'couleur du reste venue d\'un autre appareil appliquée au chargement');
   check(await inline('dep') === '', 'une couleur invalide est ignorée (couleur par défaut)');
 
-  await page.locator('[data-act="view"][data-view="reglages"]:visible').click();
+  await reglages(page, 'apparence');
   await until(page, () => document.querySelectorAll('#colors .color-head').length === 5, null, '5 couleurs réglables (profil auto-entrepreneur)');
   await page.click('#colors [data-act="color-open"][data-k="dep"]');
   await page.click('#colors [data-act="color-set"][data-k="dep"][data-c="#c23b35"]');
@@ -343,9 +365,10 @@ async function scenarioCouleurs(cfg, fx, tag) {
   await page.locator('[data-act="view"][data-view="mois"]:visible').click();
   check(await css('#legend .s-dep', 'backgroundColor') === 'rgb(194, 59, 53)', 'vue Mois : légende des dépenses à la nouvelle couleur');
   await page.locator('[data-act="view"][data-view="annee"]:visible').click();
-  check(await css('#chart .b-dep', 'fill') === 'rgb(194, 59, 53)', 'vue Année : barres des dépenses à la nouvelle couleur');
+  await until(page, () => !!document.querySelector('#y-top .bar i:not(.p)'), null, 'vue Année : « Où part l\'argent » affiché');
+  check(await css('#y-top .bar i:not(.p)', 'backgroundColor') === 'rgb(194, 59, 53)', 'vue Année : dépenses fixes à la nouvelle couleur');
 
-  await page.locator('[data-act="view"][data-view="reglages"]:visible').click();
+  await reglages(page, 'apparence');
   await page.click('#colors [data-act="color-reset"][data-k="dep"]');
   await until(page, () => window.__PFLOW_DB__.dump()['users/uid-test/meta/settings'].couleurs.dep === null, null, '« Par défaut » enregistré');
   await until(page, () => document.documentElement.style.getPropertyValue('--c-dep') === '', null, 'couleur des dépenses revenue par défaut');
@@ -368,14 +391,14 @@ async function scenarioAcces(cfg, fx, tag) {
 
   o = await open(cfg, fx.docs, { date: fx.expect._date });
   await waitApp(o.page);
-  await o.page.locator('[data-act="view"][data-view="reglages"]:visible').click();
-  check(await o.page.locator('#admin-card').isHidden(), 'non-administrateur : pas de gestion des accès');
+  await reglages(o.page);
+  check(await o.page.locator('[data-act="sub"][data-sub="admin"]').isHidden() && await o.page.locator('#admin-card').isHidden(), 'non-administrateur : pas de gestion des accès');
   await o.ctx.close();
 
   o = await open(cfg, fx.docs, { date: fx.expect._date, admin: true });
   const page = o.page;
   await waitApp(page);
-  await page.locator('[data-act="view"][data-view="reglages"]:visible').click();
+  await reglages(page, 'admin');
   check(await page.locator('#admin-card').isVisible(), 'administrateur : carte de gestion des accès visible');
   await page.fill('#allow-email', 'Parent@Example.invalid');
   await page.locator('#allow-form [type="submit"]').click();
@@ -392,17 +415,18 @@ async function scenarioAcces(cfg, fx, tag) {
 // Sauvegardes : export complet, import qui remet seulement ce qui manque, Google Drive (simulé).
 async function scenarioSauvegardes(cfg, fx, tag) {
   const E2 = 'users/uid-test/entries/e2', E3 = 'users/uid-test/entries/e3', R2 = 'users/uid-test/recurring/r2';
-  const reglages = p => p.locator('[data-act="view"][data-view="reglages"]:visible').click();
+  const NB = (fx.expect.nb) || { entries: 4, recurring: 3 };
 
   // 1. Exporter : un fichier avec tout le compte
   let o = await open(cfg, fx.docs, { date: fx.expect._date });
-  await waitApp(o.page); await reglages(o.page);
+  await waitApp(o.page); await reglages(o.page, 'donnees');
   const [dl] = await Promise.all([o.page.waitForEvent('download'), o.page.click('[data-act="backup-export"]')]);
   // Nom de fichier sans accent : Chromium sans écran refuse les chemins accentués pour l'envoi de fichier.
   const file = join(OUT, tag.normalize('NFD').replace(/[\u0300-\u036f]/g, '') + '-sauvegarde.json');
   await dl.saveAs(file);
   const bk = JSON.parse(readFileSync(file, 'utf8'));
-  check(bk.app === 'P-Flow' && bk.dataVersion === 1 && bk.entries.length === 4 && bk.recurring.length === 3, 'export : toutes les opérations et tous les fixes');
+  check(bk.app === 'P-Flow' && bk.format === 2 && bk.dataVersion === 1 && bk.entries.length === NB.entries && bk.recurring.length === NB.recurring, 'export : toutes les opérations et tous les fixes');
+  check(bk.periodiques.length === (NB.periodiques || 0) && bk.epargne.length === (NB.epargne || 0), 'export : fixes non mensuels et épargne (' + bk.periodiques.length + ', ' + bk.epargne.length + ')');
   check(bk.entries.find(e => e.id === 'e2').champFutur === 'à conserver' && bk.settings.pro === true, 'export : champs et réglages complets');
   check(/^p-flow-sauvegarde-\d{4}-\d{2}-\d{2}-\d{2}h\d{2}\.json$/.test(dl.suggestedFilename()), 'export : nom de fichier daté');
   await o.ctx.close();
@@ -411,7 +435,7 @@ async function scenarioSauvegardes(cfg, fx, tag) {
   const docs = JSON.parse(JSON.stringify(fx.docs));
   delete docs[E3]; delete docs[R2]; docs[E2].amount = 99;
   o = await open(cfg, docs, { date: fx.expect._date });
-  await waitApp(o.page); await reglages(o.page);
+  await waitApp(o.page); await reglages(o.page, 'donnees');
   await o.page.setInputFiles('#import-file', file);
   await until(o.page, () => !document.getElementById('restore-panel').hidden, null, 'import : résumé avant de restaurer');
   const txt = await o.page.locator('#restore-panel').innerText();
@@ -443,12 +467,12 @@ async function scenarioSauvegardes(cfg, fx, tag) {
   const drive = { files: [], calls: [] };
   o = await open(cfg, fx.docs, { date: fx.expect._date, driveToken: 'jeton-test', drive });
   const page = o.page;
-  await waitApp(page); await reglages(page);
+  await waitApp(page); await reglages(page, 'donnees');
   await page.click('[data-act="drive-connect"]');
   await until(page, () => { const s = window.__PFLOW_DB__.dump()['users/uid-test/meta/settings'].sauvegarde; return s && s.drive === true && s.derniere > 0; }, null, 'Drive : connecté, date de la copie enregistrée dans le compte');
   const folders = drive.files.filter(f => f.folder), copies = () => drive.files.filter(f => !f.folder && !f.trashed);
   check(folders.length === 1 && folders[0].name === 'P-Flow Sauvegardes', 'Drive : dossier « P-Flow Sauvegardes » créé');
-  check(copies().length === 1 && JSON.parse(copies()[0].content).entries.length === 4, 'Drive : première copie complète');
+  check(copies().length === 1 && JSON.parse(copies()[0].content).entries.length === NB.entries, 'Drive : première copie complète');
   for (let i = 2; i <= 13; i++) {
     await until(page, () => !document.querySelector('[data-act="drive-now"]').disabled, null, 'Drive : prêt pour la copie ' + i);
     await page.click('[data-act="drive-now"]');
@@ -491,14 +515,14 @@ async function scenarioMisesAJour(cfg, fx, tag) {
   await waitApp(o.page);
   await until(o.page, () => document.getElementById('update').innerText.includes('0.1.1 bêta'), null, 'mise à jour : bandeau « 0.1.1 bêta disponible »');
   check(await o.page.locator('#update [data-act="upd-reload"]').count() === 1, 'mise à jour : bouton Recharger (navigateur)');
-  await o.page.locator('[data-act="view"][data-view="reglages"]:visible').click();
+  await reglages(o.page, 'apropos');
   check((await o.page.locator('#upd-status').innerText()).includes('0.1.1 bêta'), 'Réglages : nouvelle version annoncée');
   await o.page.selectOption('#upd-auto', 'semaine');
   check(await o.page.evaluate(() => localStorage.getItem('pf-maj-auto')) === 'semaine', 'Réglages : intervalle de vérification enregistré');
   await o.ctx.close();
   o = await open(cfg, fx.docs, { date: fx.expect._date });
   await waitApp(o.page);
-  await o.page.locator('[data-act="view"][data-view="reglages"]:visible').click();
+  await reglages(o.page, 'apropos');
   await o.page.click('#upd-check');
   await until(o.page, () => document.getElementById('upd-status').textContent.includes('dernière version'), null, 'vérification manuelle : « Tu as la dernière version »');
   check(await o.page.locator('#update').isHidden(), 'pas de bandeau sans nouvelle version');
@@ -507,39 +531,378 @@ async function scenarioMisesAJour(cfg, fx, tag) {
 }
 
 async function scenarioNouveauCompte(cfg, tag) {
-  const { ctx, page, errors } = await open(cfg, {}, { date: '2026-03-15' });
-  await until(page, () => !document.getElementById('s-onboard').hidden, null, 'écran de bienvenue pour un nouveau compte');
+  const { ctx, page, errors } = await open(cfg, {}, { date: '2026-03-15', news: true });
+  await until(page, () => !document.getElementById('s-onboard').hidden, null, 'configuration guidée pour un nouveau compte');
   await page.screenshot({ path: join(OUT, tag + '-bienvenue.png') });
-  check(errors.length === 0, 'aucune erreur dans la console' + (errors.length ? ' : ' + errors.join(' | ') : ''));
+  // 1. Profil
+  await page.click('#o-profile [data-pro="1"]');
+  await page.click('#ob-next');
+  check((await page.locator('#o-error').innerText()).includes('taux'), 'auto-entrepreneur : taux demandé');
+  await page.fill('#o-rate', '21,2');
+  await page.click('#ob-next');
+  // 2. Revenus fixes : passer
+  await until(page, () => document.getElementById('ob-count').textContent.includes('2 sur 6'), null, 'étape 2 sur 6');
+  await page.click('#ob-skip');
+  // 3. Charges fixes : boutons rapides (libellé modifiable) et charge au libellé libre
+  await page.click('[data-ob="add"][data-l="Loyer"]');
+  await page.fill('.ob-row[data-i="0"] [data-f="amount"]', '650');
+  await page.click('[data-ob="add"][data-l="Assurance"]');
+  await page.fill('.ob-row[data-i="1"] [data-f="amount"]', '300');
+  await page.selectOption('.ob-row[data-i="1"] [data-f="freq"]', 'annee');
+  await page.click('[data-ob="add"][data-k="dep"][data-l=""]');
+  await page.fill('.ob-row[data-i="2"] [data-f="label"]', 'Cantine des enfants');
+  await page.click('#ob-next');
+  check((await page.locator('#o-error').innerText()).includes('Cantine'), 'montant manquant signalé');
+  await page.fill('.ob-row[data-i="2"] [data-f="amount"]', '45,50');
+  await page.click('#ob-next');
+  // 4. Épargne : Livret A, solde 1 200 €, 50 € chaque mois
+  await page.click('[data-ob="ep"][data-v="1"]');
+  await page.click('[data-ob="add"][data-k="ep"][data-l="Livret A"]');
+  await page.fill('.ob-row[data-i="0"] [data-f="amount"]', '1 200');
+  await page.fill('.ob-row[data-i="0"] [data-f="auto"]', '50');
+  await page.click('#ob-next');
+  // 5. Apparence
+  await page.click('[data-ob="theme"][data-t="sombre"]');
+  check(await page.evaluate(() => document.documentElement.getAttribute('data-scheme')) === 'dark', 'apparence appliquée tout de suite');
+  await page.click('#ob-next');
+  // 6. Sauvegarde : plus tard
+  await until(page, () => document.getElementById('ob-next').textContent.includes('parti'), null, 'dernière étape');
+  check(await page.evaluate(() => window.__PFLOW_DB__.writes()) === 0, 'rien n\'est écrit avant la fin');
+  await page.click('#ob-next');
+  await until(page, () => !document.getElementById('app').hidden && document.getElementById('hero-amount').textContent !== '…', null, 'l\'appli s\'ouvre');
+  const db = await dump(page), U = 'users/uid-test/';
+  const st = db[U + 'meta/settings'];
+  check(st && st.pro === true && st.taux['2026'] === 21.2 && st.periodicite === 'mensuelle' && st.epargne === true && typeof st.createdAt === 'number', 'réglages du compte');
+  const of = (col, f) => Object.entries(db).filter(([k, v]) => k.startsWith(U + col + '/') && f(v)).length;
+  check(of('recurring', v => v.label === 'Loyer' && v.amount === 650 && v.type === 'depense' && v.start === '2026-03' && v.end === null && v.urssaf === false) === 1, 'Loyer : fixe mensuel (même document qu\'un ajout manuel)');
+  check(of('periodiques', v => v.label === 'Assurance' && v.amount === 300 && v.freq === 'annee' && v.start === '2026-03' && v.type === 'depense') === 1, 'Assurance : fixe annuel');
+  check(of('recurring', v => v.label === 'Cantine des enfants' && v.amount === 45.5) === 1, 'charge au libellé libre');
+  check(of('epargne', v => v.op === 'solde' && v.label === 'Livret A' && v.amount === 1200 && v.date === '2026-03-15') === 1, 'solde du Livret A');
+  check(of('periodiques', v => v.type === 'epargne' && v.label === 'Livret A' && v.amount === 50 && v.freq === 'mois' && v.start === '2026-04') === 1, 'versement automatique à partir du mois prochain');
+  check(Object.keys(db).filter(k => k.startsWith(U)).length === 6, 'rien d\'autre n\'est écrit');
+  await page.waitForTimeout(1200);
+  check(await page.locator('#panel-bg').isHidden(), 'pas de « nouveautés » pour un nouveau compte');
+  // Mars : aucun revenu, 650 + 300 + 45,50 de charges (le versement automatique commence en avril)
+  await waitHero(page, -995.5, 'reste du mois du nouveau compte');
+  await page.screenshot({ path: join(OUT, tag + '-apres-config.png') });
+  noErr(errors);
+  await ctx.close();
+}
+
+// ---------- patch 2 ----------
+const hero = page => page.locator('#hero-amount').innerText().then(clean);
+const waitHero = (page, v, label) => until(page, x => document.getElementById('hero-amount').textContent.replace(/[\s  ]/g, '').replace(/−/g, '-') === x, eur(v), label);
+
+// Épargne et fixes trimestriels / annuels (jeux de données au nouveau format).
+async function scenarioEpargne(cfg, fx, tag) {
+  const E = fx.expect, EP = 'users/uid-test/epargne/', PER = 'users/uid-test/periodiques/';
+  const { ctx, page, errors } = await open(cfg, fx.docs, { date: E._date });
+  await waitApp(page);
+  const card = clean(await page.locator('#ep-card').innerText());
+  check(card.includes(eur(E.epargne.total)), 'épargne : total des comptes = ' + eur(E.epargne.total));
+  for (const [k, v] of Object.entries(E.epargne)) if (k !== 'total') check(clean(await page.locator('#ep-card .row', { hasText: k }).innerText()).includes(eur(v)), 'épargne : solde ' + k + ' = ' + eur(v));
+  check(await page.locator('#lists', { hasText: 'Épargne du mois' }).count() === 1, 'épargne du mois listée');
+  check(await page.locator('#lists .row', { hasText: 'Prime' }).count() === 1, 'fixe trimestriel compté le mois où il tombe (Prime)');
+  check(await page.locator('#lists .row', { hasText: 'Assurance auto' }).count() === 0, 'fixe trimestriel absent hors échéance (Assurance auto)');
+
+  // Fixes : moyenne par mois et prochaine échéance
+  await page.locator('[data-act="view"][data-view="fixes"]:visible').click();
+  await until(page, () => !document.getElementById('v-fixes').hidden, null, 'vue Fixes');
+  const ft = clean(await page.locator('#fix-totals').innerText());
+  const F = E.fixesParMois;
+  check(ft.includes(eur(F.reste)) && ft.includes(eur(F.charges)) && ft.includes(eur(F.revenus)) && ft.includes(eur(F.epargne)), 'Fixes : « après les fixes » et moyennes par mois (' + ft.slice(0, 80) + ')');
+  check(await page.locator('#fix-list .row', { hasText: 'Assurance auto' }).filter({ hasText: 'prochaine : avril 2026' }).count() === 1, 'Fixes : prochaine échéance du trimestriel (avril 2026)');
+  check(await page.locator('#fix-list .row', { hasText: 'Assurance habitation' }).filter({ hasText: 'ce mois-ci' }).count() === 1, 'Fixes : échéance de l\'annuel ce mois-ci');
+
+  // Nouveau fixe trimestriel depuis Fixes (bouton +)
+  await page.locator('[data-act="add"]:visible').click();
+  await until(page, () => !document.getElementById('sheet-bg').hidden && !document.getElementById('f-start-field').hidden, null, 'Fixes : + ouvre « Nouveau fixe »');
+  await page.click('#freq-seg [data-f="trimestre"]');
+  await page.fill('#f-amount', '90'); await page.fill('#f-label', 'Taxe trimestrielle');
+  await page.click('#f-save');
+  await until(page, p => Object.entries(window.__PFLOW_DB__.dump()).some(([k, v]) => k.startsWith(p) && v.label === 'Taxe trimestrielle' && v.freq === 'trimestre' && v.start === '2026-03' && v.type === 'depense' && v.end === null), PER, 'fixe trimestriel enregistré dans « periodiques »');
+  let db = await dump(page);
+  check(!Object.values(db).some(v => v.label === 'Taxe trimestrielle' && 'month' in v), 'le fixe trimestriel n\'est pas dans « recurring » ni « entries »');
+
+  // Retour au mois : la taxe compte en mars
+  await page.locator('[data-act="view"][data-view="mois"]:visible').click();
+  await waitHero(page, E.mars.reste - 90, 'reste de mars avec le nouveau trimestriel');
+
+  // Modifier le fixe trimestriel en cours de route : l'ancien s'arrête, le nouveau garde le cycle et les champs inconnus
+  await page.locator('#lists .row', { hasText: 'Prime' }).click();
+  await until(page, () => !document.getElementById('sheet-bg').hidden, null, 'fenêtre du fixe trimestriel');
+  check(await page.locator('#f-hint:visible').count() === 1, 'avertissement « nouveau montant à partir de… » (trimestriel)');
+  await page.fill('#f-amount', '350'); await page.click('#f-save');
+  await until(page, k => (window.__PFLOW_DB__.dump()[k] || {}).end === '2026-02', PER + 'p4', 'ancien trimestriel arrêté en février');
+  db = await dump(page);
+  const nP = Object.entries(db).filter(([k, v]) => k.startsWith(PER) && v.label === 'Prime' && k !== PER + 'p4');
+  check(nP.length === 1 && nP[0][1].amount === 350 && nP[0][1].start === '2026-03' && nP[0][1].freq === 'trimestre' && nP[0][1].champFutur === 'périodique à conserver', 'nouveau trimestriel correct (mars, 350 €, champ inconnu reporté)');
+  check(db[PER + 'p4'].amount === 300 && db[PER + 'p4'].champFutur === 'périodique à conserver', 'ancien trimestriel intact (300 €, champ inconnu)');
+
+  // Ajouter de l'épargne avec le bouton rond « Épargne »
+  await page.click('[data-act="add-type"][data-type="epargne"]');
+  await until(page, () => !document.getElementById('sheet-bg').hidden && !document.getElementById('op-seg').hidden, null, 'bouton Épargne : fenêtre en mode épargne');
+  await page.fill('#f-amount', '20'); await page.fill('#f-label', 'Livret A'); await page.click('#f-save');
+  await until(page, p => Object.entries(window.__PFLOW_DB__.dump()).some(([k, v]) => k.startsWith(p) && v.op === 'depot' && v.amount === 20 && v.month === '2026-03' && v.label === 'Livret A'), EP, 'dépôt d\'épargne enregistré');
+  await waitHero(page, E.mars.reste - 90 + 50 - 20, 'le dépôt baisse le reste du mois');
+
+  // Modifier un dépôt garde les champs inconnus
+  await page.locator('#lists .row', { hasText: 'Livret A' }).filter({ hasText: '8 mars' }).click();
+  await until(page, () => !document.getElementById('sheet-bg').hidden, null, 'fenêtre de modification du dépôt');
+  check(await page.locator('#type-seg').isHidden() && await page.locator('#op-seg [data-op="depot"][aria-pressed="true"]').count() === 1, 'modification d\'épargne : type figé, « J\'ai mis de côté » choisi');
+  await page.fill('#f-amount', '160'); await page.click('#f-save');
+  await until(page, k => (window.__PFLOW_DB__.dump()[k] || {}).amount === 160, EP + 'ep2', 'dépôt modifié');
+  db = await dump(page);
+  check(db[EP + 'ep2'].champFutur === 'épargne à conserver' && db[EP + 'ep2'].op === 'depot' && db[EP + 'ep2'].createdAt === fx.docs[EP + 'ep2'].createdAt, 'dépôt : champ inconnu et date de création conservés');
+
+  // Un solde (« J'ai actuellement ») ne change pas le reste
+  const before = await hero(page);
+  await page.click('[data-act="add-type"][data-type="epargne"]');
+  await until(page, () => !document.getElementById('sheet-bg').hidden, null, 'fenêtre épargne');
+  await page.click('#op-seg [data-op="solde"]');
+  check(await page.locator('#f-freq-field').isHidden(), 'solde : pas de fréquence');
+  await page.fill('#f-amount', '5100'); await page.fill('#f-label', 'PEL'); await page.click('#f-save');
+  await until(page, p => Object.entries(window.__PFLOW_DB__.dump()).some(([k, v]) => k.startsWith(p) && v.op === 'solde' && v.amount === 5100), EP, 'solde enregistré');
+  await page.waitForTimeout(600);
+  check(await hero(page) === before, 'un solde ne change pas le reste du mois');
+  await until(page, () => document.getElementById('ep-card').innerText.replace(/[\s  ]/g, '').includes('5100,00€'), null, 'nouveau solde du PEL affiché');
+
+  // Désactiver l'épargne : plus affichée ni comptée, données gardées
+  await reglages(page, 'compte');
+  await page.click('#ep-toggle');
+  await until(page, () => window.__PFLOW_DB__.dump()['users/uid-test/meta/settings'].epargne === false, null, 'épargne désactivée dans le compte');
+  db = await dump(page);
+  check(Object.keys(db).filter(k => k.startsWith(EP)).length === 6, 'épargne désactivée : les opérations d\'épargne restent enregistrées');
+  check(db['users/uid-test/meta/settings'].pro === true && db['users/uid-test/meta/settings'].taux['2026'] === 21.2, 'les autres réglages sont intacts');
+  await page.locator('[data-act="view"][data-view="mois"]:visible').click();
+  await until(page, () => document.getElementById('ep-card').offsetParent === null, null, 'carte Épargne masquée');
+  await page.screenshot({ path: join(OUT, tag + '-epargne-off.png') });
+
+  // Tout ce qui existait est encore là
+  db = await dump(page);
+  for (const [path, d] of Object.entries(fx.docs)) {
+    check(path in db, 'document toujours présent : ' + path);
+    if (path in db) for (const f of Object.keys(d)) check(f in db[path], 'champ « ' + f + ' » toujours présent dans ' + path);
+  }
+  noErr(errors);
+  await ctx.close();
+}
+
+// Comptes d'avant le patch 2 : proposition légère d'activer l'épargne (enregistrée dans le compte).
+async function scenarioOffreEpargne(cfg, fx, tag) {
+  const SET = 'users/uid-test/meta/settings';
+  let o = await open(cfg, fx.docs, { date: fx.expect._date });
+  await waitApp(o.page);
+  check(await o.page.locator('#ep-offer').isVisible(), 'compte existant : proposition d\'activer l\'épargne');
+  check(await o.page.locator('[data-act="add-type"][data-type="epargne"]').isHidden(), 'épargne pas encore activée : pas de bouton Épargne');
+  check(await o.page.evaluate(() => window.__PFLOW_DB__.writes()) === 0, 'rien n\'est écrit tant qu\'on ne choisit pas');
+  await o.page.click('[data-act="ep-offer"][data-v="1"]');
+  await until(o.page, k => window.__PFLOW_DB__.dump()[k].epargne === true, SET, '« Activer » : épargne activée');
+  await until(o.page, () => document.getElementById('ep-offer').hidden, null, 'proposition retirée');
+  check(await o.page.locator('[data-act="add-type"][data-type="epargne"]').isVisible(), 'bouton Épargne affiché');
+  const s = (await dump(o.page))[SET];
+  check(s.pro === true && s.taux['2026'] === 21.2 && s.periodicite === 'mensuelle' && s.createdAt === fx.docs[SET].createdAt, 'les autres réglages sont intacts');
+  noErr(o.errors);
+  await o.ctx.close();
+  o = await open(cfg, fx.docs, { date: fx.expect._date });
+  await waitApp(o.page);
+  await o.page.click('[data-act="ep-offer"][data-v="0"]');
+  await until(o.page, k => window.__PFLOW_DB__.dump()[k].epargne === false, SET, '« Non merci » : choix enregistré (plus proposé sur les autres appareils)');
+  await until(o.page, () => document.getElementById('ep-offer').hidden, null, 'proposition retirée');
+  await o.ctx.close();
+}
+
+// Demande d'accès : la personne demande, l'administrateur accepte ou refuse dans l'appli.
+async function scenarioDemandes(cfg, fx, tag) {
+  const REQ = 'demandes/test@example.invalid';
+  let o = await open(cfg, fx.docs, { date: fx.expect._date, denied: true });
+  const page = o.page;
+  await until(page, () => !document.getElementById('s-denied').hidden, null, 'écran « accès pas encore autorisé »');
+  await page.fill('#req-msg', 'C\'est le voisin');
+  await page.click('#req-send');
+  await until(page, k => !!window.__PFLOW_DB__.dump()[k], REQ, 'demande enregistrée');
+  const d = (await dump(page))[REQ];
+  check(d.uid === 'uid-test' && d.message === 'C\'est le voisin' && typeof d.at === 'number' && Object.keys(d).sort().join() === 'at,message,nom,uid', 'demande : seulement uid, message, nom et date');
+  check(await page.evaluate(() => window.__PFLOW_DB__.writes()) === 1, 'demande : rien d\'autre n\'est écrit');
+  await until(page, () => document.getElementById('req-intro').textContent.includes('envoyée'), null, 'confirmation « demande envoyée »');
+  await page.screenshot({ path: join(OUT, tag + '-demande.png') });
+  // L'administrateur accepte depuis un autre appareil : l'appli s'ouvre toute seule
+  await page.evaluate(() => window.__PFLOW_DB__.set('allowlist/test@example.invalid', { addedAt: 1 }));
+  await until(page, () => !document.getElementById('app').hidden, null, 'accès accordé : l\'appli s\'ouvre toute seule');
+  noErr(o.errors, 'demande');
+  await o.ctx.close();
+
+  // Côté administrateur
+  const docs = Object.assign({}, fx.docs, {
+    'demandes/ami@example.invalid': { uid: 'uid-ami', message: 'Coucou', nom: 'Ami', at: Date.parse('2026-03-14') },
+    'demandes/autre@example.invalid': { uid: 'uid-autre', message: '', nom: '', at: Date.parse('2026-03-14T10:00:00Z') },
+  });
+  o = await open(cfg, docs, { date: fx.expect._date, admin: true });
+  await waitApp(o.page);
+  await until(o.page, () => !document.getElementById('req-banner').hidden && document.getElementById('req-banner').textContent.includes('ami@example.invalid'), null, 'administrateur : bandeau de demande d\'accès');
+  await o.page.click('#req-banner [data-act="req-accept"]');
+  await until(o.page, () => { const d = window.__PFLOW_DB__.dump(); return 'allowlist/ami@example.invalid' in d && !('demandes/ami@example.invalid' in d); }, null, 'Accepter : ajouté à la liste, demande retirée');
+  await reglages(o.page, 'admin');
+  await until(o.page, () => document.getElementById('req-list').textContent.includes('autre@example.invalid'), null, 'Administration : demande restante listée');
+  const ref = o.page.locator('#req-list [data-act="req-refuse"][data-email="autre@example.invalid"]');
+  await ref.click();
+  check('demandes/autre@example.invalid' in (await dump(o.page)), 'Refuser demande une confirmation');
+  await o.page.locator('#req-list [data-act="req-refuse"][data-email="autre@example.invalid"]').click();
+  await until(o.page, () => !('demandes/autre@example.invalid' in window.__PFLOW_DB__.dump()), null, 'Refuser : demande retirée');
+  check(!('allowlist/autre@example.invalid' in (await dump(o.page))), 'Refuser : pas ajouté à la liste');
+  noErr(o.errors, 'administrateur');
+  await o.ctx.close();
+}
+
+// Nouveautés après une mise à jour : affichées une seule fois, retrouvables dans Réglages → À propos.
+async function scenarioNouveautes(cfg, fx, tag) {
+  const { ctx, page, errors } = await open(cfg, fx.docs, { date: fx.expect._date, news: true });
+  await waitApp(page);
+  await until(page, () => !document.getElementById('panel-bg').hidden, null, 'nouveautés affichées à la première ouverture');
+  check((await page.locator('#panel-title').innerText()).includes('Nouveautés'), 'titre « Nouveautés »');
+  check(await page.locator('#panel-body li').count() > 3, 'contenu des notes de version');
+  await page.screenshot({ path: join(OUT, tag + '-nouveautes.png') });
+  await page.click('#panel-close');
+  await until(page, () => document.getElementById('panel-bg').hidden, null, 'fenêtre des nouveautés fermée');
+  check(await page.evaluate(() => localStorage.getItem('pf-nouveautes')) === NOTES_VERSION, 'nouveautés marquées comme vues sur cet appareil');
+  check(await page.evaluate(() => window.__PFLOW_DB__.writes()) === 0, 'rien n\'est écrit dans le compte');
+  await page.reload();
+  await waitApp(page); await page.waitForTimeout(1200);
+  check(await page.locator('#panel-bg').isHidden(), 'pas de nouveautés à la réouverture');
+  await reglages(page, 'apropos');
+  await page.click('[data-act="news"]');
+  await until(page, () => !document.getElementById('panel-bg').hidden, null, '« À propos de cette mise à jour » rouvre les nouveautés');
+  noErr(errors);
+  await ctx.close();
+}
+
+// Apparence (propre à l'appareil) : thème, noir absolu, taille du texte, effets réduits.
+async function scenarioApparence(cfg, fx, tag) {
+  const { ctx, page, errors } = await open(cfg, fx.docs, { date: fx.expect._date });
+  await waitApp(page);
+  const attr = n => page.evaluate(n => document.documentElement.getAttribute(n), n);
+  const bgc = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  await reglages(page, 'apparence');
+  await page.click('[data-act="theme"][data-t="sombre"]');
+  check(await attr('data-scheme') === 'dark', 'thème sombre appliqué');
+  await page.click('#noir-toggle');
+  check(await attr('data-noir') === '' && await bgc() === 'rgb(0, 0, 0)', 'noir absolu : fond noir pur');
+  await page.screenshot({ path: join(OUT, tag + '-noir.png'), fullPage: true });
+  await page.click('[data-act="theme"][data-t="clair"]');
+  check(await attr('data-scheme') === 'light' && await bgc() !== 'rgb(0, 0, 0)', 'thème clair : le noir absolu ne s\'applique pas');
+  const fs0 = await page.evaluate(() => parseFloat(getComputedStyle(document.body).fontSize));
+  await page.click('[data-act="texte"][data-t="grand"]');
+  const fs1 = await page.evaluate(() => parseFloat(getComputedStyle(document.body).fontSize));
+  check(fs1 > fs0, 'grand texte (' + fs0 + ' → ' + fs1 + ' px)');
+  await page.click('#effets-toggle');
+  check(await attr('data-effets') === 'reduits', 'effets réduits');
+  const ls = await page.evaluate(() => [localStorage.getItem('pf-theme'), localStorage.getItem('pf-noir'), localStorage.getItem('pf-texte'), localStorage.getItem('pf-effets')].join());
+  check(ls === 'clair,1,grand,reduits', 'apparence gardée sur cet appareil (' + ls + ')');
+  check(await page.evaluate(() => window.__PFLOW_DB__.writes()) === 0, 'apparence : rien n\'est écrit dans le compte');
+  await page.reload();
+  await waitApp(page);
+  check(await attr('data-scheme') === 'light' && await attr('data-texte') === 'grand' && await attr('data-noir') === '', 'apparence retrouvée après rechargement');
+  noErr(errors);
+  await ctx.close();
+}
+
+// Navigation : barre en pilule, sous-pages des Réglages, glisser pour changer de mois.
+async function scenarioNavigation(cfg, fx, tag) {
+  const { ctx, page, errors } = await open(cfg, fx.docs, { date: fx.expect._date });
+  await waitApp(page);
+  if (cfg.isMobile && cfg.viewport.width < 900) {
+    // Glisser vers la gauche → mois suivant ; vers la droite → mois précédent
+    const swipe = async dx => page.evaluate(dx => {
+      const h = document.getElementById('v-mois'), r = h.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + 200;
+      const ev = (t, cx) => h.dispatchEvent(new PointerEvent(t, { pointerType: 'touch', pointerId: 7, isPrimary: true, clientX: cx, clientY: y, bubbles: true }));
+      ev('pointerdown', x); for (let i = 1; i <= 6; i++) ev('pointermove', x + dx * i / 6); ev('pointerup', x + dx);
+    }, dx);
+    await swipe(-160);
+    await until(page, () => document.querySelector('#ctx h1').textContent === 'Avril 2026', null, 'glisser à gauche : mois suivant');
+    await swipe(160); await swipe(160);
+    await until(page, () => document.querySelector('#ctx h1').textContent === 'Février 2026', null, 'glisser à droite : mois précédent');
+    await swipe(30);
+    await page.waitForTimeout(200);
+    check(await page.locator('#ctx h1').innerText() === 'Février 2026', 'petit glissement : rien ne change');
+    check(await page.locator('.tabbar .fab').isVisible(), 'bouton + au centre de la barre');
+    await reglages(page);
+    await until(page, () => getComputedStyle(document.querySelector('.tabbar .fab')).opacity === '0', null, 'bouton + masqué dans Réglages');
+  }
+  await reglages(page, 'partage');
+  check(await page.locator('#share-apk').isVisible(), 'Partager P-Flow : liens affichés');
+  await page.click('[data-act="sub-back"]');
+  await until(page, () => !document.getElementById('set-home').hidden, null, 'retour à la liste des réglages');
+  noErr(errors);
+  await ctx.close();
+}
+
+// Refaire la configuration : ajoute sans rien supprimer ni changer ce qui n'est pas touché.
+async function scenarioRefaireConfig(cfg, fx, tag) {
+  const { ctx, page, errors } = await open(cfg, fx.docs, { date: fx.expect._date });
+  await waitApp(page);
+  await reglages(page, 'compte');
+  await page.click('[data-act="redo-setup"]');
+  await until(page, () => !document.getElementById('s-onboard').hidden, null, 'configuration rouverte');
+  check(await page.locator('#o-profile [data-pro="1"][aria-pressed="true"]').count() === 1, 'profil actuel prérempli (auto-entrepreneur)');
+  await page.click('#ob-skip'); // profil inchangé
+  await page.click('#ob-skip'); // revenus
+  check((await page.locator('#ob-step').innerText()).includes('Déjà notés'), 'charges fixes déjà notées rappelées');
+  await page.click('#ob-step [data-ob="add"][data-l="Internet"]');
+  await page.fill('#ob-step .ob-row [data-f="amount"]', '30');
+  await page.click('#ob-next');
+  for (let i = 0; i < 3; i++) await page.click(i === 2 ? '#ob-next' : '#ob-skip');
+  await until(page, () => !document.getElementById('app').hidden, null, 'retour à l\'appli');
+  await until(page, () => Object.values(window.__PFLOW_DB__.dump()).some(v => v.label === 'Internet' && v.amount === 30 && v.start === '2026-03' && v.end === null), null, 'charge ajoutée');
+  const db = await dump(page), S0 = fx.docs['users/uid-test/meta/settings'], S1 = db['users/uid-test/meta/settings'];
+  check(S1.pro === true && S1.taux['2026'] === 21.2 && S1.periodicite === S0.periodicite && S1.createdAt === S0.createdAt, 'réglages inchangés');
+  for (const [path, d] of Object.entries(fx.docs)) check(path in db && Object.keys(d).every(f => f in db[path]), 'rien de supprimé : ' + path);
+  noErr(errors);
   await ctx.close();
 }
 
 // ---------- lancement ----------
 // Un scénario qui plante compte comme un échec, et les suivants continuent.
-async function run(fn) {
-  try { await fn(); } catch (e) { check(false, 'scénario interrompu : ' + String(e.message).split('\n')[0]); }
+async function run(fn, name) {
+  try { await fn(); } catch (e) { check(false, 'scénario ' + (name || '') + ' interrompu : ' + String(e.message).split('\n')[0]); if (process.env.DEBUG) console.log(String(e.message).split('\n').slice(0, 30).join('\n')); }
 }
 const fixtures = readdirSync(join(ROOT, 'tests/fixtures')).filter(f => f.endsWith('.json')).sort();
+const onlyFx = process.env.FX ? new RegExp(process.env.FX) : null; // ex. FX=0.1.2
+const onlyCfg = process.env.CFG ? new RegExp(process.env.CFG) : null; // ex. CFG=PC
+const only = process.env.ONLY ? new RegExp(process.env.ONLY) : null; // ex. ONLY=Epargne pour un seul scénario
+let current = '';
+const go = async (name, fn) => { if (!only || only.test(name)) { current = name; await run(fn, name); } };
 for (const file of fixtures) {
   const fx = JSON.parse(readFileSync(join(ROOT, 'tests/fixtures', file), 'utf8'));
-  for (const cfg of CONFIGS) {
+  if (onlyFx && !onlyFx.test(file)) continue;
+  const last = file === fixtures[fixtures.length - 1];
+  const oldFormat = !('epargne' in fx.docs['users/uid-test/meta/settings']);
+  for (const cfg of CONFIGS.filter(c => !onlyCfg || onlyCfg.test(c.name))) {
     const tag = file.replace('.json', '') + '-' + cfg.name.replace(/\s+/g, '-');
     const before = failures;
     console.log('▶ ' + file + ' · ' + cfg.name);
-    await run(() => scenarioDonnees(cfg, fx, tag));
-    await run(() => scenarioLectureSeule(cfg, fx, tag));
-    await run(() => scenarioSaisie(cfg, fx, tag));
-    await run(() => scenarioCouleurs(cfg, fx, tag));
-    await run(() => scenarioAcces(cfg, fx, tag));
-    await run(() => scenarioSauvegardes(cfg, fx, tag));
-    await run(() => scenarioMisesAJour(cfg, fx, tag));
+    await go('Donnees', () => scenarioDonnees(cfg, fx, tag));
+    await go('LectureSeule', () => scenarioLectureSeule(cfg, fx, tag));
+    await go('Saisie', () => scenarioSaisie(cfg, fx, tag));
+    await go('Couleurs', () => scenarioCouleurs(cfg, fx, tag));
+    await go('Acces', () => scenarioAcces(cfg, fx, tag));
+    await go('Sauvegardes', () => scenarioSauvegardes(cfg, fx, tag));
+    await go('MisesAJour', () => scenarioMisesAJour(cfg, fx, tag));
+    if (fx.expect.epargne) await go('Epargne', () => scenarioEpargne(cfg, fx, tag));
+    if (oldFormat) await go('OffreEpargne', () => scenarioOffreEpargne(cfg, fx, tag));
+    if (cfg.name === 'téléphone clair') await go('RefaireConfig', () => scenarioRefaireConfig(cfg, fx, tag));
+    if (last) {
+      await go('Demandes', () => scenarioDemandes(cfg, fx, tag));
+      await go('Nouveautes', () => scenarioNouveautes(cfg, fx, tag));
+      await go('Apparence', () => scenarioApparence(cfg, fx, tag));
+      await go('Navigation', () => scenarioNavigation(cfg, fx, tag));
+    }
     console.log(failures === before ? '   ✓ ok' : '   ✗ ' + (failures - before) + ' échec(s)');
   }
 }
 for (const cfg of CONFIGS.filter(c => c.name === 'téléphone clair' || c.name === 'PC clair')) {
   const before = failures;
   console.log('▶ nouveau compte · ' + cfg.name);
-  await run(() => scenarioNouveauCompte(cfg, 'nouveau-' + cfg.name.replace(/\s+/g, '-')));
+  await go('NouveauCompte', () => scenarioNouveauCompte(cfg, 'nouveau-' + cfg.name.replace(/\s+/g, '-')));
   console.log(failures === before ? '   ✓ ok' : '   ✗ échec');
 }
 

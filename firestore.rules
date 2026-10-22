@@ -29,6 +29,20 @@ service cloud.firestore {
       allow list, create, update, delete: if isAdmin();
     }
 
+    // Demandes d'accès (patch 2) : une personne connectée, email vérifié, demande l'accès pour SA
+    // propre adresse ; seuls l'identifiant, un petit message, son nom et la date sont acceptés.
+    // L'administrateur les lit et les retire (Accepter = ajout à allowlist, puis retrait de la demande).
+    match /demandes/{mail} {
+      allow get: if verified() && (mail == myEmail() || isAdmin());
+      allow create, update: if verified() && mail == myEmail()
+        && request.resource.data.keys().hasOnly(['uid', 'message', 'nom', 'at'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.message is string && request.resource.data.message.size() <= 200
+        && request.resource.data.nom is string && request.resource.data.nom.size() <= 100
+        && request.resource.data.at == request.time;
+      allow list, delete: if isAdmin();
+    }
+
     match /users/{uid}/{document=**} {
       allow read, write: if allowed() && request.auth.uid == uid;
     }

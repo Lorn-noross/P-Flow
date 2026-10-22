@@ -3,8 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#F1F4F6" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0E1318" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#EEF2FB" id="meta-theme">
 <meta name="description" content="Know where your money flows.">
 <title>P-Flow</title>
 <link rel="icon" href="./icon.svg" type="image/svg+xml">
@@ -14,18 +13,56 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="P-Flow">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
+<script>
+/* Apparence propre à cet appareil (thème, noir absolu, taille du texte, effets), appliquée avant
+   le premier affichage pour éviter un flash. Même logique que applyAppearance() dans src/main.js. */
+(function () {
+  try {
+    var d = document.documentElement, g = function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } };
+    var t = g('pf-theme'), dark = t === 'sombre' || (t !== 'clair' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+    d.setAttribute('data-scheme', dark ? 'dark' : 'light');
+    if (g('pf-noir') === '1') d.setAttribute('data-noir', '');
+    if (g('pf-texte') === 'grand') d.setAttribute('data-texte', 'grand');
+    var fx = g('pf-effets');
+    if (fx === 'reduits' || (!fx && navigator.deviceMemory && navigator.deviceMemory <= 2)) d.setAttribute('data-effets', 'reduits');
+  } catch (e) { /* apparence par défaut */ }
+})();
+</script>
 </head>
 <body>
+<div class="glow" aria-hidden="true"></div>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <symbol id="i-mois" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></symbol>
+  <symbol id="i-mois" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></symbol>
   <symbol id="i-fixes" viewBox="0 0 24 24"><path d="M17 3l3 3-3 3"/><path d="M4 11.5V10a4 4 0 0 1 4-4h12"/><path d="M7 21l-3-3 3-3"/><path d="M20 12.5V14a4 4 0 0 1-4 4H4"/></symbol>
   <symbol id="i-annee" viewBox="0 0 24 24"><path d="M3.5 20.5h17M7 16.5v-5M12 16.5V6M17 16.5v-8"/></symbol>
   <symbol id="i-reglages" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-left" viewBox="0 0 24 24"><path d="M14.5 6l-6 6 6 6"/></symbol>
   <symbol id="i-right" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></symbol>
   <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
   <symbol id="i-wave" viewBox="0 0 24 24"><path d="M2.5 12c2.4-6.5 4.8-6.5 7.2 0s4.8 6.5 7.2 0c1-2.7 2-4.2 3-4.6"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M7 17L17 7M9 7h8v8"/></symbol>
+  <symbol id="i-in" viewBox="0 0 24 24"><path d="M17 7L7 17M15 17H7V9"/></symbol>
+  <symbol id="i-epargne" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="2.5"/><path d="M5 6v4c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6M5 10v4c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-4M5 14v4c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-4"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7.5 18.5h9.5a4 4 0 0 0 .6-7.95A5.5 5.5 0 0 0 7.1 9.1a4.75 4.75 0 0 0 .4 9.4z"/></symbol>
+  <symbol id="i-cloud-ok" viewBox="0 0 24 24"><path d="M7.5 18.5h9.5a4 4 0 0 0 .6-7.95A5.5 5.5 0 0 0 7.1 9.1a4.75 4.75 0 0 0 .4 9.4z"/><path d="M9.6 14l1.9 1.9 3.4-3.4"/></symbol>
+  <symbol id="i-cloud-up" viewBox="0 0 24 24"><path d="M7.5 18.5h9.5a4 4 0 0 0 .6-7.95A5.5 5.5 0 0 0 7.1 9.1a4.75 4.75 0 0 0 .4 9.4z"/><path d="M12 16.3v-4.6M9.9 13.6l2.1-2.1 2.1 2.1"/></symbol>
+  <symbol id="i-cloud-off" viewBox="0 0 24 24"><path d="M7.5 18.5h9.5a4 4 0 0 0 .6-7.95A5.5 5.5 0 0 0 7.1 9.1a4.75 4.75 0 0 0 .4 9.4z"/><path d="M4 4l16 16"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/></symbol>
+  <symbol id="i-pro" viewBox="0 0 24 24"><rect x="3.5" y="7.5" width="17" height="12" rx="2.5"/><path d="M9 7.5V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1.5M3.5 12.5h17"/></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.2 0 1.8-.8 1.8-1.7 0-1.3-1-1.6-1-2.6 0-.9.7-1.6 1.6-1.6h2.1a4 4 0 0 0 4-4C20.5 6.6 16.7 3.5 12 3.5z"/><circle cx="7.8" cy="11" r=".9"/><circle cx="10.5" cy="7.5" r=".9"/><circle cx="15" cy="7.8" r=".9"/></symbol>
+  <symbol id="i-data" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="2.5"/><path d="M5 6v12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><circle cx="17.5" cy="5.5" r="2.5"/><circle cx="6.5" cy="12" r="2.5"/><circle cx="17.5" cy="18.5" r="2.5"/><path d="M8.7 10.8l6.6-4M8.7 13.2l6.6 4"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.5l7 2.8v5.2c0 4.4-3 7.7-7 9-4-1.3-7-4.6-7-9V6.3z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.8v.2"/></symbol>
+  <symbol id="i-calc" viewBox="0 0 24 24"><rect x="5" y="3.5" width="14" height="17" rx="3"/><path d="M8.5 7.5h7M8.5 12h.01M12 12h.01M15.5 12h.01M8.5 16h.01M12 16h.01M15.5 16h.01"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3.5l1.8 5.2 5.2 1.8-5.2 1.8L12 17.5l-1.8-5.2L5 10.5l5.2-1.8z"/><path d="M18.5 16v4M16.5 18h4"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6.5h11M9 12h11M9 17.5h11M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01"/></symbol>
+  <symbol id="i-group" viewBox="0 0 24 24"><path d="M12 4l8.5 4.5L12 13 3.5 8.5z"/><path d="M3.5 12.5L12 17l8.5-4.5M3.5 16.5L12 21l8.5-4.5"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15zM10 20.5h4"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M14 4.5h3.5a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H14M10 16.5L5.5 12 10 7.5M5.5 12H15"/></symbol>
 </svg>
 
 <!-- Chargement -->
@@ -75,12 +112,18 @@
   </div>
 </div>
 
-<!-- Accès refusé -->
+<!-- Accès refusé : demande d'accès -->
 <div class="screen" id="s-denied" hidden>
   <div class="screen-card">
     <div class="auth-brand"><span class="mark"><svg class="i"><use href="#i-wave"/></svg></span></div>
     <h2>Accès pas encore autorisé</h2>
-    <p>Le compte <b id="d-email"></b> n'est pas dans la liste des personnes autorisées. Demande à la personne qui t'a donné P-Flow de t'ajouter, puis touche « Réessayer ».</p>
+    <p>Le compte <b id="d-email"></b> n'est pas encore dans la liste des personnes autorisées.</p>
+    <div class="card stack" id="req-box">
+      <p id="req-intro">Demande l'accès : la personne qui gère P-Flow recevra ta demande dans l'appli et pourra l'accepter.</p>
+      <label class="field" id="req-msg-field"><span>Petit message (facultatif)</span><input class="input" id="req-msg" maxlength="200" autocomplete="off" placeholder="Ex. C'est Paul, le voisin"></label>
+      <button class="btn primary block" id="req-send">Demander l'accès</button>
+      <p class="notice" id="req-status" role="status" hidden></p>
+    </div>
     <details>
       <summary class="link" style="cursor:pointer">Tu es l'administrateur ? Premier démarrage</summary>
       <div class="stack" style="margin-top:12px">
@@ -96,71 +139,97 @@
       </div>
     </details>
     <p class="error" id="d-error" role="alert"></p>
-    <button class="btn primary block" id="d-retry">Réessayer</button>
+    <button class="btn ghost block" id="d-retry">Réessayer</button>
     <button class="link" data-act="logout">Se déconnecter</button>
   </div>
 </div>
 
-<!-- Premier démarrage -->
+<!-- Premier démarrage guidé -->
 <div class="screen" id="s-onboard" hidden>
-  <form class="screen-card" id="onboard-form" novalidate>
-    <div class="auth-brand"><span class="mark"><svg class="i"><use href="#i-wave"/></svg></span><h1>Bienvenue</h1><p>Deux questions et c'est parti.</p></div>
-    <p class="h3">Ton profil</p>
-    <div class="choice" id="o-profile">
-      <button type="button" data-pro="0" aria-pressed="true"><b>Particulier</b><span>Salaire, aides, dépenses du foyer.</span></button>
-      <button type="button" data-pro="1" aria-pressed="false"><b>Auto-entrepreneur</b><span>Calcul automatique de la part URSSAF sur ton chiffre d'affaires.</span></button>
+  <div class="screen-card ob">
+    <div class="ob-top">
+      <div class="ob-progress" aria-hidden="true"><i id="ob-bar"></i></div>
+      <p class="hint" id="ob-count"></p>
     </div>
-    <div class="stack" id="o-pro" hidden>
-      <label class="field"><span>Taux URSSAF (%)</span><input class="input num" id="o-rate" inputmode="decimal" placeholder="Ex. 21,2" autocomplete="off"></label>
-      <p class="hint">Artisan en prestations de services : 21,2 % de cotisations, + 0,3 % formation pro, + 0,48 % chambre des métiers. Ventes de marchandises : 12,3 %. Tu pourras le changer dans Réglages.</p>
-      <div class="seg" id="o-period">
-        <button type="button" data-p="mensuelle" aria-pressed="true">Déclaration mensuelle</button>
-        <button type="button" data-p="trimestrielle" aria-pressed="false">Trimestrielle</button>
-      </div>
-    </div>
+    <div class="ob-step" id="ob-step"></div>
     <p class="error" id="o-error" role="alert"></p>
-    <button type="submit" class="btn primary block">Commencer</button>
-  </form>
+    <div class="ob-actions">
+      <button type="button" class="btn ghost" id="ob-back">Retour</button>
+      <button type="button" class="btn ghost" id="ob-skip">Passer</button>
+      <button type="button" class="btn primary" id="ob-next">Continuer</button>
+    </div>
+  </div>
 </div>
 
 <div class="app" id="app" hidden>
   <aside class="side">
     <div class="brand"><span class="mark"><svg class="i"><use href="#i-wave"/></svg></span>P-Flow</div>
+    <button class="btn primary side-add" data-act="add"><svg class="i"><use href="#i-plus"/></svg>Ajouter</button>
     <nav class="nav" aria-label="Sections">
       <button data-act="view" data-view="mois"><svg class="i"><use href="#i-mois"/></svg>Mois</button>
       <button data-act="view" data-view="fixes"><svg class="i"><use href="#i-fixes"/></svg>Fixes</button>
       <button data-act="view" data-view="annee"><svg class="i"><use href="#i-annee"/></svg>Année</button>
       <button data-act="view" data-view="reglages"><svg class="i"><use href="#i-reglages"/></svg>Réglages</button>
     </nav>
-    <div class="sync" data-s="connecting"><span class="dot"></span><span class="txt">Connexion…</span></div>
+    <div class="sync" data-s="connecting"><svg class="i"><use href="#i-cloud"/></svg><span class="txt">Connexion…</span></div>
   </aside>
 
   <main class="main">
     <header class="top">
       <div class="ctx" id="ctx"></div>
-      <div class="sync" data-s="connecting" title="Synchronisation"><span class="dot"></span><span class="txt">Connexion…</span></div>
-      <button class="btn primary add-desk" data-act="add"><svg class="i"><use href="#i-plus"/></svg>Ajouter</button>
+      <div class="sync" data-s="connecting" title="Synchronisation" role="img" aria-label="Connexion…"><svg class="i"><use href="#i-cloud"/></svg><span class="txt">Connexion…</span></div>
     </header>
 
     <div class="update warn" id="outdated" role="alert" hidden><span>Tes données ont été enregistrées avec une version plus récente de P-Flow. Mets l'appli à jour pour les modifier (sur PC : recharge la page). En attendant, tu peux seulement les consulter.</span></div>
     <div class="update" id="update" role="status" hidden></div>
     <div class="update" id="backup-due" hidden><span>C'est le moment de la copie de tes données sur Google Drive.</span><button class="link" data-act="drive-due">Sauvegarder</button></div>
+    <div class="update req" id="req-banner" hidden></div>
 
     <!-- MOIS -->
     <section class="view" id="v-mois">
       <div class="month-grid">
         <div class="col">
-          <article class="card hero">
+          <button class="uc-line pro-only" id="urssaf-line" data-act="urssaf-toggle" aria-expanded="false" aria-controls="urssaf-card"></button>
+          <article class="card uc pro-only" id="urssaf-card" hidden>
+            <div class="stack-s" id="uc-info"></div>
+            <div><button class="btn ghost sm" data-act="sim-toggle" id="sim-btn" aria-expanded="false" aria-controls="sim"><svg class="i"><use href="#i-calc"/></svg>Simuler une facture</button></div>
+            <div class="stack" id="sim" hidden>
+              <p class="hint" id="c-rate"></p>
+              <label class="field"><span>Ce que je facture (brut)</span><input class="input num" id="c-brut" inputmode="decimal" placeholder="Ex. 1 500" autocomplete="off"></label>
+              <p class="out" id="c-out1"></p>
+              <div class="calc-grid">
+                <label class="field"><span>Net voulu par mois</span><input class="input num" id="c-obj" inputmode="decimal" placeholder="Ex. 2 000" autocomplete="off"></label>
+                <label class="field"><span>Taux horaire</span><input class="input num" id="c-th" inputmode="decimal" placeholder="Ex. 40" autocomplete="off"></label>
+              </div>
+              <p class="out" id="c-out2"></p>
+              <p class="hint">En micro-entreprise, les frais pro ne sont pas déduits : prévois-les en plus.</p>
+            </div>
+          </article>
+          <article class="hero">
             <div class="hero-top">
               <p class="eyebrow">Reste du mois</p>
-              <button class="link" data-act="today" id="back-today" hidden></button>
+              <button class="chip" data-act="today" id="back-today" hidden></button>
             </div>
             <p class="big" id="hero-amount">…</p>
             <p class="hero-sub" id="hero-sub">Chargement…</p>
-            <div class="split" id="split"></div>
-            <dl class="legend" id="legend"></dl>
+            <div class="quick" role="group" aria-label="Ajouter">
+              <button data-act="add-type" data-type="depense"><span class="qi"><svg class="i"><use href="#i-out"/></svg></span>Dépense</button>
+              <button data-act="add-type" data-type="revenu"><span class="qi"><svg class="i"><use href="#i-in"/></svg></span>Revenu</button>
+              <button data-act="add-type" data-type="epargne" class="ep-only"><span class="qi"><svg class="i"><use href="#i-epargne"/></svg></span>Épargne</button>
+            </div>
           </article>
-          <article class="card uc pro-only" id="urssaf-card"></article>
+          <article class="card offer" id="ep-offer" hidden>
+            <div class="offer-ico"><svg class="i"><use href="#i-epargne"/></svg></div>
+            <div class="stack-s">
+              <p><b>Nouveau : suis ton épargne</b></p>
+              <p class="hint">Livret A, PEL… Note ce que tu mets de côté : le reste du mois en tient compte.</p>
+              <div class="btn-row"><button class="btn primary sm" data-act="ep-offer" data-v="1">Activer</button><button class="btn ghost sm" data-act="ep-offer" data-v="0">Non merci</button></div>
+            </div>
+          </article>
+          <article class="card">
+            <dl class="cascade" id="legend"></dl>
+          </article>
+          <article class="card ep-card ep-only" id="ep-card"></article>
         </div>
         <div class="col">
           <article class="card lists" id="lists"><p class="empty">Chargement…</p></article>
@@ -170,29 +239,26 @@
 
     <!-- FIXES -->
     <section class="view" id="v-fixes" hidden>
-      <div class="page-intro">
-        <p>Ce qui revient chaque mois : loyer, abonnements, crédits, salaire… Comptés automatiquement dans chaque mois, sans les ressaisir.</p>
-        <button class="btn ghost" data-act="add-rec"><svg class="i"><use href="#i-plus"/></svg>Ajouter un fixe</button>
-      </div>
+      <p class="page-intro">Loyer, abonnements, salaire… comptés tout seuls, chaque mois, trimestre ou année.</p>
       <article class="card fix-totals" id="fix-totals"></article>
       <article class="card lists" id="fix-list"></article>
     </section>
 
     <!-- ANNÉE -->
     <section class="view" id="v-annee" hidden>
-      <p class="period" id="y-period"></p>
-      <div class="kpis" id="kpis"></div>
+      <article class="hero year-hero" id="kpis"></article>
       <article class="card chart-card">
         <div class="chart-head">
-          <h3>Revenus nets et dépenses, mois par mois</h3>
-          <div class="chart-legend"><span><i class="sw s-net"></i>Revenus nets</span><span><i class="sw s-dep"></i>Dépenses</span></div>
+          <h3>Reste de chaque mois</h3>
+          <div class="chart-legend" id="chart-legend"></div>
         </div>
-        <div id="chart"></div>
+        <div class="chart-wrap"><div id="chart"></div><div class="bubble" id="bubble" role="status" hidden></div></div>
+        <p class="period" id="y-period"></p>
       </article>
       <div class="two">
         <article class="card"><h3>Détail par mois</h3><div class="tbl-wrap" id="y-table"></div></article>
         <div class="stack">
-          <article class="card"><h3>Où part l'argent</h3><div class="top-list" id="y-top"></div></article>
+          <article class="card"><div class="card-head"><h3>Où part l'argent</h3><div class="mini-legend"><span><i class="sw s-dep"></i>fixes</span><span><i class="sw s-dep2"></i>ponctuelles</span></div></div><div class="top-list" id="y-top"></div></article>
           <article class="card pro-only"><h3>Seuils de la micro-entreprise</h3><div class="meters" id="y-meters"></div>
             <p class="hint" style="margin-top:12px">Calculé sur les revenus marqués « soumis à l'URSSAF ». Franchise de TVA (prestations de services) : au-delà de 37 500 € sur l'année, la TVA s'applique au 1er janvier suivant ; au-delà de 41 250 €, dès le dépassement.</p>
           </article>
@@ -202,120 +268,175 @@
 
     <!-- RÉGLAGES -->
     <section class="view" id="v-reglages" hidden>
-      <div class="settings">
-        <div class="stack">
-          <article class="card stack">
-            <h3>Compte</h3>
-            <div class="meta-line"><span>Connecté avec</span><b id="acc-email"></b></div>
-            <div class="meta-line"><span>Version</span><b id="acc-version"></b></div>
-            <div><button class="btn ghost" data-act="logout">Se déconnecter</button></div>
-          </article>
-          <article class="card stack">
-            <h3>Profil</h3>
-            <div class="seg" id="profile-seg">
-              <button type="button" data-act="profile" data-pro="0">Particulier</button>
-              <button type="button" data-act="profile" data-pro="1">Auto-entrepreneur</button>
-            </div>
-            <p class="hint">Le profil auto-entrepreneur ajoute le calcul URSSAF, la date de déclaration et les seuils de la micro-entreprise.</p>
-          </article>
-          <article class="card stack pro-only">
-            <h3>Taux URSSAF</h3>
-            <p class="hint">Pourcentage prélevé sur ton chiffre d'affaires, pour toute l'année choisie. Artisan en prestations de services : 21,2 % + 0,3 % formation pro + 0,48 % chambre des métiers. Ajoute 1,7 % si tu as le versement libératoire.</p>
-            <div class="stack" id="rates"></div>
-          </article>
-          <article class="card stack pro-only">
-            <h3>Déclaration URSSAF</h3>
-            <div class="seg" id="period-seg">
-              <button type="button" data-act="period" data-p="mensuelle">Tous les mois</button>
-              <button type="button" data-act="period" data-p="trimestrielle">Tous les trimestres</button>
-            </div>
-          </article>
-        </div>
-        <div class="stack">
-          <article class="card stack pro-only">
-            <h3>Calculette brut ↔ net</h3>
-            <p class="hint" id="c-rate"></p>
-            <label class="field"><span>Ce que je facture (brut)</span><input class="input num" id="c-brut" inputmode="decimal" placeholder="Ex. 1 500" autocomplete="off"></label>
-            <p class="out" id="c-out1"></p>
-            <div class="calc-grid">
-              <label class="field"><span>Net voulu par mois</span><input class="input num" id="c-obj" inputmode="decimal" placeholder="Ex. 2 000" autocomplete="off"></label>
-              <label class="field"><span>Taux horaire</span><input class="input num" id="c-th" inputmode="decimal" placeholder="Ex. 40" autocomplete="off"></label>
-            </div>
-            <p class="out" id="c-out2"></p>
-            <p class="hint">En micro-entreprise, les frais pro ne sont pas déduits : prévois-les en plus.</p>
-          </article>
-          <article class="card stack">
-            <h3>Couleurs</h3>
-            <p class="hint">Choisis la couleur de chaque montant. Elle s'applique au mois et à l'année, sur tous tes appareils.</p>
-            <div class="colors" id="colors"></div>
-            <div><button class="btn ghost" data-act="colors-reset">Remettre les couleurs par défaut</button></div>
-          </article>
-          <article class="card stack">
-            <h3>Sauvegarde</h3>
-            <p class="hint">Tes données sont enregistrées dans ton compte et synchronisées entre tes appareils. Tu peux en plus garder des copies.</p>
-            <p class="h3">Google Drive</p>
-            <div class="stack" id="drive-box"></div>
-            <div class="stack" id="drive-list" hidden></div>
-            <p class="h3">Fichier</p>
-            <div class="btn-row">
-              <button class="btn ghost" data-act="backup-export">Exporter mes données</button>
-              <label class="btn ghost">Importer une sauvegarde<input type="file" id="import-file" accept=".json,application/json" hidden></label>
-            </div>
-            <p class="notice" id="backup-status" role="status" hidden></p>
-            <div class="notice stack" id="restore-panel" hidden></div>
-            <div class="web-only"><button class="btn ghost" data-act="export" id="export-btn">Exporter l'année en CSV</button></div>
-            <p class="hint native-only">L'export CSV (pour un tableur) se fait depuis la version PC.</p>
-          </article>
-          <article class="card stack">
-            <h3>Installer P-Flow</h3>
-            <div class="stack">
-              <p><b>Android</b> : ouvre ce lien sur le téléphone, puis installe le fichier.</p>
-              <p class="code" id="share-apk"></p>
-              <div><button class="btn ghost" data-copy="apk">Copier le lien Android</button></div>
-              <p><b>iPhone et PC</b> : ouvre ce lien. Sur iPhone, dans Safari, touche Partager puis « Sur l'écran d'accueil ».</p>
-              <p class="code" id="share-web"></p>
-              <div><button class="btn ghost" data-copy="web">Copier le lien iPhone / PC</button></div>
-            </div>
-          </article>
-          <article class="card stack" id="admin-card" hidden>
-            <h3>Personnes autorisées</h3>
-            <p class="hint">Seuls ces emails peuvent utiliser P-Flow. Chaque personne a ses propres comptes, invisibles pour les autres.</p>
-            <form class="inline-form" id="allow-form" novalidate>
-              <input class="input" id="allow-email" type="email" placeholder="email@exemple.fr" autocomplete="off">
-              <button class="btn primary" type="submit">Autoriser</button>
-            </form>
-            <div id="allow-list"></div>
-          </article>
-          <article class="card stack" id="update-card">
-            <h3>Mises à jour</h3>
-            <p class="hint" id="upd-status" role="status" hidden></p>
-            <progress id="upd-progress" max="100" value="0" hidden></progress>
-            <div class="btn-row"><button class="btn ghost" data-act="upd-check" id="upd-check">Vérifier les mises à jour</button><span id="upd-actions"></span></div>
-            <label class="field"><span>Vérification automatique</span>
-              <select class="input" id="upd-auto">
-                <option value="ouverture">À chaque ouverture de l'appli</option>
-                <option value="jour">Une fois par jour</option>
-                <option value="semaine">Une fois par semaine</option>
-                <option value="jamais">Jamais</option>
-              </select>
-            </label>
-          </article>
-        </div>
+      <div class="set-home" id="set-home">
+        <nav class="card set-list" aria-label="Réglages">
+          <button data-act="sub" data-sub="compte"><span class="si"><svg class="i"><use href="#i-user"/></svg></span><span class="sl"><b>Mon compte</b><small id="sh-compte"></small></span><svg class="i chev"><use href="#i-right"/></svg></button>
+          <button data-act="sub" data-sub="pro" class="pro-only"><span class="si"><svg class="i"><use href="#i-pro"/></svg></span><span class="sl"><b>Auto-entrepreneur</b><small id="sh-pro"></small></span><svg class="i chev"><use href="#i-right"/></svg></button>
+          <button data-act="sub" data-sub="apparence"><span class="si"><svg class="i"><use href="#i-palette"/></svg></span><span class="sl"><b>Apparence</b><small id="sh-apparence"></small></span><svg class="i chev"><use href="#i-right"/></svg></button>
+          <button data-act="sub" data-sub="donnees"><span class="si"><svg class="i"><use href="#i-data"/></svg></span><span class="sl"><b>Mes données</b><small id="sh-donnees"></small></span><svg class="i chev"><use href="#i-right"/></svg></button>
+          <button data-act="sub" data-sub="partage"><span class="si"><svg class="i"><use href="#i-share"/></svg></span><span class="sl"><b>Partager P-Flow</b><small>Liens pour Android, iPhone et PC</small></span><svg class="i chev"><use href="#i-right"/></svg></button>
+          <button data-act="sub" data-sub="admin" id="sh-admin-row" hidden><span class="si"><svg class="i"><use href="#i-shield"/></svg></span><span class="sl"><b>Administration</b><small id="sh-admin"></small></span><span class="badge" id="sh-admin-badge" hidden></span><svg class="i chev"><use href="#i-right"/></svg></button>
+          <button data-act="sub" data-sub="apropos"><span class="si"><svg class="i"><use href="#i-info"/></svg></span><span class="sl"><b>À propos</b><small id="sh-apropos"></small></span><span class="badge" id="sh-apropos-badge" hidden>1</span><svg class="i chev"><use href="#i-right"/></svg></button>
+        </nav>
+      </div>
+
+      <div class="set-sub" id="sub-compte" hidden>
+        <article class="card stack">
+          <h3>Compte</h3>
+          <div class="meta-line"><span>Connecté avec</span><b id="acc-email"></b></div>
+          <div><button class="btn ghost" data-act="logout"><svg class="i"><use href="#i-logout"/></svg>Se déconnecter</button></div>
+        </article>
+        <article class="card stack">
+          <h3>Profil</h3>
+          <div class="seg" id="profile-seg">
+            <button type="button" data-act="profile" data-pro="0">Particulier</button>
+            <button type="button" data-act="profile" data-pro="1">Auto-entrepreneur</button>
+          </div>
+          <p class="hint">Le profil auto-entrepreneur ajoute le calcul URSSAF, la date de déclaration et les seuils de la micro-entreprise.</p>
+        </article>
+        <article class="card stack">
+          <h3>Épargne</h3>
+          <label class="check"><span>Suivre mon épargne<small>Livret A, PEL… Ce que tu mets de côté baisse le reste du mois.</small></span><input type="checkbox" id="ep-toggle"></label>
+          <p class="hint" id="ep-toggle-hint" hidden>Désactivée : tes opérations d'épargne restent enregistrées, mais elles ne sont plus affichées ni comptées.</p>
+        </article>
+        <article class="card stack">
+          <h3>Configuration</h3>
+          <p class="hint">Revoir les étapes du premier démarrage : profil, revenus et charges fixes, épargne, apparence, sauvegarde. Rien de ce que tu as déjà noté n'est supprimé.</p>
+          <div><button class="btn ghost" data-act="redo-setup">Refaire la configuration</button></div>
+        </article>
+      </div>
+
+      <div class="set-sub" id="sub-pro" hidden>
+        <article class="card stack pro-only">
+          <h3>Taux URSSAF</h3>
+          <p class="hint">Pourcentage prélevé sur ton chiffre d'affaires, pour toute l'année choisie. Artisan en prestations de services : 21,2 % + 0,3 % formation pro + 0,48 % chambre des métiers. Ajoute 1,7 % si tu as le versement libératoire.</p>
+          <div class="stack" id="rates"></div>
+        </article>
+        <article class="card stack pro-only">
+          <h3>Déclaration URSSAF</h3>
+          <div class="seg" id="period-seg">
+            <button type="button" data-act="period" data-p="mensuelle">Tous les mois</button>
+            <button type="button" data-act="period" data-p="trimestrielle">Tous les trimestres</button>
+          </div>
+        </article>
+      </div>
+
+      <div class="set-sub" id="sub-apparence" hidden>
+        <article class="card stack">
+          <h3>Thème</h3>
+          <div class="seg seg3" id="theme-seg">
+            <button type="button" data-act="theme" data-t="auto">Automatique</button>
+            <button type="button" data-act="theme" data-t="clair">Clair</button>
+            <button type="button" data-act="theme" data-t="sombre">Sombre</button>
+          </div>
+          <label class="check"><span>Noir absolu<small>En mode sombre, fond noir pur : idéal pour les écrans OLED.</small></span><input type="checkbox" id="noir-toggle"></label>
+          <p class="hint">Réglé pour cet appareil seulement.</p>
+        </article>
+        <article class="card stack">
+          <h3>Lecture</h3>
+          <p class="field-label">Taille du texte</p>
+          <div class="seg" id="texte-seg">
+            <button type="button" data-act="texte" data-t="normal">Normale</button>
+            <button type="button" data-act="texte" data-t="grand">Grande</button>
+          </div>
+          <label class="check"><span>Effets réduits<small>Moins d'animations et pas de flou : plus léger pour les vieux téléphones.</small></span><input type="checkbox" id="effets-toggle"></label>
+        </article>
+        <article class="card stack">
+          <h3>Couleurs</h3>
+          <p class="hint">Choisis la couleur de chaque montant. Elle s'applique au mois et à l'année, sur tous tes appareils.</p>
+          <div class="colors" id="colors"></div>
+          <div><button class="btn ghost" data-act="colors-reset">Remettre les couleurs par défaut</button></div>
+        </article>
+      </div>
+
+      <div class="set-sub" id="sub-donnees" hidden>
+        <article class="card stack">
+          <h3>Sauvegarde</h3>
+          <p class="hint">Tes données sont enregistrées dans ton compte et synchronisées entre tes appareils. Tu peux en plus garder des copies.</p>
+          <p class="h3">Google Drive</p>
+          <div class="stack" id="drive-box"></div>
+          <div class="stack" id="drive-list" hidden></div>
+          <p class="h3">Fichier</p>
+          <div class="btn-row">
+            <button class="btn ghost" data-act="backup-export">Exporter mes données</button>
+            <label class="btn ghost">Importer une sauvegarde<input type="file" id="import-file" accept=".json,application/json" hidden></label>
+          </div>
+          <p class="notice" id="backup-status" role="status" hidden></p>
+          <div class="notice stack" id="restore-panel" hidden></div>
+        </article>
+        <article class="card stack">
+          <h3>Tableur</h3>
+          <div class="web-only"><button class="btn ghost" data-act="export" id="export-btn">Exporter l'année en CSV</button></div>
+          <p class="hint native-only">L'export CSV (pour un tableur) se fait depuis la version PC.</p>
+        </article>
+      </div>
+
+      <div class="set-sub" id="sub-partage" hidden>
+        <article class="card stack">
+          <h3>Installer P-Flow</h3>
+          <p><b>Android</b> : ouvre ce lien sur le téléphone, puis installe le fichier.</p>
+          <p class="code" id="share-apk"></p>
+          <div><button class="btn ghost" data-copy="apk">Copier le lien Android</button></div>
+          <p><b>iPhone et PC</b> : ouvre ce lien. Sur iPhone, dans Safari, touche Partager puis « Sur l'écran d'accueil ».</p>
+          <p class="code" id="share-web"></p>
+          <div><button class="btn ghost" data-copy="web">Copier le lien iPhone / PC</button></div>
+          <p class="hint">La personne pourra ensuite demander l'accès depuis l'appli.</p>
+        </article>
+      </div>
+
+      <div class="set-sub" id="sub-admin" hidden>
+        <article class="card stack" id="req-card">
+          <h3>Demandes d'accès</h3>
+          <div id="req-list"></div>
+        </article>
+        <article class="card stack" id="admin-card" hidden>
+          <h3>Personnes autorisées</h3>
+          <p class="hint">Seuls ces emails peuvent utiliser P-Flow. Chaque personne a ses propres comptes, invisibles pour les autres.</p>
+          <form class="inline-form" id="allow-form" novalidate>
+            <input class="input" id="allow-email" type="email" placeholder="email@exemple.fr" autocomplete="off">
+            <button class="btn primary" type="submit">Autoriser</button>
+          </form>
+          <div id="allow-list"></div>
+        </article>
+      </div>
+
+      <div class="set-sub" id="sub-apropos" hidden>
+        <article class="card stack">
+          <h3>P-Flow</h3>
+          <div class="meta-line"><span>Version</span><b id="acc-version"></b></div>
+          <div><button class="link" data-act="news">À propos de cette mise à jour</button></div>
+        </article>
+        <article class="card stack" id="update-card">
+          <h3>Mises à jour</h3>
+          <p class="hint" id="upd-status" role="status" hidden></p>
+          <progress id="upd-progress" max="100" value="0" hidden></progress>
+          <div class="btn-row"><button class="btn ghost" data-act="upd-check" id="upd-check">Vérifier les mises à jour</button><span id="upd-actions"></span></div>
+          <label class="field"><span>Vérification automatique</span>
+            <select class="input" id="upd-auto">
+              <option value="ouverture">À chaque ouverture de l'appli</option>
+              <option value="jour">Une fois par jour</option>
+              <option value="semaine">Une fois par semaine</option>
+              <option value="jamais">Jamais</option>
+            </select>
+          </label>
+        </article>
       </div>
     </section>
   </main>
 
   <nav class="tabbar" aria-label="Sections">
-    <button data-act="view" data-view="mois"><svg class="i"><use href="#i-mois"/></svg>Mois</button>
-    <button data-act="view" data-view="fixes"><svg class="i"><use href="#i-fixes"/></svg>Fixes</button>
-    <button data-act="view" data-view="annee"><svg class="i"><use href="#i-annee"/></svg>Année</button>
-    <button data-act="view" data-view="reglages"><svg class="i"><use href="#i-reglages"/></svg>Réglages</button>
+    <span class="tab-ind" aria-hidden="true"></span>
+    <button data-act="view" data-view="mois"><svg class="i"><use href="#i-mois"/></svg><span>Mois</span></button>
+    <button data-act="view" data-view="fixes"><svg class="i"><use href="#i-fixes"/></svg><span>Fixes</span></button>
+    <button class="fab" data-act="add" aria-label="Ajouter"><svg class="i"><use href="#i-plus"/></svg></button>
+    <button data-act="view" data-view="annee"><svg class="i"><use href="#i-annee"/></svg><span>Année</span></button>
+    <button data-act="view" data-view="reglages"><svg class="i"><use href="#i-reglages"/></svg><span>Réglages</span></button>
   </nav>
-  <button class="fab" data-act="add" aria-label="Ajouter une dépense ou un revenu"><svg class="i"><use href="#i-plus"/></svg></button>
 </div>
 
 <div class="backdrop" id="sheet-bg" hidden>
   <form class="sheet" id="sheet" novalidate>
+    <div class="grab" aria-hidden="true"></div>
     <div class="sheet-head">
       <h2 id="sheet-title">Nouvelle opération</h2>
       <button type="button" class="icon-btn" id="sheet-close" aria-label="Fermer"><svg class="i"><use href="#i-close"/></svg></button>
@@ -323,17 +444,32 @@
     <div class="seg" id="type-seg">
       <button type="button" data-type="depense">Dépense</button>
       <button type="button" data-type="revenu" class="rev">Revenu</button>
+      <button type="button" data-type="epargne" class="ep">Épargne</button>
     </div>
-    <label class="field"><span>Montant</span>
+    <div class="seg seg3 ep-op" id="op-seg" hidden>
+      <button type="button" data-op="depot">J'ai mis de côté</button>
+      <button type="button" data-op="retrait">J'ai repris</button>
+      <button type="button" data-op="solde">J'ai actuellement</button>
+    </div>
+    <label class="field"><span id="f-amount-label">Montant</span>
       <div class="amount-wrap"><input id="f-amount" inputmode="decimal" placeholder="0,00" autocomplete="off" aria-label="Montant en euros"><span>€</span></div>
     </label>
     <div class="field">
-      <label for="f-label">À quoi ça correspond</label>
+      <label for="f-label" id="f-label-label">À quoi ça correspond</label>
       <input class="input" id="f-label" autocomplete="off" maxlength="80" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="f-suggest">
       <ul class="suggest" id="f-suggest" role="listbox" aria-label="Libellés déjà utilisés" hidden></ul>
     </div>
-    <label class="field"><span id="f-date-label">Date</span><input class="input" id="f-date" type="date"></label>
-    <label class="check" id="f-rec-row"><span>Revient chaque mois<small>Loyer, abonnement, crédit, salaire…</small></span><input type="checkbox" id="f-rec"></label>
+    <div class="field" id="f-freq-field">
+      <span class="field-label" id="f-freq-label">Revient</span>
+      <div class="seg seg4" id="freq-seg" role="group" aria-labelledby="f-freq-label">
+        <button type="button" data-f="once">Une fois</button>
+        <button type="button" data-f="mois">Chaque mois</button>
+        <button type="button" data-f="trimestre">Trimestre</button>
+        <button type="button" data-f="annee">Année</button>
+      </div>
+    </div>
+    <label class="field" id="f-date-field"><span id="f-date-label">Date</span><input class="input" id="f-date" type="date"></label>
+    <label class="field" id="f-start-field" hidden><span id="f-start-label">À partir de</span><select class="input" id="f-start"></select></label>
     <label class="check" id="f-urssaf-row"><span>Soumis à l'URSSAF<small>Ton chiffre d'affaires. Pas la CAF, France Travail ou un salaire.</small></span><input type="checkbox" id="f-urssaf"></label>
     <p class="preview" id="f-preview" hidden></p>
     <p class="hint" id="f-hint" hidden></p>
@@ -344,6 +480,17 @@
       <button type="submit" class="btn primary" id="f-save">Enregistrer</button>
     </div>
   </form>
+</div>
+
+<div class="backdrop" id="panel-bg" hidden>
+  <div class="sheet panel" id="panel" role="dialog" aria-modal="true" aria-labelledby="panel-title" tabindex="-1">
+    <div class="grab" aria-hidden="true"></div>
+    <div class="sheet-head">
+      <h2 id="panel-title"></h2>
+      <button type="button" class="icon-btn" id="panel-close" aria-label="Fermer"><svg class="i"><use href="#i-close"/></svg></button>
+    </div>
+    <div class="panel-body" id="panel-body"></div>
+  </div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 <script type="module" src="./src/main.js"></script>
