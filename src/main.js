@@ -764,7 +764,12 @@ function obFinish() {
   // Les opérations d'abord, les réglages ensuite : l'appli s'ouvre avec tout ce qui vient d'être saisi.
   jobs.push(setDoc(uref('meta', 'settings'), st, { merge: true }));
   write(Promise.all(jobs), OB.redo ? 'Configuration enregistrée' : 'Bienvenue sur P-Flow');
-  if (OB.redo) { OB.redo = false; OB.busy = false; show('app'); S.view = 'mois'; S.sub = null; render(); requestAnimationFrame(() => positionIndicator(false)); }
+  if (OB.redo) {
+    OB.redo = false; OB.busy = false; show('app');
+    S.view = 'mois'; S.sub = null; S.month = CUR; S.year = NOW.getFullYear();
+    try { history.replaceState(null, '', '#mois'); } catch (e) { /* ignoré */ }
+    ensureYearSub(); render(); requestAnimationFrame(() => positionIndicator(false));
+  }
 }
 $('#s-onboard').addEventListener('click', e => {
   const b = e.target.closest('[data-ob], #ob-next, #ob-skip, #ob-back'); if (!b) return;
@@ -2198,7 +2203,8 @@ async function driveBackup(interactive, auto) {
   } catch (e) {
     if (auto) { BK.due = true; BK.status = ''; } else {
       setBk(driveErr(e), true);
-      if (S.view !== 'reglages') toast(driveErr(e), true); // lancé depuis le bandeau : le message doit se voir
+      // Lancé depuis le bandeau : le message doit se voir partout ailleurs que dans « Mes données ».
+      if (!(S.view === 'reglages' && S.sub === 'donnees')) toast(driveErr(e), true);
     }
     return false;
   } finally { BK.busy = false; renderBackup(); }
