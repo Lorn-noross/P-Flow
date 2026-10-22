@@ -675,7 +675,7 @@ function obRender(dir) {
       '<p class="h3">Taille du texte</p><div class="seg">' + [['normal', 'Normale'], ['grand', 'Grande']].map(([k, l]) => '<button type="button" data-ob="texte" data-t="' + k + '" aria-pressed="' + (APP.texte === k) + '">' + l + '</button>').join('') + '</div>';
   } else {
     h = '<h2>Sauvegarde</h2><p>Tes données sont déjà enregistrées dans ton compte. Tu peux en plus garder une copie automatique dans ton Google Drive (dossier « P-Flow Sauvegardes ») : P-Flow ne voit que les fichiers qu\'il crée.</p>' +
-      (OB.drive ? '<p class="notice ok">Google Drive connecté : une première copie sera faite à l\'ouverture de l\'appli.</p>'
+      (OB.drive ? '<p class="notice ok">Google Drive connecté : ' + (isNative ? 'une première copie sera faite à l\'ouverture de l\'appli.' : 'à l\'ouverture de l\'appli, un bandeau te proposera la première copie (un seul toucher).') + '</p>'
         : '<div><button type="button" class="btn ghost" data-ob="drive"' + (OB.busy ? ' disabled' : '') + '>Connecter Google Drive</button></div>') +
       (OB.driveMsg ? '<p class="notice err">' + esc(OB.driveMsg) + '</p>' : '') +
       '<p class="hint">Tu peux aussi le faire plus tard dans Réglages → Mes données.</p>';
@@ -737,6 +737,7 @@ function obSkip() {
 function obFinish() {
   if (OB.busy) return;
   if (S.readOnly) { blocked(); return; }
+  OB.busy = true; $('#ob-next').disabled = true; // un double appui ne doit rien enregistrer deux fois
   const now = Date.now(); let n = 0;
   const jobs = [];
   const fixe = (type, r) => {
@@ -763,7 +764,7 @@ function obFinish() {
   // Les opérations d'abord, les réglages ensuite : l'appli s'ouvre avec tout ce qui vient d'être saisi.
   jobs.push(setDoc(uref('meta', 'settings'), st, { merge: true }));
   write(Promise.all(jobs), OB.redo ? 'Configuration enregistrée' : 'Bienvenue sur P-Flow');
-  if (OB.redo) { OB.redo = false; show('app'); S.view = 'mois'; S.sub = null; render(); requestAnimationFrame(() => positionIndicator(false)); }
+  if (OB.redo) { OB.redo = false; OB.busy = false; show('app'); S.view = 'mois'; S.sub = null; render(); requestAnimationFrame(() => positionIndicator(false)); }
 }
 $('#s-onboard').addEventListener('click', e => {
   const b = e.target.closest('[data-ob], #ob-next, #ob-skip, #ob-back'); if (!b) return;
@@ -1517,7 +1518,8 @@ function syncSheet() {
   else stop.hidden = true;
   const hint = $('#f-hint');
   const hints = [];
-  if (fixe && F.orig.start < F.ctx && (!F.orig.end || F.orig.end >= F.ctx)) {
+  // Scission seulement si le mois de départ ne change pas (sinon le fixe est réécrit avec le nouveau départ).
+  if (fixe && F.orig.start < F.ctx && (!F.orig.end || F.orig.end >= F.ctx) && $('#f-start').value === F.orig.start) {
     const ns = F.mode === 'edit-rec' && F.freq === 'mois' ? F.ctx : firstDue(F.orig.start, F.freq, F.ctx);
     hints.push('Un nouveau montant compte à partir de ' + mLabel(ns) + '. Les mois d\'avant gardent ' + eur(F.orig.amount) + '.');
   }
@@ -1555,7 +1557,7 @@ $('#type-seg').addEventListener('click', e => { const b = e.target.closest('butt
 $('#op-seg').addEventListener('click', e => { const b = e.target.closest('button[data-op]'); if (!b) return; F.op = b.dataset.op; syncSheet(); });
 $('#freq-seg').addEventListener('click', e => { const b = e.target.closest('button[data-f]'); if (!b || b.disabled) return; F.freq = b.dataset.f; syncSheet(); });
 ['#f-amount', '#f-date'].forEach(id => $(id).addEventListener('input', updatePreview));
-$('#f-start').addEventListener('change', updatePreview);
+$('#f-start').addEventListener('change', () => { if (isFixe()) syncSheet(); else updatePreview(); });
 $('#f-urssaf').addEventListener('change', updatePreview);
 $('#sheet-close').addEventListener('click', closeSheet);
 bg.addEventListener('click', e => { if (e.target === bg) closeSheet(); });
@@ -1596,8 +1598,9 @@ form.addEventListener('submit', e => {
   }
 });
 // Fixes (chaque mois → `recurring` ; trimestre, année et épargne automatique → `periodiques`).
-// Un changement de montant ou de fréquence en cours de route garde le passé : l'ancien s'arrête au mois
-// d'avant et un nouveau prend le relais (même principe qu'avant le patch 2). Les deux écritures partent
+// Un changement de montant ou de fréquence en cours de route (mois de départ inchangé) garde le passé :
+// l'ancien s'arrête au mois d'avant et un nouveau prend le relais (même principe qu'avant le patch 2).
+// Changer le mois de départ réécrit le fixe avec ce nouveau départ (comme avant le patch 2). Les deux écritures partent
 // ensemble (writeBatch) : jamais l'une sans l'autre. Aucun fixe n'est supprimé par une modification.
 function saveFixe(o, src, f, vals, cm) {
   const dst = vals.type === 'epargne' || f !== 'mois' ? 'periodiques' : 'recurring';

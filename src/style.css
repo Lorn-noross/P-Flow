@@ -1,8 +1,9 @@
 /* P-Flow : style inspiré de Revolut (patch 2).
    - Fond en dégradé fixe (peint une seule fois), gros montant centré, cartes très arrondies.
    - Barre de navigation flottante en pilule, seul élément flouté (le flou ne touche jamais les listes).
-   - Animations sur transform / opacity uniquement (src/main.js), coupées par « Effets réduits »
-     et par le réglage système « réduire les animations ».
+   - Mouvements sur transform / opacity uniquement (src/main.js) ; ailleurs, seulement de courts fondus de
+     couleur (pas de recalcul de la mise en page). Tout est coupé par « Effets réduits » et par le réglage
+     système « réduire les animations ».
    - Apparence propre à chaque appareil : data-scheme (light|dark), data-noir, data-texte, data-effets sur <html>. */
 :root{
   --u:1px;
@@ -437,7 +438,7 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
 .kb-open .sheet input{scroll-margin-bottom:12px}
 .kb-open .toast{bottom:calc(var(--kb,0px) + 16px)}
 
-/* Effets réduits (réglage) et préférence système : pas de flou, pas d'animation. */
+/* Effets réduits (réglage) : ni flou, ni animation. Préférence système « réduire les animations » : pas d'animation. */
 :root[data-effets="reduits"] .tabbar{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--glass-solid)}
 :root[data-effets="reduits"] *,:root[data-effets="reduits"] *::after{transition:none!important;animation:none!important}
 @media (prefers-reduced-motion:reduce){*,*::after{animation:none!important;transition:none!important}}

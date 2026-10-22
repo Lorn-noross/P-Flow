@@ -37,7 +37,7 @@ Des personnes (dont la famille du propriétaire) ont de vraies données dans l'a
 2. Vérifier les API utilisées dans la documentation officielle à jour (Firebase, Capacitor, plugins) : pas de mémoire approximative.
 3. `npm run build` sans erreur ni avertissement nouveau.
 4. Tester l'interface en local (Playwright) : téléphone et PC, thème clair et sombre, parcours ajout / modification / suppression. Lancer le test de non-régression des données et le test de fluidité (`tests/README.md`).
-   - Animations : uniquement `transform` / `opacity` (Web Animations API, fonction `anim()`), coupées par « Effets réduits » et `prefers-reduced-motion` ; flou seulement sur la barre en pilule ; pas de calcul de mise en page forcé pendant une transition.
+   - Animations : mouvements uniquement en `transform` / `opacity` (Web Animations API, fonction `anim()`), courts fondus de couleur tolérés, coupées par « Effets réduits » et `prefers-reduced-motion` ; flou seulement sur la barre en pilule ; pas de calcul de mise en page forcé pendant une transition.
    - Nouveautés : `notes-de-version/<version>.md` est intégré à la construction (`latestNotes()` dans `vite.config.js` : version publiée si elle existe, sinon les notes les plus récentes pour les APK de test). Ne pas laisser de brouillon d'une version suivante au moment de publier.
 5. Si le modèle de données change : mettre à jour `firestore.rules` et prévenir le propriétaire qu'il doit les recopier dans la console.
 6. Poids : budget actuel JS ≈ 184 Ko gzip depuis le patch 2 (dont ~140 Ko Firebase), CSS ≈ 9,5 Ko gzip, APK ≈ 5 Mo. Ne pas ajouter de bibliothèque lourde ; préférer le code natif du navigateur ; charger à la demande ce qui n'est pas nécessaire au démarrage.
