@@ -602,6 +602,13 @@ async function scenarioEpargne(cfg, fx, tag) {
   check(card.includes(eur(E.epargne.total)), 'épargne : total des comptes = ' + eur(E.epargne.total));
   for (const [k, v] of Object.entries(E.epargne)) if (k !== 'total') check(clean(await page.locator('#ep-card .row', { hasText: k }).innerText()).includes(eur(v)), 'épargne : solde ' + k + ' = ' + eur(v));
   check(await page.locator('#lists', { hasText: 'Épargne du mois' }).count() === 1, 'épargne du mois listée');
+  // Solde à la fin du mois affiché : février = Livret A 1 000 + 50 (versement) et PEL 5 000 ; janvier = Livret A seul
+  await page.click('[data-act="prev-month"]');
+  await until(page, v => document.getElementById('ep-card').innerText.replace(/[\s\u00a0\u202f]/g, '').includes(v), eur(6050), 'épargne fin février = ' + eur(6050));
+  await page.click('[data-act="prev-month"]');
+  await until(page, v => document.getElementById('ep-card').innerText.replace(/[\s\u00a0\u202f]/g, '').includes(v) && !document.getElementById('ep-card').innerText.includes('PEL'), eur(1000), 'épargne fin janvier = ' + eur(1000) + ' (PEL pas encore noté)');
+  await page.click('[data-act="today"]');
+  await until(page, () => document.querySelector('#ctx h1').textContent === 'Mars 2026', null, 'retour en mars');
   check(await page.locator('#lists .row', { hasText: 'Prime' }).count() === 1, 'fixe trimestriel compté le mois où il tombe (Prime)');
   check(await page.locator('#lists .row', { hasText: 'Assurance auto' }).count() === 0, 'fixe trimestriel absent hors échéance (Assurance auto)');
 
@@ -819,6 +826,18 @@ async function scenarioApparence(cfg, fx, tag) {
   await page.reload();
   await waitApp(page);
   check(await attr('data-scheme') === 'light' && await attr('data-texte') === 'grand' && await attr('data-noir') === '', 'apparence retrouvée après rechargement');
+  // Couleur d'accentuation : enregistrée dans le compte (la même sur tous les appareils), appliquée tout de suite
+  await reglages(page, 'apparence');
+  const btnBg = () => page.locator('#ctx .back').evaluate(e => getComputedStyle(e).color); // le bouton « Réglages » prend la couleur d'accentuation
+  const bg0 = await btnBg();
+  await page.click('[data-act="accent"][data-a="violet"]');
+  check(await attr('data-accent') === 'violet' && await btnBg() !== bg0, 'couleur d\'accentuation appliquée tout de suite');
+  await until(page, () => window.__PFLOW_DB__.dump()['users/uid-test/meta/settings'].accent === 'violet', null, 'couleur d\'accentuation enregistrée dans le compte');
+  const S1 = (await dump(page))['users/uid-test/meta/settings'], S0 = fx.docs['users/uid-test/meta/settings'];
+  check(S1.pro === S0.pro && S1.taux['2026'] === S0.taux['2026'] && S1.createdAt === S0.createdAt && JSON.stringify(S1.couleurs) === JSON.stringify(S0.couleurs), 'les autres réglages sont intacts');
+  check(await page.evaluate(() => localStorage.getItem('pf-accent')) === 'violet', 'couleur gardée pour l\'ouverture suivante');
+  await page.click('[data-act="accent"][data-a="bleu"]');
+  await until(page, () => window.__PFLOW_DB__.dump()['users/uid-test/meta/settings'].accent === 'bleu' && !document.documentElement.hasAttribute('data-accent'), null, 'retour au bleu');
   noErr(errors);
   await ctx.close();
 }

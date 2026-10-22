@@ -59,6 +59,13 @@ const COLORS = [['brut', 'Revenus bruts', true], ['urssaf', 'URSSAF', true], ['n
 const PRESETS = [['#2453c4', 'Bleu'], ['#7da3ff', 'Bleu clair'], ['#0e9aa7', 'Turquoise'], ['#16845a', 'Vert'], ['#4dc48b', 'Vert clair'], ['#c2810c', 'Ambre'],
   ['#e4a940', 'Jaune'], ['#e0662e', 'Orange'], ['#c23b35', 'Rouge'], ['#d9488f', 'Rose'], ['#7a5af8', 'Violet'], ['#6a7d90', 'Gris']];
 const isHex = v => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
+// Couleurs d'accentuation (réglage facultatif `accent` du compte, patch 2) : identifiant, nom, couleur claire, couleur sombre.
+// Les teintes sont dans style.css (:root[data-accent=…]) ; « bleu » = couleurs par défaut.
+const ACCENTS = [['bleu', 'Bleu', '#2A5BD7', '#7DA3FF'], ['violet', 'Violet', '#6B4BE0', '#A992FF'], ['rose', 'Rose', '#C5367C', '#F48CC0'],
+  ['rouge', 'Rouge', '#C8372F', '#FF7A70'], ['orange', 'Orange', '#C9561A', '#FF9A5C'], ['ambre', 'Ambre', '#A86A00', '#F2B84B'],
+  ['vert', 'Vert', '#13865A', '#4DC48B'], ['turquoise', 'Turquoise', '#0A8794', '#45C8D6'], ['graphite', 'Graphite', '#3A4656', '#B9C4D2']];
+const isAccent = v => ACCENTS.some(([k]) => k === v);
+const accentDots = (cur, attr) => ACCENTS.map(([k, n, l, d]) => '<button type="button" class="dot" ' + attr + ' data-a="' + k + '" style="background:' + (isDark() ? d : l) + '" aria-label="' + n + '" aria-pressed="' + (cur === k) + '">' + ico('check') + '</button>').join('');
 // Fréquences des copies automatiques sur Google Drive (en jours).
 const BK_FREQ = { hebdomadaire: 7, mensuelle: 30, annuelle: 365 };
 // Fixes : fréquence → nombre de mois entre deux échéances (collection `periodiques`, patch 2).
@@ -131,6 +138,7 @@ function applyAppearance() {
   }
   lastChartW = 0;
   if (S.ready) { renderChart(); requestAnimationFrame(() => positionIndicator(false)); }
+  const acs = $('#accents'); if (acs && S.settings) acs.innerHTML = accentDots(S.settings.accent, 'data-act="accent"');
 }
 function setAppearance(k, v) {
   APP[k] = v;
@@ -190,7 +198,9 @@ function normSettings(d) {
   const sauvegarde = { drive: sv.drive === true, frequence: BK_FREQ[sv.frequence] ? sv.frequence : 'mensuelle', derniere: Number(sv.derniere) || 0 };
   // Champ facultatif `epargne` (patch 2) : true = suivie, false = refusée, absent = pas encore choisi.
   const epargne = d.epargne === true ? true : d.epargne === false ? false : null;
-  return { pro: !!d.pro, taux, periodicite: d.periodicite === 'trimestrielle' ? 'trimestrielle' : 'mensuelle', couleurs, sauvegarde, epargne };
+  // Champ facultatif `accent` (patch 2) : couleur d'accentuation, la même sur tous les appareils.
+  const accent = isAccent(d.accent) ? d.accent : 'bleu';
+  return { pro: !!d.pro, taux, periodicite: d.periodicite === 'trimestrielle' ? 'trimestrielle' : 'mensuelle', couleurs, sauvegarde, epargne, accent };
 }
 // Épargne affichée et comptée : choisie dans Réglages, ou des données d'épargne existent déjà (choix pas encore fait).
 function epOn() {
@@ -201,8 +211,16 @@ function epOn() {
 }
 // Applique les couleurs du compte (les mêmes sur tous les appareils).
 function applyColors() {
-  const c = (S.settings && S.settings.couleurs) || {}, st = document.documentElement.style;
+  const c = (S.settings && S.settings.couleurs) || {}, root = document.documentElement, st = root.style;
   for (const [k] of COLORS) { if (c[k]) st.setProperty('--c-' + k, c[k]); else st.removeProperty('--c-' + k); }
+  if (S.settings) {
+    setAccent(S.settings.accent);
+    lsSet('pf-accent', S.settings.accent); // copie locale : appliquée dès l'ouverture suivante, avant la synchronisation
+  }
+}
+function setAccent(a) {
+  const root = document.documentElement;
+  if (isAccent(a) && a !== 'bleu') root.setAttribute('data-accent', a); else root.removeAttribute('data-accent');
 }
 function rateFor(y) {
   if (!isPro()) return 0;
@@ -262,14 +280,16 @@ function monthData(m) {
   return { m, items, ents, recs, pers, eps, autos, rate, brut, base, urssaf, net, dep, epIn, epOut, ep, reste: r2(net - dep - ep) };
 }
 // Comptes d'épargne : solde = dernier « J'ai actuellement » + dépôts − retraits notés depuis (versements automatiques compris).
-function comptes() {
+// upTo (AAAA-MM) : solde à la fin de ce mois (par défaut le mois en cours).
+function comptes(upTo) {
+  const lim = upTo || CUR;
   const map = new Map();
   const get = l => { const k = norm(l); let c = map.get(k); if (!c) { c = { key: k, label: String(l).trim(), ev: [], autos: [] }; map.set(k, c); } return c; };
-  for (const e of S.epargne) if (e.label && DATE_RE.test(e.date || '') && OPS.includes(e.op)) get(e.label).ev.push({ d: e.date, t: Number(e.createdAt) || 0, op: e.op, a: Number(e.amount) || 0 });
+  for (const e of S.epargne) if (e.label && DATE_RE.test(e.date || '') && OPS.includes(e.op) && e.date.slice(0, 7) <= lim) get(e.label).ev.push({ d: e.date, t: Number(e.createdAt) || 0, op: e.op, a: Number(e.amount) || 0 });
   for (const p of S.periodiques) {
     if (p.type !== 'epargne' || !p.label || !perStep(p) || !YM_RE.test(p.start || '')) continue;
     const c = get(p.label); c.autos.push(p);
-    for (let m = p.start, i = 0; m <= CUR && i < 1200; m = addM(m, perStep(p)), i++) {
+    for (let m = p.start, i = 0; m <= lim && i < 1200; m = addM(m, perStep(p)), i++) {
       if (p.end && m > p.end) break;
       c.ev.push({ d: m + '-01', t: -1, op: 'depot', a: Number(p.amount) || 0 });
     }
@@ -279,7 +299,8 @@ function comptes() {
     c.ev.sort((a, b) => a.d.localeCompare(b.d) || a.t - b.t);
     let bal = 0;
     for (const e of c.ev) { if (e.op === 'solde') bal = e.a; else if (e.op === 'retrait') bal -= e.a; else bal += e.a; }
-    out.push({ key: c.key, label: c.label, solde: r2(bal), autos: c.autos.filter(p => !p.end || p.end >= CUR) });
+    if (!c.ev.length && upTo) continue; // compte pas encore ouvert à cette date
+    out.push({ key: c.key, label: c.label, solde: r2(bal), autos: c.autos.filter(p => !p.end || p.end >= lim) });
   }
   return out.sort((a, b) => b.solde - a.solde || a.label.localeCompare(b.label));
 }
@@ -604,12 +625,13 @@ const OB_QUICK = {
   dep: ['Loyer', 'Électricité', 'Internet', 'Téléphone', 'Assurance', 'Crédit', 'Abonnements'],
   ep: ['Livret A', 'LDDS', 'PEL', 'Assurance vie'],
 };
-const OB = { step: 0, redo: false, pro: false, rate: '', period: 'mensuelle', rev: [], dep: [], ep: null, comptes: [], drive: false, driveMsg: '', busy: false };
+const OB = { step: 0, redo: false, pro: false, rate: '', period: 'mensuelle', rev: [], dep: [], ep: null, comptes: [], drive: false, driveMsg: '', busy: false, accent: 'bleu' };
 function openOnboarding(redo) {
   if (!redo && !$('#s-onboard').hidden && !OB.redo) return; // déjà ouvert : ne pas recommencer
   Object.assign(OB, { step: 0, redo, rev: [], dep: [], comptes: [], drive: false, driveMsg: '', busy: false,
     pro: redo ? isPro() : false, rate: redo && isPro() ? amountStr(rateFor(NOW.getFullYear())) : '',
-    period: redo ? S.settings.periodicite : 'mensuelle', ep: redo ? (S.settings.epargne === null ? null : epOn()) : null });
+    period: redo ? S.settings.periodicite : 'mensuelle', ep: redo ? (S.settings.epargne === null ? null : epOn()) : null,
+    accent: redo ? S.settings.accent : 'bleu' });
   $('#o-error').textContent = '';
   show('s-onboard');
   obRender(0);
@@ -670,6 +692,7 @@ function obRender(dir) {
         '<div class="ob-rows">' + OB.comptes.map((r, i) => obRowHtml('ep', r, i)).join('') + '</div>' : '');
   } else if (id === 'apparence') {
     h = '<h2>L\'apparence</h2><p>Réglée pour cet appareil. Tu la retrouves dans Réglages → Apparence.</p>' +
+      '<p class="h3">Couleur d\'accentuation</p><div class="palette accents">' + accentDots(OB.accent, 'data-ob="accent"') + '</div>' +
       '<p class="h3">Thème</p><div class="seg seg3">' + [['auto', 'Automatique'], ['clair', 'Clair'], ['sombre', 'Sombre']].map(([k, l]) => '<button type="button" data-ob="theme" data-t="' + k + '" aria-pressed="' + (APP.theme === k) + '">' + l + '</button>').join('') + '</div>' +
       '<label class="check"><span>Noir absolu<small>En mode sombre, fond noir pur (écrans OLED).</small></span><input type="checkbox" data-ob="noir"' + (APP.noir ? ' checked' : '') + '></label>' +
       '<p class="h3">Taille du texte</p><div class="seg">' + [['normal', 'Normale'], ['grand', 'Grande']].map(([k, l]) => '<button type="button" data-ob="texte" data-t="' + k + '" aria-pressed="' + (APP.texte === k) + '">' + l + '</button>').join('') + '</div>';
@@ -759,6 +782,7 @@ function obFinish() {
   const yr = NOW.getFullYear(), rate = parseAmount(OB.rate);
   if (OB.pro && (!OB.redo || !isPro() || rate !== rateFor(yr) || S.settings.taux[yr] == null)) st.taux = { [String(yr)]: rate };
   if (OB.ep !== null) st.epargne = !!OB.ep;
+  if (!OB.redo ? OB.accent !== 'bleu' : OB.accent !== S.settings.accent) st.accent = OB.accent;
   if (OB.drive && !(OB.redo && bkCfg().drive)) st.sauvegarde = { drive: true, frequence: 'mensuelle', derniere: 0 };
   if (!OB.redo) { st.createdAt = serverTimestamp(); S.justOnboarded = true; lsSet('pf-nouveautes', NOTES_VERSION); }
   // Les opérations d'abord, les réglages ensuite : l'appli s'ouvre avec tout ce qui vient d'être saisi.
@@ -781,7 +805,7 @@ $('#s-onboard').addEventListener('click', e => {
   } else if (a === 'ob-skip') obSkip();
   else if (a === 'ob-back') {
     if (OB.step > 0) obGo(OB.step - 1);
-    else if (OB.redo) { OB.redo = false; show('app'); render(); requestAnimationFrame(() => positionIndicator(false)); }
+    else if (OB.redo) { OB.redo = false; applyColors(); show('app'); render(); requestAnimationFrame(() => positionIndicator(false)); }
   } else if (a === 'pro') { OB.pro = b.dataset.pro === '1'; obRender(0); if (OB.pro) { const r = $('#o-rate'); if (r) r.focus(); } }
   else if (a === 'period') { OB.period = b.dataset.p; obRender(0); }
   else if (a === 'ep') { OB.ep = b.dataset.v === '1'; if (!OB.ep) OB.comptes = []; obRender(0); }
@@ -796,6 +820,7 @@ $('#s-onboard').addEventListener('click', e => {
     OB[k === 'ep' ? 'comptes' : k].splice(+row.dataset.i, 1); obRender(0);
   } else if (a === 'theme') { setAppearance('theme', b.dataset.t); obRender(0); }
   else if (a === 'texte') { setAppearance('texte', b.dataset.t); obRender(0); }
+  else if (a === 'accent') { if (isAccent(b.dataset.a)) { OB.accent = b.dataset.a; setAccent(OB.accent); obRender(0); } }
   else if (a === 'drive') {
     OB.busy = true; OB.driveMsg = '';
     const tok = driveToken(true); // tout de suite : la fenêtre Google demande un geste de l'utilisateur
@@ -1011,9 +1036,10 @@ function renderUrssaf(m, ok) {
   if (S.simOpen) calc();
 }
 function renderEpCard(d, ok) {
-  const cs = comptes(), total = r2(cs.reduce((a, c) => a + c.solde, 0)), mo = MONTHS[pYM(d.m).m - 1];
+  const cs = comptes(d.m), total = r2(cs.reduce((a, c) => a + c.solde, 0)), mo = MONTHS[pYM(d.m).m - 1];
+  const when = d.m === CUR ? '' : (d.m < CUR ? 'à la fin ' : 'prévu à la fin ') + deMois(pYM(d.m).m - 1) + ' ' + pYM(d.m).y;
   const mline = [d.epIn ? 'mis de côté ' + eur(d.epIn) : '', d.epOut ? 'repris ' + eur(d.epOut) : ''].filter(Boolean).join(' · ');
-  $('#ep-card').innerHTML = '<div class="ep-head"><h3>Épargne</h3><span class="ep-total">' + (ok ? eur(total) : '…') + '</span></div>' +
+  $('#ep-card').innerHTML = '<div class="ep-head"><h3>Épargne' + (when ? ' <span class="ep-when">' + esc(when) + '</span>' : '') + '</h3><span class="ep-total">' + (ok ? eur(total) : '…') + '</span></div>' +
     (mline ? '<p class="ep-month">En ' + esc(mo) + ' : ' + esc(mline) + '</p>' : '') +
     (cs.length ? '<div>' + cs.map(c => '<button class="row" data-act="compte-open" data-k="' + esc(c.key) + '"><span class="row-ico ep">' + ico('epargne') + '</span><span class="row-main"><span class="row-label">' + esc(c.label) + '</span>' +
       (c.autos.length ? '<span class="row-meta">' + esc(c.autos.map(p => eur(p.amount) + ' ' + FREQ_LABEL[p.freq]).join(' · ')) + '</span>' : '') + '</span><span class="row-amt">' + eur(c.solde) + '</span></button>').join('') + '</div>'
@@ -1199,7 +1225,7 @@ function renderReglages() {
   $('#acc-version').textContent = APP_VERSION;
   $('#sh-compte').textContent = email;
   $('#sh-pro').textContent = isPro() ? 'Taux ' + pctf(rateFor(NOW.getFullYear())) + ' · déclaration ' + S.settings.periodicite : '';
-  $('#sh-apparence').textContent = { auto: 'Thème automatique', clair: 'Thème clair', sombre: 'Thème sombre' }[APP.theme] + (APP.noir ? ' · noir absolu' : '') + (APP.texte === 'grand' ? ' · grand texte' : '');
+  $('#sh-apparence').textContent = (ACCENTS.find(([k]) => k === S.settings.accent) || ACCENTS[0])[1] + ' · ' + { auto: 'thème automatique', clair: 'thème clair', sombre: 'thème sombre' }[APP.theme] + (APP.noir ? ' · noir absolu' : '') + (APP.texte === 'grand' ? ' · grand texte' : '');
   $('#sh-donnees').textContent = bkCfg().drive ? 'Copies sur Google Drive activées' : 'Sauvegardes et export';
   $('#sh-apropos').textContent = 'Version ' + APP_VERSION;
   $('#sh-apropos-badge').hidden = !(UPD.state === 'available' || UPD.state === 'ready');
@@ -1216,6 +1242,8 @@ function renderReglages() {
   $$('#period-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.p === S.settings.periodicite)));
   $('#ep-toggle').checked = epOn();
   $('#ep-toggle-hint').hidden = !(S.settings.epargne === false && (S.epargne.length || S.periodiques.some(p => p.type === 'epargne')));
+  const ac = $('#accents'), acH = accentDots(S.settings.accent, 'data-act="accent"');
+  if (ac.innerHTML !== acH) ac.innerHTML = acH;
   $$('#theme-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.t === APP.theme)));
   $$('#texte-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.t === APP.texte)));
   $('#noir-toggle').checked = APP.noir;
@@ -1886,6 +1914,12 @@ document.addEventListener('click', e => {
   else if (a === 'sub-back') setSub(null, -1);
   else if (a === 'sub-admin') { if (S.view !== 'reglages') setView('reglages'); setSub('admin', 1); }
   else if (a === 'theme') setAppearance('theme', t.dataset.t);
+  else if (a === 'accent') {
+    const ac = t.dataset.a;
+    if (!isAccent(ac) || ac === S.settings.accent || blocked()) return;
+    setAccent(ac); // tout de suite, sans attendre l'enregistrement
+    write(setDoc(uref('meta', 'settings'), { accent: ac }, { merge: true }), 'Couleur d\'accentuation : ' + (ACCENTS.find(([k]) => k === ac) || [])[1]);
+  }
   else if (a === 'texte') setAppearance('texte', t.dataset.t);
   else if (a === 'news') showNews();
   else if (a === 'redo-setup') { if (!blocked()) openOnboarding(true); }
@@ -1964,7 +1998,7 @@ if (isNative) {
     if (layerOpen(bg)) { closeSheet(); return; }
     if (!$('#s-onboard').hidden) {
       if (OB.step > 0) obGo(OB.step - 1);
-      else if (OB.redo) { OB.redo = false; show('app'); render(); requestAnimationFrame(() => positionIndicator(false)); }
+      else if (OB.redo) { OB.redo = false; applyColors(); show('app'); render(); requestAnimationFrame(() => positionIndicator(false)); }
       else CapApp.exitApp();
       return;
     }

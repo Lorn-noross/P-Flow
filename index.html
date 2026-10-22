@@ -23,6 +23,8 @@
     d.setAttribute('data-scheme', dark ? 'dark' : 'light');
     if (g('pf-noir') === '1') d.setAttribute('data-noir', '');
     if (g('pf-texte') === 'grand') d.setAttribute('data-texte', 'grand');
+    var ac = g('pf-accent'); // copie locale de la couleur d'accentuation du compte (évite un flash de bleu)
+    if (ac && /^[a-z]{3,12}$/.test(ac) && ac !== 'bleu') d.setAttribute('data-accent', ac);
     var fx = g('pf-effets');
     if (fx === 'reduits' || (!fx && navigator.deviceMemory && navigator.deviceMemory <= 2)) d.setAttribute('data-effets', 'reduits');
   } catch (e) { /* apparence par défaut */ }
@@ -322,6 +324,11 @@
       </div>
 
       <div class="set-sub" id="sub-apparence" hidden>
+        <article class="card stack">
+          <h3>Couleur d'accentuation</h3>
+          <p class="hint">Boutons, onglet actif, liens et reflets du fond. Elle s'applique sur tous tes appareils.</p>
+          <div class="palette accents" id="accents" role="group" aria-label="Couleur d'accentuation"></div>
+        </article>
         <article class="card stack">
           <h3>Thème</h3>
           <div class="seg seg3" id="theme-seg">
