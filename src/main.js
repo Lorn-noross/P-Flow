@@ -109,6 +109,7 @@ if (isNative) document.body.classList.add('native');
 /* ---------- apparence (propre à chaque appareil) ---------- */
 // pf-theme : auto | clair | sombre ; pf-noir : 1 ; pf-texte : grand ; pf-effets : reduits.
 // Même logique que le petit script en tête de index.html (appliqué avant le premier affichage).
+// pf-accent (copie locale de la couleur d'accentuation du compte) : écrite par applyColors(), lue par ce script.
 const APP = {
   theme: ['clair', 'sombre'].includes(lsGet('pf-theme')) ? lsGet('pf-theme') : 'auto',
   noir: lsGet('pf-noir') === '1',
@@ -702,7 +703,7 @@ function obRender(dir) {
     h = '<h2>L\'apparence</h2><p>Réglée pour cet appareil. Tu la retrouves dans Réglages → Apparence.</p>' +
       '<p class="h3">Couleur d\'accentuation</p><div class="palette accents">' + accentDots(OB.accent, 'data-ob="accent"') + '</div>' +
       '<p class="h3">Thème</p><div class="seg seg3">' + [['auto', 'Automatique'], ['clair', 'Clair'], ['sombre', 'Sombre']].map(([k, l]) => '<button type="button" data-ob="theme" data-t="' + k + '" aria-pressed="' + (APP.theme === k) + '">' + l + '</button>').join('') + '</div>' +
-      '<label class="check"><span>Noir absolu<small>En mode sombre, fond noir pur (écrans OLED).</small></span><input type="checkbox" data-ob="noir"' + (APP.noir ? ' checked' : '') + '></label>' +
+      '<label class="check"><span>Noir absolu<small>En mode sombre, fond noir avec de légers reflets (écrans OLED).</small></span><input type="checkbox" data-ob="noir"' + (APP.noir ? ' checked' : '') + '></label>' +
       '<p class="h3">Taille du texte</p><div class="seg">' + [['normal', 'Normale'], ['grand', 'Grande']].map(([k, l]) => '<button type="button" data-ob="texte" data-t="' + k + '" aria-pressed="' + (APP.texte === k) + '">' + l + '</button>').join('') + '</div>';
   } else {
     h = '<h2>Sauvegarde</h2><p>Tes données sont déjà enregistrées dans ton compte. Tu peux en plus garder une copie automatique dans ton Google Drive (dossier « P-Flow Sauvegardes ») : P-Flow ne voit que les fichiers qu\'il crée.</p>' +

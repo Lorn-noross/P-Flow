@@ -15,7 +15,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <script>
 /* Apparence propre à cet appareil (thème, noir absolu, taille du texte, effets), appliquée avant
-   le premier affichage pour éviter un flash. Même logique que applyAppearance() dans src/main.js. */
+   le premier affichage pour éviter un flash. Même logique que applyAppearance() dans src/main.js.
+   Couleur d'accentuation : copie locale pf-accent du réglage du compte, même logique que applyColors(). */
 (function () {
   try {
     var d = document.documentElement, g = function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } };
@@ -336,7 +337,7 @@
             <button type="button" data-act="theme" data-t="clair">Clair</button>
             <button type="button" data-act="theme" data-t="sombre">Sombre</button>
           </div>
-          <label class="check"><span>Noir absolu<small>En mode sombre, fond noir pur : idéal pour les écrans OLED.</small></span><input type="checkbox" id="noir-toggle"></label>
+          <label class="check"><span>Noir absolu<small>En mode sombre, fond noir avec de légers reflets de couleur : idéal pour les écrans OLED.</small></span><input type="checkbox" id="noir-toggle"></label>
           <p class="hint">Réglé pour cet appareil seulement.</p>
         </article>
         <article class="card stack">

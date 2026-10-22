@@ -4,7 +4,8 @@
    - Mouvements sur transform / opacity uniquement (src/main.js) ; ailleurs, seulement de courts fondus de
      couleur (pas de recalcul de la mise en page). Tout est coupé par « Effets réduits » et par le réglage
      système « réduire les animations ».
-   - Apparence propre à chaque appareil : data-scheme (light|dark), data-noir, data-texte, data-effets sur <html>. */
+   - Apparence propre à chaque appareil : data-scheme (light|dark), data-noir, data-texte, data-effets sur <html> ;
+     data-accent = couleur d'accentuation du compte (copie locale pf-accent, appliquée par applyColors()). */
 :root{
   --u:1px;
   --bg:#EEF2F8; --bg-top:#E2E9F8; --glow:rgba(56,104,236,.20); --glow-2:rgba(108,92,231,.10);
@@ -168,7 +169,7 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
 @media (min-width:900px){
   .app{display:grid;grid-template-columns:244px minmax(0,1fr);min-height:100vh}
   .side{display:flex;flex-direction:column;gap:22px;position:sticky;top:0;height:100vh;background:var(--glass-solid);border-right:1px solid var(--line);
-    padding:26px 16px 22px max(20px,env(safe-area-inset-left,0px))}
+    padding:calc(26px + var(--sat)) 16px 22px max(20px,env(safe-area-inset-left,0px))}
   .main{width:100%;padding-left:40px;padding-right:max(40px,env(safe-area-inset-right,0px));padding-block:0 64px}
   .top{margin-inline:-40px;padding-inline:40px;padding-top:calc(var(--sat) + 20px);padding-bottom:12px;margin-bottom:12px}
   .pill{height:50px}
@@ -221,7 +222,7 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
 .col{display:grid;gap:14px;min-width:0;align-content:start}
 @media (min-width:1040px){
   .month-grid{grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:22px;align-items:start}
-  .month-grid>.col:first-child{position:sticky;top:96px}
+  .month-grid>.col:first-child{position:sticky;top:calc(96px + var(--sat))}
 }
 #v-mois{touch-action:pan-y pinch-zoom}
 .hero{display:grid;justify-items:center;text-align:center;padding:14px 4px 6px}
@@ -499,8 +500,8 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
 
 /* Effets réduits (réglage) : ni flou, ni animation. Préférence système « réduire les animations » : pas d'animation. */
 :root[data-effets="reduits"] .tabbar,:root[data-effets="reduits"] .pill{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--glass-solid)}
-:root[data-effets="reduits"] *,:root[data-effets="reduits"] *::after{transition:none!important;animation:none!important}
-@media (prefers-reduced-motion:reduce){*,*::after{animation:none!important;transition:none!important}}
+:root[data-effets="reduits"] *,:root[data-effets="reduits"] *::before,:root[data-effets="reduits"] *::after{transition:none!important;animation:none!important}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.tabbar,.pill{background:var(--glass-solid)}}
 
 /* ---------- connexion, démarrage, accès ---------- */
