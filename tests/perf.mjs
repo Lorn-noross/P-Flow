@@ -78,6 +78,11 @@ R.push(await measure('Glisser le doigt (mois suivant)', () => page.evaluate(() =
 R.push(await measure('Ouvrir la fenêtre d\'ajout', tap('.tabbar .fab')));
 R.push(await measure('Fermer la fenêtre d\'ajout', tap('#sheet-close')));
 R.push(await measure('Déplier la carte URSSAF', tap('#urssaf-line')));
+// Défilement du contenu sous les pilules floutées du haut et la barre du bas (le flou est recalculé à chaque image).
+const scrollTo = y => () => page.evaluate(y => { const y0 = scrollY, t0 = performance.now();
+  const step = t => { const p = Math.min(1, (t - t0) / 600); scrollTo(0, y0 + (y - y0) * p); if (p < 1) requestAnimationFrame(step); }; requestAnimationFrame(step); }, y);
+R.push(await measure('Défiler sous les pilules (bas)', scrollTo(900), 800));
+R.push(await measure('Défiler sous les pilules (haut)', scrollTo(0), 800));
 
 await browser.close(); server.close();
 const bad = R.filter(r => r.slow > 2);

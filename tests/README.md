@@ -39,7 +39,7 @@ Une partie seulement : `FX=0.1.2` (jeu de données), `CFG=PC` (appareil), `ONLY=
 node tests/perf.mjs            # processeur ralenti ×6 (vieux téléphone) ; --rate=4 pour ×4
 ```
 
-Mesure chaque image pendant les transitions (onglets, mois, glisser, fenêtre d'ajout, sous-pages, carte URSSAF). « Affichage » = calcul du nouvel écran avant le départ de l'animation ; « animation » = les images de l'animation elle-même, qui ne doivent pas dépasser 50 ms au ralenti ×6 (plus de 2 par animation = saccade).
+Mesure chaque image pendant les transitions (onglets, mois, glisser, fenêtre d'ajout, sous-pages, carte URSSAF) et pendant le défilement du contenu sous les pilules floutées. « Affichage » = calcul du nouvel écran avant le départ de l'animation ; « animation » = les images de l'animation elle-même, qui ne doivent pas dépasser 50 ms au ralenti ×6 (plus de 2 par animation = saccade).
 Captures d'écran : `tests/.out/` (ignoré par git).
 
 ## Quand le format des données change

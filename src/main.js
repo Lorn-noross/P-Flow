@@ -65,6 +65,14 @@ const ACCENTS = [['bleu', 'Bleu', '#2A5BD7', '#7DA3FF'], ['violet', 'Violet', '#
   ['rouge', 'Rouge', '#C8372F', '#FF7A70'], ['orange', 'Orange', '#C9561A', '#FF9A5C'], ['ambre', 'Ambre', '#A86A00', '#F2B84B'],
   ['vert', 'Vert', '#13865A', '#4DC48B'], ['turquoise', 'Turquoise', '#0A8794', '#45C8D6'], ['graphite', 'Graphite', '#3A4656', '#B9C4D2']];
 const isAccent = v => ACCENTS.some(([k]) => k === v);
+// Pastilles de Réglages → Apparence : reconstruites seulement quand le thème change (teintes claires / sombres),
+// sinon simple mise à jour de la pastille cochée (garde le focus et l'animation de la coche).
+function renderAccents() {
+  const ac = $('#accents'); if (!ac || !S.settings) return;
+  const dk = isDark() ? 'd' : 'l';
+  if (ac.dataset.dk !== dk || !ac.firstChild) { ac.dataset.dk = dk; ac.innerHTML = accentDots(S.settings.accent, 'data-act="accent"'); return; }
+  $$('[data-a]', ac).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.a === S.settings.accent)));
+}
 const accentDots = (cur, attr) => ACCENTS.map(([k, n, l, d]) => '<button type="button" class="dot" ' + attr + ' data-a="' + k + '" style="background:' + (isDark() ? d : l) + '" aria-label="' + n + '" aria-pressed="' + (cur === k) + '">' + ico('check') + '</button>').join('');
 // Fréquences des copies automatiques sur Google Drive (en jours).
 const BK_FREQ = { hebdomadaire: 7, mensuelle: 30, annuelle: 365 };
@@ -147,7 +155,7 @@ function applyAppearance() {
   }
   lastChartW = 0;
   if (S.ready) { renderChart(); requestAnimationFrame(() => positionIndicator(false)); }
-  const acs = $('#accents'); if (acs && S.settings) acs.innerHTML = accentDots(S.settings.accent, 'data-act="accent"');
+  renderAccents();
 }
 function setAppearance(k, v) {
   APP[k] = v;
@@ -1055,7 +1063,7 @@ function renderUrssaf(m, ok) {
 }
 function renderEpCard(d, ok) {
   const cs = comptes(d.m), total = r2(cs.reduce((a, c) => a + c.solde, 0)), mo = MONTHS[pYM(d.m).m - 1];
-  const when = d.m === CUR ? '' : (d.m < CUR ? 'à la fin ' : 'prévu à la fin ') + deMois(pYM(d.m).m - 1) + ' ' + pYM(d.m).y;
+  const when = epWhen(d.m);
   const mline = [d.epIn ? 'mis de côté ' + eur(d.epIn) : '', d.epOut ? 'repris ' + eur(d.epOut) : ''].filter(Boolean).join(' · ');
   $('#ep-card').innerHTML = '<div class="ep-head"><h3>Épargne' + (when ? ' <span class="ep-when">' + esc(when) + '</span>' : '') + '</h3><span class="ep-total">' + (ok ? eur(total) : '…') + '</span></div>' +
     (mline ? '<p class="ep-month">En ' + esc(mo) + ' : ' + esc(mline) + '</p>' : '') +
@@ -1260,8 +1268,7 @@ function renderReglages() {
   $$('#period-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.p === S.settings.periodicite)));
   $('#ep-toggle').checked = epOn();
   $('#ep-toggle-hint').hidden = !(S.settings.epargne === false && (S.epargne.length || S.periodiques.some(p => p.type === 'epargne')));
-  const ac = $('#accents'), acH = accentDots(S.settings.accent, 'data-act="accent"');
-  if (ac.innerHTML !== acH) ac.innerHTML = acH;
+  renderAccents();
   $$('#theme-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.t === APP.theme)));
   $$('#texte-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.t === APP.texte)));
   $('#noir-toggle').checked = APP.noir;
@@ -1433,11 +1440,13 @@ function closePanel() {
 }
 $('#panel-close').addEventListener('click', closePanel);
 pbg.addEventListener('click', e => { if (e.target === pbg) closePanel(); });
-function openCompte(key) {
-  const c = comptes().find(x => x.key === key); if (!c) return;
+function epWhen(m) { return m === CUR ? '' : (m < CUR ? 'à la fin ' : 'prévu à la fin ') + deMois(pYM(m).m - 1) + ' ' + pYM(m).y; }
+function openCompte(key, m) {
+  m = m || CUR; // même mois que la carte Épargne touchée
+  const c = (m === CUR ? comptes() : comptes(m)).find(x => x.key === key); if (!c) return;
   const evs = S.epargne.filter(e => norm(e.label) === key).map(e => Object.assign({ kind: 'ep' }, e)).sort(byDate);
   const autos = S.periodiques.filter(p => p.type === 'epargne' && norm(p.label) === key);
-  openPanel(c.label, '<p class="hint">Solde estimé</p><p class="uc-amount">' + eur(c.solde) + '</p>' +
+  openPanel(c.label, '<p class="hint">' + esc(m === CUR ? 'Solde estimé' : cap(epWhen(m))) + '</p><p class="uc-amount">' + eur(c.solde) + '</p>' +
     (autos.length ? '<h3>Versements automatiques</h3><div>' + autos.map(p => '<button class="row" data-act="edit-per" data-id="' + esc(p.id) + '"><span class="row-ico ep">' + ico('epargne') + '</span><span class="row-main"><span class="row-label">' + esc(cap(FREQ_LABEL[p.freq])) + '</span><span class="row-meta">' + esc('depuis ' + mShort(p.start) + (p.end ? ' · jusqu\'à ' + mShort(p.end) : '')) + '</span></span><span class="row-amt ep">' + eur(p.amount) + '</span></button>').join('') + '</div>' : '') +
     '<h3>Opérations</h3>' + (evs.length ? '<div>' + evs.map(e => rowHtml(e, 0)).join('') + '</div>' : '<p class="empty">Aucune opération notée.</p>'));
 }
@@ -1924,7 +1933,7 @@ document.addEventListener('click', e => {
     if (blocked()) return;
     const yes = t.dataset.v === '1';
     write(setDoc(uref('meta', 'settings'), { epargne: yes }, { merge: true }), yes ? 'Épargne activée : ajoute-la avec le bouton Épargne' : 'C\'est noté. Tu pourras l\'activer dans Réglages → Mon compte.');
-  } else if (a === 'compte-open') openCompte(t.dataset.k);
+  } else if (a === 'compte-open') openCompte(t.dataset.k, S.view === 'mois' ? S.month : CUR);
   else if (a === 'bar') showBubble(+t.dataset.i);
   else if (a === 'top-open') openTop(t.dataset.k);
   else if (a === 'goto-month') { hideBubble(); S.month = t.dataset.month; S.year = pYM(S.month).y; setView('mois'); }
