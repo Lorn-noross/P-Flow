@@ -66,7 +66,7 @@ Des personnes (dont la famille du propriétaire) ont de vraies données dans l'a
 - **Premier démarrage guidé** (demandé par le propriétaire) : remplacer les 2 questions actuelles (`#s-onboard` : profil, taux, déclaration) par une configuration pas à pas, **chaque étape facultative** (« Passer ») avec barre de progression, 5–6 étapes maximum, tout modifiable ensuite :
   1. Profil : particulier ou auto-entrepreneur (taux URSSAF, déclaration mensuelle / trimestrielle).
   2. Revenus fixes : salaire, aides… (montant + jour / mois de départ).
-  3. Charges fixes : boutons rapides (Loyer, Électricité, Internet, Téléphone, Assurance, Crédit, Abonnements…) où on tape juste le montant, avec chaque mois / trimestre / année.
+  3. Charges fixes : boutons rapides (Loyer, Électricité, Internet, Téléphone, Assurance, Crédit, Abonnements…) où on tape juste le montant, avec chaque mois / trimestre / année. **Ce ne sont que des raccourcis** : le libellé reste modifiable, et un bouton « + Autre charge » permet d'écrire soi-même à quoi elle correspond (libellés libres, jamais de catégories imposées). La saisie habituelle (montant, puis « À quoi ça correspond » écrit librement) reste inchangée partout.
   4. Épargne : l'activer ou non (réglage `epargne` facultatif ; désactivée = rien d'épargne affiché), comptes et solde actuel, versement automatique.
   5. Apparence : thème (dont Noir absolu), taille du texte.
   6. Sauvegarde Google Drive : la connecter tout de suite ou plus tard.
