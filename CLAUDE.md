@@ -24,6 +24,7 @@ Des personnes (dont la famille du propriétaire) ont de vraies données dans l'a
   - une ancienne version doit continuer à lire ce qu'écrit la nouvelle ;
   - une écriture ne doit jamais effacer un champ qu'elle ne connaît pas : `setDoc(…, { merge: true })` pour les réglages ; pour réécrire un document entier, repartir du document lu (`plain(o)`) puis modifier ;
   - les versions jusqu'à 0.1.0-beta réécrivent une opération modifiée (`entries`) sans garder les champs inconnus : tant qu'elles circulent, ne rien mettre d'indispensable dans un nouveau champ d'opération.
+  - les versions jusqu'à 0.1.1-beta comptent tout fixe de `recurring` chaque mois, traitent tout type inconnu comme une dépense et le transforment en `depense` si on le modifie : **ne rien mettre de nouveau dans `entries` ni `recurring`** (c'est pourquoi l'épargne et les fixes non mensuels sont dans `epargne` et `periodiques`). Écritures liées (arrêter un fixe et créer son remplaçant) : toujours ensemble avec `writeBatch`, jamais de suppression.
 - **Version des données** : `DATA_VERSION` dans `src/main.js` ; champ `dataVersion` dans `users/{uid}/meta/settings` (absent = 1). Une appli qui voit un `dataVersion` plus grand que le sien passe en lecture seule et demande la mise à jour (garde-fou présent depuis le patch 1). Si une donnée doit vraiment changer de forme :
   1. demander l'accord du propriétaire ;
   2. sauvegarde complète du compte avant toute conversion ;

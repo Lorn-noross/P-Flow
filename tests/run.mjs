@@ -639,6 +639,22 @@ async function scenarioEpargne(cfg, fx, tag) {
   check(nP.length === 1 && nP[0][1].amount === 350 && nP[0][1].start === '2026-03' && nP[0][1].freq === 'trimestre' && nP[0][1].champFutur === 'périodique à conserver', 'nouveau trimestriel correct (mars, 350 €, champ inconnu reporté)');
   check(db[PER + 'p4'].amount === 300 && db[PER + 'p4'].champFutur === 'périodique à conserver', 'ancien trimestriel intact (300 €, champ inconnu)');
 
+  // Passer un fixe mensuel en trimestriel en cours de route : l'ancien s'arrête (jamais supprimé), le nouveau garde le cycle
+  await page.locator('[data-act="view"][data-view="fixes"]:visible').click();
+  await page.locator('#fix-list .row', { hasText: 'Loyer' }).click();
+  await until(page, () => !document.getElementById('sheet-bg').hidden, null, 'fenêtre du loyer');
+  await page.click('#freq-seg [data-f="trimestre"]');
+  const w0 = await page.evaluate(() => window.__PFLOW_DB__.writes());
+  await page.click('#f-save');
+  await until(page, k => (window.__PFLOW_DB__.dump()[k] || {}).end === '2026-02', 'users/uid-test/recurring/r1', 'loyer mensuel arrêté en février (pas supprimé)');
+  db = await dump(page);
+  const nL = Object.entries(db).filter(([k, v]) => k.startsWith(PER) && v.label === 'Loyer');
+  check(nL.length === 1 && nL[0][1].freq === 'trimestre' && nL[0][1].start === '2026-03' && nL[0][1].amount === 500 && nL[0][1].end === null, 'loyer trimestriel à partir de mars');
+  check(db['users/uid-test/recurring/r1'].start === '2025-09' && db['users/uid-test/recurring/r1'].amount === 500, 'ancien loyer intact pour les mois passés');
+  check(await page.evaluate(() => window.__PFLOW_DB__.writes()) - w0 === 2, 'changement de fréquence : deux écritures ensemble, rien d\'autre');
+  await page.locator('[data-act="view"][data-view="mois"]:visible').click();
+  await waitHero(page, E.mars.reste - 90 + 50, 'mars inchangé par le passage au trimestriel');
+
   // Ajouter de l'épargne avec le bouton rond « Épargne »
   await page.click('[data-act="add-type"][data-type="epargne"]');
   await until(page, () => !document.getElementById('sheet-bg').hidden && !document.getElementById('op-seg').hidden, null, 'bouton Épargne : fenêtre en mode épargne');
@@ -656,6 +672,7 @@ async function scenarioEpargne(cfg, fx, tag) {
   check(db[EP + 'ep2'].champFutur === 'épargne à conserver' && db[EP + 'ep2'].op === 'depot' && db[EP + 'ep2'].createdAt === fx.docs[EP + 'ep2'].createdAt, 'dépôt : champ inconnu et date de création conservés');
 
   // Un solde (« J'ai actuellement ») ne change pas le reste
+  await waitHero(page, E.mars.reste - 90 + 50 - 20 - 10, 'dépôt modifié pris en compte');
   const before = await hero(page);
   await page.click('[data-act="add-type"][data-type="epargne"]');
   await until(page, () => !document.getElementById('sheet-bg').hidden, null, 'fenêtre épargne');

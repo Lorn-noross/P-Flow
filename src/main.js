@@ -9,7 +9,7 @@ import {
   sendPasswordResetEmail, signOut, GoogleAuthProvider, signInWithPopup, signInWithCredential, reload,
 } from 'firebase/auth';
 import {
-  collection, doc, query, where, onSnapshot, setDoc, addDoc, deleteDoc, getDoc, getDocFromServer, getDocsFromServer, serverTimestamp,
+  collection, doc, query, where, onSnapshot, setDoc, addDoc, deleteDoc, getDoc, getDocFromServer, getDocsFromServer, serverTimestamp, writeBatch,
 } from 'firebase/firestore';
 import { registerPlugin } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
@@ -877,7 +877,7 @@ function rowHtml(it, rate, extraCls) {
   if (isRev && isPro()) meta.push(it.urssaf ? 'URSSAF ' + MINUS + eur(it.amount * rate / 100) : 'sans URSSAF');
   const tag = it.kind === 'rec' || it.kind === 'per' ? '<span class="tag">fixe</span>' : '';
   const back = isEp && it.op === 'retrait';
-  const sign = isEp ? (back ? '+' : MINUS) : isRev ? '+' : MINUS;
+  const sign = isEp ? (it.op === 'solde' ? '' : back ? '+' : MINUS) : isRev ? '+' : MINUS;
   const ic = isEp ? '<span class="row-ico ep">' + ico('epargne') + '</span>' : isRev ? '<span class="row-ico in">' + ico('in') + '</span>' : '<span class="row-ico">' + ico('out') + '</span>';
   return '<button class="row' + (extraCls ? ' ' + extraCls : '') + '" data-act="' + ROW_ACT[it.kind] + '" data-id="' + esc(it.id) + '">' + ic +
     '<span class="row-main"><span class="row-label">' + esc(it.label) + tag + '</span>' +
@@ -1021,7 +1021,7 @@ function renderFixes() {
   const recs = S.recurring.map(r => Object.assign({ kind: 'rec', freq: 'mois' }, r));
   const pers = S.periodiques.filter(p => PER_TYPES.includes(p.type) && perStep(p) && (p.type !== 'epargne' || on)).map(p => Object.assign({ kind: 'per' }, p));
   const all = recs.concat(pers);
-  const act = all.filter(active), up = all.filter(r => r.start > CUR), ended = all.filter(r => r.end && r.end < CUR);
+  const act = all.filter(active), up = all.filter(r => r.start > CUR && !(r.end && r.end < r.start)), ended = all.filter(r => r.end && r.end < CUR && r.end >= r.start);
   const rev = act.filter(r => r.type === 'revenu'), epx = act.filter(r => r.kind === 'per' && r.type === 'epargne');
   const dep = act.filter(r => r.type !== 'revenu' && !(r.kind === 'per' && r.type === 'epargne'));
   const perMonth = x => (Number(x.amount) || 0) / (FREQ[x.freq] || 1);
@@ -1499,7 +1499,8 @@ function syncSheet() {
   $('#f-freq-field').hidden = !canFreq;
   $('#freq-seg [data-f="once"]').hidden = fixe;
   $('#freq-seg').classList.toggle('seg3', fixe); $('#freq-seg').classList.toggle('seg4', !fixe);
-  const ended = fixe && F.orig.end && F.orig.end < F.ctx;
+  // Fixe avec une date de fin : sa fréquence ne change pas (sinon il pourrait repartir ou perdre une échéance).
+  const ended = fixe && !!F.orig.end;
   $$('#freq-seg button').forEach(b => { b.setAttribute('aria-pressed', String(b.dataset.f === F.freq)); b.disabled = !!ended && b.dataset.f !== F.freq; });
   const once = F.freq === 'once';
   $('#f-date-field').hidden = !once; $('#f-start-field').hidden = once;
@@ -1515,11 +1516,13 @@ function syncSheet() {
   if (fixe) { stop.hidden = false; stop.textContent = F.orig.end ? 'Reprendre' : 'Arrêter après ' + MONTHS[pYM(F.ctx).m - 1]; }
   else stop.hidden = true;
   const hint = $('#f-hint');
-  if (ended) { hint.hidden = false; hint.textContent = 'Ce fixe est terminé : sa fréquence ne peut plus changer.'; }
-  else if (fixe && F.orig.start < F.ctx && (!F.orig.end || F.orig.end >= F.ctx)) {
+  const hints = [];
+  if (fixe && F.orig.start < F.ctx && (!F.orig.end || F.orig.end >= F.ctx)) {
     const ns = F.mode === 'edit-rec' && F.freq === 'mois' ? F.ctx : firstDue(F.orig.start, F.freq, F.ctx);
-    hint.hidden = false; hint.textContent = 'Un nouveau montant compte à partir de ' + mLabel(ns) + '. Les mois d\'avant gardent ' + eur(F.orig.amount) + '.';
-  } else hint.hidden = true;
+    hints.push('Un nouveau montant compte à partir de ' + mLabel(ns) + '. Les mois d\'avant gardent ' + eur(F.orig.amount) + '.');
+  }
+  if (ended) hints.push('Ce fixe a une date de fin : pour changer sa fréquence, touche d\'abord « Reprendre ».');
+  hint.hidden = !hints.length; hint.textContent = hints.join(' ');
   updatePreview();
   // Les suggestions dépendent du type (dépense, revenu ou compte d'épargne).
   if (document.activeElement === $('#f-label')) suggest(); else closeSuggest();
@@ -1594,7 +1597,8 @@ form.addEventListener('submit', e => {
 });
 // Fixes (chaque mois → `recurring` ; trimestre, année et épargne automatique → `periodiques`).
 // Un changement de montant ou de fréquence en cours de route garde le passé : l'ancien s'arrête au mois
-// d'avant et un nouveau prend le relais (même principe qu'avant le patch 2).
+// d'avant et un nouveau prend le relais (même principe qu'avant le patch 2). Les deux écritures partent
+// ensemble (writeBatch) : jamais l'une sans l'autre. Aucun fixe n'est supprimé par une modification.
 function saveFixe(o, src, f, vals, cm) {
   const dst = vals.type === 'epargne' || f !== 'mois' ? 'periodiques' : 'recurring';
   const moved = dst !== src;
@@ -1607,22 +1611,24 @@ function saveFixe(o, src, f, vals, cm) {
   if (!moved) {
     if (!startChanged && valueChanged && started) {
       const ns = dst === 'recurring' ? cm : firstDue(o.start, f, cm);
-      write(Promise.all([
-        setDoc(oldRef, Object.assign(plain(o), { label: vals.label, end: addM(cm, -1) })),
-        addDoc(ucol(dst), withFreq(Object.assign(plain(o), vals, { start: ns, end: o.end || null, createdAt: Date.now() }), f)),
-      ]), 'Nouveau montant à partir de ' + mLabel(ns));
+      const b = writeBatch(db);
+      b.set(oldRef, Object.assign(plain(o), { label: vals.label, end: addM(cm, -1) }));
+      b.set(doc(ucol(dst)), withFreq(Object.assign(plain(o), vals, { start: ns, end: o.end || null, createdAt: Date.now() }), f));
+      write(b.commit(), 'Nouveau montant à partir de ' + mLabel(ns));
     } else {
       write(setDoc(oldRef, withFreq(Object.assign(plain(o), vals), f)), 'Modifié');
     }
     return;
   }
   // Changement de collection (chaque mois ↔ trimestre / année) : le passé reste compté tel qu'il était.
+  // L'ancien document est gardé et arrêté juste avant le nouveau (s'il n'avait pas commencé, il s'arrête
+  // avant son début : il ne compte plus nulle part, mais rien n'est effacé).
   const ns = started ? firstDue(vals.start, f, cm) : vals.start;
   const nd = withFreq(Object.assign(plain(o), vals, { start: ns, end: o.end && o.end >= ns ? o.end : null, createdAt: Date.now() }), f);
-  const jobs = [addDoc(ucol(dst), nd)];
-  if (past) jobs.push(setDoc(oldRef, Object.assign(plain(o), { end: addM(cm, -1) })));
-  else jobs.push(deleteDoc(oldRef)); // pas encore commencé : rien à garder
-  write(Promise.all(jobs), 'Modifié : ' + FREQ_LABEL[f] + ' à partir de ' + mLabel(ns));
+  const b = writeBatch(db);
+  b.set(doc(ucol(dst)), nd);
+  b.set(oldRef, Object.assign(plain(o), { end: past ? addM(cm, -1) : addM(o.start, -1) }));
+  write(b.commit(), 'Modifié : ' + FREQ_LABEL[f] + ' à partir de ' + mLabel(ns));
 }
 $('#f-delete').addEventListener('click', () => {
   if (blocked()) { closeSheet(); return; }

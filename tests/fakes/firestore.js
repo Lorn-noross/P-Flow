@@ -96,6 +96,15 @@ export async function addDoc(coll, data) {
   await setDoc(ref, data);
   return { id: ref.path.split('/').pop(), path: ref.path };
 }
+// Écritures groupées : toutes appliquées ensemble au commit, comme le vrai Firestore.
+export function writeBatch() {
+  const ops = [];
+  return {
+    set(ref, data, opt) { ops.push(() => { const v = resolve(data, ref.path); store.set(ref.path, opt && opt.merge ? deepMerge(store.get(ref.path) || {}, v) : v); }); return this; },
+    delete(ref) { ops.push(() => { store.delete(ref.path); }); return this; },
+    async commit() { ops.forEach(f => f()); writes += ops.length; notify(); },
+  };
+}
 export async function deleteDoc(ref) {
   store.delete(ref.path);
   writes++;
