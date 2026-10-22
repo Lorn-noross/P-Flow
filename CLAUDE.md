@@ -63,6 +63,14 @@ Des personnes (dont la famille du propriétaire) ont de vraies données dans l'a
   - *Année* : (11) reste de l'année en grand + moyenne par mois, les autres totaux en petit ; (12) graphique avec le reste de chaque mois (vert / rouge) et une ligne de moyenne des dépenses, bulle de chiffres au toucher (le toucher n'ouvre plus directement le mois) ; (13) mois à venir marqués « prévision » ; (14) « Où part l'argent » avec % du total, couleur fixes / ponctuelles, ligne « Autres », toucher = voir les opérations.
   - *Réglages* : (15) sections / sous-pages : Mon compte, Auto-entrepreneur, Apparence, Mes données, Partager P-Flow, Administration (admin seulement), À propos ; (16) calculette sortie des Réglages (« Simuler une facture » dans la carte URSSAF) ; (17) option Taille du texte (normal / grand).
   - *Défauts* : (18) « URSSAF de octobre » → « d'octobre » (élision avril, août, octobre ; `urssafPeriod` dans `main.js`) ; (19) pastilles Revenus bruts / nets de la légende absentes de la barre (réglé par 1).
+- **Premier démarrage guidé** (demandé par le propriétaire) : remplacer les 2 questions actuelles (`#s-onboard` : profil, taux, déclaration) par une configuration pas à pas, **chaque étape facultative** (« Passer ») avec barre de progression, 5–6 étapes maximum, tout modifiable ensuite :
+  1. Profil : particulier ou auto-entrepreneur (taux URSSAF, déclaration mensuelle / trimestrielle).
+  2. Revenus fixes : salaire, aides… (montant + jour / mois de départ).
+  3. Charges fixes : boutons rapides (Loyer, Électricité, Internet, Téléphone, Assurance, Crédit, Abonnements…) où on tape juste le montant, avec chaque mois / trimestre / année.
+  4. Épargne : l'activer ou non (réglage `epargne` facultatif ; désactivée = rien d'épargne affiché), comptes et solde actuel, versement automatique.
+  5. Apparence : thème (dont Noir absolu), taille du texte.
+  6. Sauvegarde Google Drive : la connecter tout de suite ou plus tard.
+  - Écrit exactement les mêmes documents qu'un ajout manuel (règle n°1) ; seulement pour un nouveau compte (`meta/settings` absent). Comptes existants : rien d'imposé, mais « Refaire la configuration » dans Réglages et, à la première ouverture du patch 2, une proposition légère d'activer l'épargne.
 - **Exigences du propriétaire pour le patch 2** :
   - **Zéro casse des données** (il insiste, « très, très sérieux ») : règle n°1 appliquée à chaque étape, test de non-régression sur les jeux de données 0.1.0 et 0.1.1, plus un jeu au nouveau format.
   - **Beau ET très optimisé** : transitions fluides sans saccades, y compris sur un vieux téléphone (animations `transform` / `opacity` seulement, pas de flou sur les listes, tester avec le processeur ralenti ×4–×6 dans Chromium, vérifier qu'aucune image ne dépasse ~16 ms) ; garder le poids sous contrôle.
