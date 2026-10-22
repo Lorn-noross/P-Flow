@@ -1,7 +1,7 @@
 {
   "name": "p-flow",
   "private": true,
-  "version": "0.1.1-beta",
+  "version": "0.1.2-beta",
   "description": "Know where your money flows.",
   "type": "module",
   "scripts": {

@@ -16,6 +16,8 @@ if (typeof window !== 'undefined') {
   window.__PFLOW_DB__ = {
     dump: () => Object.fromEntries(Array.from(store, ([k, v]) => [k, clone(v)])),
     writes: () => writes,
+    // Simule une écriture faite par un autre appareil (ex. l'administrateur qui accepte une demande).
+    set: (path, data) => { store.set(path, clone(data)); notify(); },
   };
 }
 
@@ -93,6 +95,15 @@ export async function addDoc(coll, data) {
   const ref = doc(coll);
   await setDoc(ref, data);
   return { id: ref.path.split('/').pop(), path: ref.path };
+}
+// Écritures groupées : toutes appliquées ensemble au commit, comme le vrai Firestore.
+export function writeBatch() {
+  const ops = [];
+  return {
+    set(ref, data, opt) { ops.push(() => { const v = resolve(data, ref.path); store.set(ref.path, opt && opt.merge ? deepMerge(store.get(ref.path) || {}, v) : v); }); return this; },
+    delete(ref) { ops.push(() => { store.delete(ref.path); }); return this; },
+    async commit() { ops.forEach(f => f()); writes += ops.length; notify(); },
+  };
 }
 export async function deleteDoc(ref) {
   store.delete(ref.path);

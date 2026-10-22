@@ -15,7 +15,8 @@ Pour chaque jeu de données de `fixtures/` (format d'une ancienne version, donn�
 - les couleurs : appliquées dès le chargement (venues d'un autre appareil), choix, retour par défaut, autres réglages intacts ;
 - les sauvegardes : export complet, import qui remet seulement ce qui manque (sans écraser ni doublonner), Google Drive simulé (dossier, 12 copies, corbeille, restauration, copie automatique due) ;
 - les mises à jour (navigateur) : bandeau « Recharger », intervalle, vérification manuelle ;
-- l'écran de bienvenue d'un nouveau compte ;
+- le premier démarrage guidé d'un nouveau compte (documents identiques à un ajout manuel) et « Refaire la configuration » (rien de supprimé) ;
+- patch 2 : épargne (soldes, dépôts, retraits, versements automatiques, désactivation sans perte), fixes trimestriels et annuels (échéances, modification en cours de route qui garde le cycle et les champs inconnus), proposition d'activer l'épargne aux anciens comptes, demandes d'accès (côté personne et côté administrateur), nouveautés affichées une seule fois, apparence propre à l'appareil, sous-pages des Réglages, glisser pour changer de mois ;
 - aucune erreur dans la console.
 
 L'appli est construite avec un faux Firebase en mémoire (`fakes/`, `vite.config.js`) et Internet est simulé (version publiée, bibliothèque Google, Google Drive) : aucun accès au vrai projet, aucune donnée réelle. Ces fichiers ne sont jamais inclus dans l'appli publiée.
@@ -30,6 +31,15 @@ node tests/run.mjs
 ```
 
 Autre Chromium : `CHROME_PATH=/chemin/vers/chromium CHROME_ARGS="--no-sandbox" node tests/run.mjs`.
+Une partie seulement : `FX=0.1.2` (jeu de données), `CFG=PC` (appareil), `ONLY=Epargne` (scénario), `--no-build` (réutiliser la construction), `DEBUG=1` (détail d'un échec).
+
+## Fluidité
+
+```bash
+node tests/perf.mjs            # processeur ralenti ×6 (vieux téléphone) ; --rate=4 pour ×4
+```
+
+Mesure chaque image pendant les transitions (onglets, mois, glisser, fenêtre d'ajout, sous-pages, carte URSSAF) et pendant le défilement du contenu sous les pilules floutées. « Affichage » = calcul du nouvel écran avant le départ de l'animation ; « animation » = les images de l'animation elle-même, qui ne doivent pas dépasser 50 ms au ralenti ×6 (plus de 2 par animation = saccade).
 Captures d'écran : `tests/.out/` (ignoré par git).
 
 ## Quand le format des données change

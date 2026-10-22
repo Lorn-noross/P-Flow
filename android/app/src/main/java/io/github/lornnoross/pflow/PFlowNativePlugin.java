@@ -4,14 +4,19 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
+import android.view.Window;
 import androidx.activity.result.ActivityResult;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.IntentSenderRequest;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.core.content.FileProvider;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -38,7 +43,8 @@ import java.util.Locale;
  * Fonctions natives de P-Flow (Android) :
  * - autorisation Google Drive limitée aux fichiers créés par P-Flow (drive.file) ;
  * - « Enregistrer sous » pour l'export des données ;
- * - téléchargement et installation des mises à jour, uniquement depuis les versions publiées de P-Flow.
+ * - téléchargement et installation des mises à jour, uniquement depuis les versions publiées de P-Flow ;
+ * - couleur des barres du système (heure, batterie, navigation) assortie au thème choisi dans l'appli.
  */
 @CapacitorPlugin(name = "PFlowNative")
 public class PFlowNativePlugin extends Plugin {
@@ -108,6 +114,49 @@ public class PFlowNativePlugin extends Plugin {
         JSObject r = new JSObject();
         r.put("accessToken", token);
         call.resolve(r);
+    }
+
+    /* ---------- Barres du système ---------- */
+
+    // Thème choisi dans l'appli (Automatique, Clair, Sombre, Noir absolu) : couleur du haut (barre d'état avant
+    // Android 15), couleur du bas (fond de la fenêtre, visible derrière la barre de navigation) et couleur des icônes
+    // du système, pour qu'elles restent lisibles. Sur Android 15+, la page passe sous la barre d'état.
+    @PluginMethod
+    public void setSystemBars(PluginCall call) {
+        final boolean light = call.getBoolean("light", true);
+        final int color = parseColorOr(call.getString("color"), light ? "#E2E9F8" : "#111A2B");
+        final int bottom = parseColorOr(call.getString("bottom"), null, color);
+        getActivity().runOnUiThread(() -> {
+            Window w = getActivity().getWindow();
+            w.setBackgroundDrawable(new ColorDrawable(bottom));
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                // Avant Android 15 (sans affichage bord à bord imposé), les barres ont leur propre couleur.
+                w.setStatusBarColor(color);
+                w.setNavigationBarColor(bottom);
+            }
+            WindowInsetsControllerCompat c = WindowCompat.getInsetsController(w, w.getDecorView());
+            c.setAppearanceLightStatusBars(light);
+            c.setAppearanceLightNavigationBars(light);
+        });
+        // Android 15+ : hauteur de la barre d'état sous laquelle passe la page (voir MainActivity.immersiveTop).
+        JSObject r = new JSObject();
+        if (MainActivity.topInsetCss >= 0) r.put("top", MainActivity.topInsetCss);
+        call.resolve(r);
+    }
+
+    private static int parseColorOr(String value, String fallback) {
+        return parseColorOr(value, fallback, Color.BLACK);
+    }
+
+    private static int parseColorOr(String value, String fallback, int last) {
+        if (value != null) {
+            try {
+                return Color.parseColor(value);
+            } catch (IllegalArgumentException e) {
+                /* couleur illisible : valeur par défaut */
+            }
+        }
+        return fallback != null ? Color.parseColor(fallback) : last;
     }
 
     /* ---------- Enregistrer sous (export des données) ---------- */
