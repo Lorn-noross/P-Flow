@@ -128,13 +128,21 @@ function applyAppearance() {
   if (APP.noir) d.setAttribute('data-noir', ''); else d.removeAttribute('data-noir');
   if (APP.texte === 'grand') d.setAttribute('data-texte', 'grand'); else d.removeAttribute('data-texte');
   if (APP.effets === 'reduits') d.setAttribute('data-effets', 'reduits'); else d.removeAttribute('data-effets');
-  const top = getComputedStyle(d).getPropertyValue('--bg-top').trim() || (dark ? '#111A2B' : '#E2E9F8');
+  const cs = getComputedStyle(d);
+  const top = cs.getPropertyValue('--bg-top').trim() || (dark ? '#111A2B' : '#E2E9F8');
+  const bottom = cs.getPropertyValue('--bg').trim() || (dark ? '#0A0E14' : '#EEF2F8');
   const meta = $('#meta-theme'); if (meta) meta.setAttribute('content', top);
-  // Android : barres du système (heure, batterie) assorties au thème choisi dans l'appli.
-  const bars = top + (dark ? 'd' : 'l');
+  // Android : barres du système (heure, batterie) assorties au thème choisi dans l'appli ; en bas, la couleur du
+  // bas de la page (fond derrière la barre de navigation).
+  const bars = top + bottom + (dark ? 'd' : 'l');
   if (isNative && bars !== lastBars) {
     lastBars = bars;
-    try { PFlowNative.setSystemBars({ color: top, light: !dark }).catch(() => {}); } catch (e) { /* ancienne appli native */ }
+    try {
+      PFlowNative.setSystemBars({ color: top, bottom, light: !dark }).then(res => {
+        // Android 15+ : la page passe sous la barre d'état ; sa hauteur sert d'espace en haut (variable --sat).
+        if (res && typeof res.top === 'number' && res.top >= 0) d.style.setProperty('--sat', Math.min(res.top, 120) + 'px');
+      }).catch(() => {});
+    } catch (e) { /* ancienne appli native */ }
   }
   lastChartW = 0;
   if (S.ready) { renderChart(); requestAnimationFrame(() => positionIndicator(false)); }
@@ -878,18 +886,27 @@ function updateSync() {
 window.addEventListener('online', updateSync);
 window.addEventListener('offline', updateSync);
 
+// Barre du haut transparente : dès qu'on fait défiler, un léger fondu garde l'heure et la batterie lisibles.
+const topBar = $('.top');
+let topScrolled = false;
+window.addEventListener('scroll', () => {
+  const s = window.scrollY > 4;
+  if (s !== topScrolled) { topScrolled = s; topBar.classList.toggle('scrolled', s); }
+}, { passive: true });
+
 const ico = (id, cls) => '<svg class="i' + (cls ? ' ' + cls : '') + '"><use href="#i-' + id + '"/></svg>';
 function renderCtx() {
   const c = $('#ctx');
   let h;
+  // Pilules en verre : le titre (avec ses flèches) et, dans une sous-page des réglages, le retour.
   if (S.view === 'mois') {
-    h = '<button class="icon-btn" data-act="prev-month" aria-label="Mois précédent">' + ico('left') + '</button><h1>' + esc(cap(mLabel(S.month))) + '</h1><button class="icon-btn" data-act="next-month" aria-label="Mois suivant">' + ico('right') + '</button>';
+    h = '<div class="pill"><button class="icon-btn" data-act="prev-month" aria-label="Mois précédent">' + ico('left') + '</button><h1>' + esc(cap(mLabel(S.month))) + '</h1><button class="icon-btn" data-act="next-month" aria-label="Mois suivant">' + ico('right') + '</button></div>';
   } else if (S.view === 'annee') {
-    h = '<button class="icon-btn" data-act="prev-year" aria-label="Année précédente">' + ico('left') + '</button><h1>' + S.year + '</h1><button class="icon-btn" data-act="next-year" aria-label="Année suivante">' + ico('right') + '</button>';
+    h = '<div class="pill"><button class="icon-btn" data-act="prev-year" aria-label="Année précédente">' + ico('left') + '</button><h1>' + S.year + '</h1><button class="icon-btn" data-act="next-year" aria-label="Année suivante">' + ico('right') + '</button></div>';
   } else if (S.view === 'reglages' && S.sub) {
-    h = '<button class="back" data-act="sub-back" aria-label="Retour aux réglages">' + ico('left') + 'Réglages</button><h1>' + esc(SUBS[S.sub]) + '</h1>';
+    h = '<button class="pill back" data-act="sub-back" aria-label="Retour aux réglages">' + ico('left') + '</button><div class="pill solo"><h1>' + esc(SUBS[S.sub]) + '</h1></div>';
   } else {
-    h = '<h1 style="padding-left:6px">' + (S.view === 'fixes' ? 'Charges et revenus fixes' : 'Réglages') + '</h1>';
+    h = '<div class="pill solo"><h1>' + (S.view === 'fixes' ? 'Charges et revenus fixes' : 'Réglages') + '</h1></div>';
   }
   c.innerHTML = h;
 }
@@ -936,7 +953,7 @@ function heroSubHtml(d, m) {
   const parts = [];
   if (m === CUR) {
     const dim = new Date(NOW.getFullYear(), NOW.getMonth() + 1, 0).getDate(), left = dim - NOW.getDate() + 1;
-    if (d.reste > 0) parts.push('soit <b>~' + esc(eur0(d.reste / left)) + '</b> par jour jusqu\'au ' + dim + ' ' + MONTHS[NOW.getMonth()]);
+    if (d.reste > 0) parts.push('Tu peux encore dépenser <b>~' + esc(eur0(d.reste / left)) + '</b> ' + (left > 1 ? 'par jour jusqu\'au ' + dim + '\u00a0' + MONTHS[NOW.getMonth()] : 'aujourd\'hui'));
     else if (d.reste < 0) parts.push('Tes dépenses dépassent tes revenus ce mois-ci');
   }
   const pm = addM(m, -1);

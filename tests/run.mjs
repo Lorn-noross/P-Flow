@@ -865,8 +865,28 @@ async function scenarioNavigation(cfg, fx, tag) {
     await reglages(page);
     await until(page, () => getComputedStyle(document.querySelector('.tabbar .fab')).opacity === '0', null, 'bouton + masqué dans Réglages');
   }
+  // Haut de l'écran : pas de barre opaque, titre (et nuage sur téléphone) dans des pilules en verre.
+  const topInfo = await page.evaluate(() => {
+    const cs = getComputedStyle(document.querySelector('.top'));
+    return { bg: cs.backgroundColor, pe: cs.pointerEvents, pillTop: document.querySelector('#ctx .pill').getBoundingClientRect().top,
+      sync: getComputedStyle(document.querySelector('.top .sync')).display !== 'none' };
+  });
+  check(topInfo.bg === 'rgba(0, 0, 0, 0)' && topInfo.pe === 'none', 'barre du haut transparente, elle laisse passer les touchers');
+  check(topInfo.sync === (cfg.viewport.width < 900), 'nuage de synchronisation en pilule (téléphone) ou dans la colonne (PC)');
+  // Android 15+ : la page passe sous la barre d'état, dont la hauteur arrive dans --sat.
+  await page.evaluate(() => document.documentElement.style.setProperty('--sat', '30px'));
+  const pillTop2 = await page.evaluate(() => document.querySelector('#ctx .pill').getBoundingClientRect().top);
+  check(Math.round(pillTop2 - topInfo.pillTop) === 30, 'pilules sous la barre d\'état (--sat)');
+  await page.evaluate(() => document.documentElement.style.removeProperty('--sat'));
+  if (await page.evaluate(() => document.documentElement.scrollHeight > innerHeight + 300)) {
+    await page.evaluate(() => window.scrollTo(0, 260));
+    await until(page, () => document.querySelector('.top').classList.contains('scrolled'), null, 'fondu en haut quand le contenu passe dessous');
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await until(page, () => !document.querySelector('.top').classList.contains('scrolled'), null, 'pas de fondu en haut de la page');
+  }
   await reglages(page, 'partage');
   check(await page.locator('#share-apk').isVisible(), 'Partager P-Flow : liens affichés');
+  check(await page.locator('#ctx .back.pill').isVisible(), 'sous-page : bouton retour en pilule');
   await page.click('[data-act="sub-back"]');
   await until(page, () => !document.getElementById('set-home').hidden, null, 'retour à la liste des réglages');
   noErr(errors);

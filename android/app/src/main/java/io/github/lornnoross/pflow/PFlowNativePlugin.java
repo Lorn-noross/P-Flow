@@ -118,31 +118,45 @@ public class PFlowNativePlugin extends Plugin {
 
     /* ---------- Barres du système ---------- */
 
-    // Thème choisi dans l'appli (Automatique, Clair, Sombre, Noir absolu) : fond de la fenêtre (visible derrière
-    // la barre d'état) et couleur des icônes du système, pour qu'elles restent lisibles.
+    // Thème choisi dans l'appli (Automatique, Clair, Sombre, Noir absolu) : couleur du haut (barre d'état avant
+    // Android 15), couleur du bas (fond de la fenêtre, visible derrière la barre de navigation) et couleur des icônes
+    // du système, pour qu'elles restent lisibles. Sur Android 15+, la page passe sous la barre d'état.
     @PluginMethod
     public void setSystemBars(PluginCall call) {
         final boolean light = call.getBoolean("light", true);
-        int parsed;
-        try {
-            parsed = Color.parseColor(call.getString("color", light ? "#E2E9F8" : "#111A2B"));
-        } catch (IllegalArgumentException e) {
-            parsed = light ? Color.parseColor("#E2E9F8") : Color.parseColor("#111A2B");
-        }
-        final int color = parsed;
+        final int color = parseColorOr(call.getString("color"), light ? "#E2E9F8" : "#111A2B");
+        final int bottom = parseColorOr(call.getString("bottom"), null, color);
         getActivity().runOnUiThread(() -> {
             Window w = getActivity().getWindow();
-            w.setBackgroundDrawable(new ColorDrawable(color));
+            w.setBackgroundDrawable(new ColorDrawable(bottom));
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
                 // Avant Android 15 (sans affichage bord à bord imposé), les barres ont leur propre couleur.
                 w.setStatusBarColor(color);
-                w.setNavigationBarColor(color);
+                w.setNavigationBarColor(bottom);
             }
             WindowInsetsControllerCompat c = WindowCompat.getInsetsController(w, w.getDecorView());
             c.setAppearanceLightStatusBars(light);
             c.setAppearanceLightNavigationBars(light);
         });
-        call.resolve();
+        // Android 15+ : hauteur de la barre d'état sous laquelle passe la page (voir MainActivity.immersiveTop).
+        JSObject r = new JSObject();
+        if (MainActivity.topInsetCss >= 0) r.put("top", MainActivity.topInsetCss);
+        call.resolve(r);
+    }
+
+    private static int parseColorOr(String value, String fallback) {
+        return parseColorOr(value, fallback, Color.BLACK);
+    }
+
+    private static int parseColorOr(String value, String fallback, int last) {
+        if (value != null) {
+            try {
+                return Color.parseColor(value);
+            } catch (IllegalArgumentException e) {
+                /* couleur illisible : valeur par défaut */
+            }
+        }
+        return fallback != null ? Color.parseColor(fallback) : last;
     }
 
     /* ---------- Enregistrer sous (export des données) ---------- */

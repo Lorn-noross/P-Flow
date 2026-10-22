@@ -1,6 +1,6 @@
 /* P-Flow : style inspiré de Revolut (patch 2).
    - Fond en dégradé fixe (peint une seule fois), gros montant centré, cartes très arrondies.
-   - Barre de navigation flottante en pilule, seul élément flouté (le flou ne touche jamais les listes).
+   - Barre de navigation flottante en pilule et pilules du haut : seuls éléments floutés (jamais les listes).
    - Mouvements sur transform / opacity uniquement (src/main.js) ; ailleurs, seulement de courts fondus de
      couleur (pas de recalcul de la mise en page). Tout est coupé par « Effets réduits » et par le réglage
      système « réduire les animations ».
@@ -20,6 +20,8 @@
   --f-body:"Instrument Sans Variable","Instrument Sans","Segoe UI",system-ui,-apple-system,sans-serif;
   --f-data:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
   --r:22px; --r-s:14px; --bar-h:64px; --bar-gap:12px;
+  /* haut de l'écran : barre d'état (Android 15+ : valeur donnée par l'appli native, voir MainActivity) */
+  --sat:env(safe-area-inset-top,0px); --shadow-pill:0 4px 16px rgba(20,35,70,.10);
   /* cartes : opaques, sauf en noir absolu (verre translucide) */
   --card:var(--surface); --card-line:var(--line); --card-hi:none;
   --ease:cubic-bezier(.2,.8,.2,1);
@@ -34,6 +36,7 @@
   --quick:rgba(255,255,255,.08); --quick-ink:var(--ink);
   --urssaf:#E4A940; --dep:#8799AC; --pos:#4DC48B; --neg:#F2766B; --neg-soft:#3A1E1E; --pos-soft:#13301F; --ep:#A58BFF;
   --scrim:rgba(0,0,0,.55); --shadow:0 10px 30px rgba(0,0,0,.45); --shadow-bar:0 12px 34px rgba(0,0,0,.55); --c-brut:#4E66A8;
+  --shadow-pill:0 6px 20px rgba(0,0,0,.40);
   color-scheme:dark;
 }
 /* Sans script (rare) : on suit le système. */
@@ -46,6 +49,7 @@
     --quick:rgba(255,255,255,.08);
     --urssaf:#E4A940; --dep:#8799AC; --pos:#4DC48B; --neg:#F2766B; --neg-soft:#3A1E1E; --pos-soft:#13301F; --ep:#A58BFF;
     --scrim:rgba(0,0,0,.55); --shadow:0 10px 30px rgba(0,0,0,.45); --shadow-bar:0 12px 34px rgba(0,0,0,.55); --c-brut:#4E66A8;
+    --shadow-pill:0 6px 20px rgba(0,0,0,.40);
     color-scheme:dark;
   }
 }
@@ -58,7 +62,7 @@
   /* effet verre : cartes translucides au-dessus des reflets du fond, fin liseré lumineux en haut (sans flou) */
   --card:rgba(255,255,255,.045); --card-line:rgba(255,255,255,.09); --card-hi:inset 0 1px 0 rgba(255,255,255,.07);
 }
-/* Noir absolu : fond noir pur, reflets colorés (couleur d'accentuation) placés sous la barre du haut. */
+/* Noir absolu : fond noir pur, reflets colorés (couleur d'accentuation). */
 :root[data-scheme="dark"][data-noir] .glow{background:
   radial-gradient(60% 30% at 8% 16%,var(--glow) 0%,transparent 72%),
   radial-gradient(90% 46% at 18% 24%,var(--glow) 0%,transparent 70%),
@@ -94,12 +98,12 @@ body{overflow-x:hidden}
 .main,.screen{overflow-x:clip}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:calc(15*var(--u));line-height:1.45;
   -webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
-/* Fond : dégradé fixe, calculé une fois (jamais animé). Le haut est uni sur 72px pour se fondre avec l'en-tête. */
+/* Fond : dégradé fixe, calculé une fois (jamais animé). Il monte jusqu'en haut de l'écran, derrière les pilules. */
 .glow{position:fixed;inset:0;z-index:-1;pointer-events:none;
   background:
     radial-gradient(70% 38% at 18% 6%,var(--glow) 0%,transparent 70%),
     radial-gradient(60% 34% at 92% 14%,var(--glow-2) 0%,transparent 70%),
-    linear-gradient(180deg,var(--bg-top) 0,var(--bg-top) 72px,var(--bg) 420px)}
+    linear-gradient(180deg,var(--bg-top) 0,var(--bg) 420px)}
 button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
 input,select{font:inherit;color:inherit}
 h1,h2,h3,p{margin:0}
@@ -112,15 +116,27 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
 .main{min-width:0;max-width:1180px;margin-inline:auto;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
   padding-block:0 calc(var(--bar-h) + var(--bar-gap) + 40px + env(safe-area-inset-bottom,0px))}
-.top{position:sticky;top:0;z-index:6;display:flex;align-items:center;gap:10px;min-height:60px;
-  padding-top:max(8px,env(safe-area-inset-top,0px));padding-bottom:6px;background:var(--bg-top);
+/* Barre du haut transparente : le fond monte jusqu'en haut de l'écran (sous la barre d'état sur Android 15+),
+   le titre et le nuage flottent dans des pilules en verre, comme la barre du bas. La barre laisse passer les
+   touchers vers le contenu ; seules les pilules en reçoivent. */
+.top{position:sticky;top:0;z-index:6;display:flex;align-items:center;gap:8px;pointer-events:none;
+  padding-top:calc(var(--sat) + 10px);padding-bottom:8px;margin-bottom:10px;
   margin-inline:calc(-1*max(16px,env(safe-area-inset-left,0px))) calc(-1*max(16px,env(safe-area-inset-right,0px)));
-  padding-inline:max(12px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px))}
-/* Un peu d'air entre la barre du haut (fixe) et le premier bloc de chaque page. */
-.top{margin-bottom:12px}
-.ctx{flex:1;min-width:0;display:flex;align-items:center;gap:2px}
-.ctx h1{font-family:var(--f-display);font-weight:700;font-size:calc(20*var(--u));letter-spacing:-.015em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;padding-inline:4px}
-.ctx .back{display:inline-flex;align-items:center;gap:2px;font-weight:600;color:var(--accent);height:40px;padding:0 10px 0 2px;border-radius:12px}
+  padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px))}
+/* Fondu (sans flou), seulement quand le contenu passe dessous : opaque sous la barre d'état (l'heure reste lisible),
+   puis de plus en plus transparent jusqu'au bas des pilules. */
+.top::before{content:"";position:absolute;z-index:-1;inset:0;pointer-events:none;
+  background:linear-gradient(180deg,var(--bg-top) 0,var(--bg-top) var(--sat),transparent 100%);opacity:0;transition:opacity .2s}
+.top.scrolled::before{opacity:1}
+.pill{pointer-events:auto;display:flex;align-items:center;min-width:0;height:44px;padding:2px;border-radius:999px;
+  background:var(--glass);border:1px solid var(--glass-line);box-shadow:var(--shadow-pill);
+  -webkit-backdrop-filter:blur(18px) saturate(1.6);backdrop-filter:blur(18px) saturate(1.6)}
+.pill.solo{padding-inline:12px}
+.ctx{flex:0 1 auto;min-width:0;margin-right:auto;display:flex;align-items:center;gap:8px}
+.ctx h1{font-family:var(--f-display);font-weight:700;font-size:calc(18*var(--u));letter-spacing:-.015em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;padding-inline:4px}
+.ctx .back{flex:none;width:44px;padding:0;justify-content:center;color:var(--accent)}
+.ctx .back svg.i{width:22px;height:22px;stroke-width:2.2}
+.pill .icon-btn{border-radius:50%}
 .icon-btn{width:40px;height:40px;flex:none;border-radius:14px;display:grid;place-items:center;color:var(--ink)}
 .icon-btn:hover{background:var(--surface-2)}
 
@@ -129,7 +145,7 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
 .sync[data-s="ok"]{color:var(--pos)}
 .sync[data-s="pending"]{color:var(--urssaf)}
 .sync[data-s="off"]{color:var(--neg)}
-.top .sync{width:40px;height:40px;justify-content:center}
+.top .sync{flex:none;width:44px;padding:0;justify-content:center}
 .top .sync .txt{display:none}
 
 /* Barre de navigation flottante en pilule (téléphone) */
@@ -154,10 +170,14 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
   .side{display:flex;flex-direction:column;gap:22px;position:sticky;top:0;height:100vh;background:var(--glass-solid);border-right:1px solid var(--line);
     padding:26px 16px 22px max(20px,env(safe-area-inset-left,0px))}
   .main{width:100%;padding-left:40px;padding-right:max(40px,env(safe-area-inset-right,0px));padding-block:0 64px}
-  .top{margin-inline:-40px;padding-inline:36px 40px;min-height:84px;padding-top:20px;padding-bottom:14px}
+  .top{margin-inline:-40px;padding-inline:40px;padding-top:calc(var(--sat) + 20px);padding-bottom:12px;margin-bottom:12px}
+  .pill{height:50px}
+  .pill.solo{padding-inline:16px}
+  .pill .icon-btn{width:44px;height:44px}
+  .ctx .back{width:50px}
   .tabbar{display:none}
   .top .sync{display:none}
-  .ctx h1{font-size:calc(28*var(--u))}
+  .ctx h1{font-size:calc(24*var(--u))}
 }
 .brand{display:flex;align-items:center;gap:11px;font-family:var(--f-display);font-weight:700;font-size:calc(19*var(--u));letter-spacing:-.015em;padding-left:6px}
 .mark{width:34px;height:34px;border-radius:12px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;flex:none}
@@ -213,6 +233,7 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
 .big.pos{color:var(--c-reste)} .big.neg{color:var(--neg)}
 .hero-sub{font-size:calc(14*var(--u));color:var(--muted);display:grid;gap:2px;min-height:1.4em}
 .hero-sub b{color:var(--ink);font-weight:600}
+.hero-sub span{text-wrap:balance}
 .hero-sub .up{color:var(--neg)} .hero-sub .down{color:var(--pos)}
 .quick{display:flex;justify-content:center;gap:clamp(14px,6vw,30px);margin-top:18px}
 .quick button{display:grid;justify-items:center;gap:7px;font-size:calc(12.5*var(--u));font-weight:600;color:var(--ink);min-width:64px}
@@ -433,7 +454,7 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
 
 /* ---------- fenêtres (ajout, panneau) ---------- */
 .backdrop{position:fixed;inset:var(--kb-top,0px) 0 var(--kb,0px);z-index:20;background:var(--scrim);display:flex;align-items:flex-end;justify-content:center}
-.sheet{position:relative;width:100%;max-width:540px;max-height:calc(100% - env(safe-area-inset-top,0px) - 12px);overflow:auto;overscroll-behavior:contain;background:var(--surface);border-radius:28px 28px 0 0;display:grid;gap:16px;
+.sheet{position:relative;width:100%;max-width:540px;max-height:calc(100% - var(--sat) - 12px);overflow:auto;overscroll-behavior:contain;background:var(--surface);border-radius:28px 28px 0 0;display:grid;gap:16px;
   padding:10px max(20px,env(safe-area-inset-right,0px)) calc(20px + env(safe-area-inset-bottom,0px)) max(20px,env(safe-area-inset-left,0px));box-shadow:0 -10px 40px rgba(0,0,0,.18)}
 .grab{width:40px;height:5px;border-radius:3px;background:var(--surface-3);justify-self:center;margin-bottom:-4px}
 @media (min-width:700px){.backdrop{align-items:center;padding:24px}.sheet{border-radius:28px;padding:22px 26px 24px}.grab{display:none}}
@@ -477,13 +498,13 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
 .kb-open .toast{bottom:calc(var(--kb,0px) + 16px)}
 
 /* Effets réduits (réglage) : ni flou, ni animation. Préférence système « réduire les animations » : pas d'animation. */
-:root[data-effets="reduits"] .tabbar{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--glass-solid)}
+:root[data-effets="reduits"] .tabbar,:root[data-effets="reduits"] .pill{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--glass-solid)}
 :root[data-effets="reduits"] *,:root[data-effets="reduits"] *::after{transition:none!important;animation:none!important}
 @media (prefers-reduced-motion:reduce){*,*::after{animation:none!important;transition:none!important}}
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.tabbar{background:var(--glass-solid)}}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.tabbar,.pill{background:var(--glass-solid)}}
 
 /* ---------- connexion, démarrage, accès ---------- */
-.screen{min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding-block:32px;
+.screen{min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding-block:calc(32px + var(--sat)) 32px;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 .screen-card{width:100%;max-width:440px;display:grid;gap:16px}
 .auth-brand{display:grid;gap:6px;justify-items:start;margin-bottom:6px}
