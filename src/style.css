@@ -85,6 +85,8 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
   padding-top:max(8px,env(safe-area-inset-top,0px));padding-bottom:6px;background:var(--bg-top);
   margin-inline:calc(-1*max(16px,env(safe-area-inset-left,0px))) calc(-1*max(16px,env(safe-area-inset-right,0px)));
   padding-inline:max(12px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px))}
+/* Un peu d'air entre la barre du haut (fixe) et le premier bloc de chaque page. */
+.top{margin-bottom:12px}
 .ctx{flex:1;min-width:0;display:flex;align-items:center;gap:2px}
 .ctx h1{font-family:var(--f-display);font-weight:700;font-size:calc(20*var(--u));letter-spacing:-.015em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;padding-inline:4px}
 .ctx .back{display:inline-flex;align-items:center;gap:2px;font-weight:600;color:var(--accent);height:40px;padding:0 10px 0 2px;border-radius:12px}
