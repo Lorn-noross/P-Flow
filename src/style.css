@@ -522,6 +522,16 @@ label.btn{cursor:pointer}
 #drive-list .row-meta{overflow-wrap:anywhere}
 progress{width:100%;height:8px;accent-color:var(--accent)}
 select.input{appearance:auto;font:inherit;font-size:16px;color:inherit}
+/* liste de choix (une seule réponse), dans le style de l'appli */
+.opt-list{display:grid;border:1px solid var(--line);border-radius:18px;overflow:hidden;background:var(--surface-2)}
+.opt-list button{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:50px;padding:10px 16px;text-align:left;font-weight:560;transition:background-color .2s}
+.opt-list button+button{border-top:1px solid var(--line)}
+.opt-list button:hover{background:var(--surface-3)}
+.opt-list button[aria-checked="true"]{color:var(--accent);background:var(--accent-soft)}
+.opt-list .radio{width:22px;height:22px;border-radius:50%;border:2px solid var(--muted);flex:none;display:grid;place-items:center;transition:border-color .2s}
+.opt-list .radio::after{content:"";width:10px;height:10px;border-radius:50%;background:var(--accent);transform:scale(0);transition:transform .28s cubic-bezier(.3,1.5,.5,1)}
+.opt-list [aria-checked="true"] .radio{border-color:var(--accent)}
+.opt-list [aria-checked="true"] .radio::after{transform:scale(1)}
 .allow-row,.req-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .allow-row:last-child,.req-row:last-child{border-bottom:0}
 .allow-row span{overflow-wrap:anywhere;font-size:calc(14*var(--u));min-width:0}

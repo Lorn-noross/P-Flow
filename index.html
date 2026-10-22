@@ -418,14 +418,15 @@
           <p class="hint" id="upd-status" role="status" hidden></p>
           <progress id="upd-progress" max="100" value="0" hidden></progress>
           <div class="btn-row"><button class="btn ghost" data-act="upd-check" id="upd-check">Vérifier les mises à jour</button><span id="upd-actions"></span></div>
-          <label class="field"><span>Vérification automatique</span>
-            <select class="input" id="upd-auto">
-              <option value="ouverture">À chaque ouverture de l'appli</option>
-              <option value="jour">Une fois par jour</option>
-              <option value="semaine">Une fois par semaine</option>
-              <option value="jamais">Jamais</option>
-            </select>
-          </label>
+          <div class="field">
+            <span class="field-label" id="upd-auto-label">Vérification automatique</span>
+            <div class="opt-list" id="upd-auto" role="radiogroup" aria-labelledby="upd-auto-label">
+              <button type="button" role="radio" data-act="upd-auto" data-v="ouverture"><span>À chaque ouverture de l'appli</span><i class="radio"></i></button>
+              <button type="button" role="radio" data-act="upd-auto" data-v="jour"><span>Une fois par jour</span><i class="radio"></i></button>
+              <button type="button" role="radio" data-act="upd-auto" data-v="semaine"><span>Une fois par semaine</span><i class="radio"></i></button>
+              <button type="button" role="radio" data-act="upd-auto" data-v="jamais"><span>Jamais</span><i class="radio"></i></button>
+            </div>
+          </div>
         </article>
       </div>
     </section>

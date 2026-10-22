@@ -517,7 +517,8 @@ async function scenarioMisesAJour(cfg, fx, tag) {
   check(await o.page.locator('#update [data-act="upd-reload"]').count() === 1, 'mise à jour : bouton Recharger (navigateur)');
   await reglages(o.page, 'apropos');
   check((await o.page.locator('#upd-status').innerText()).includes('0.1.1 bêta'), 'Réglages : nouvelle version annoncée');
-  await o.page.selectOption('#upd-auto', 'semaine');
+  await o.page.click('#upd-auto [data-v="semaine"]');
+  check(await o.page.locator('#upd-auto [data-v="semaine"][aria-checked="true"]').count() === 1 && await o.page.locator('#upd-auto [aria-checked="true"]').count() === 1, 'Réglages : un seul intervalle coché');
   check(await o.page.evaluate(() => localStorage.getItem('pf-maj-auto')) === 'semaine', 'Réglages : intervalle de vérification enregistré');
   await o.ctx.close();
   o = await open(cfg, fx.docs, { date: fx.expect._date });

@@ -2093,10 +2093,14 @@ function renderUpdate() {
   st.textContent = t; st.hidden = !t;
   $('#upd-actions').innerHTML = act;
   $('#upd-check').disabled = UPD.state === 'checking' || UPD.state === 'downloading';
-  const sel = $('#upd-auto'); if (sel.value !== updAuto()) sel.value = updAuto();
+  $$('#upd-auto [data-v]').forEach(b => b.setAttribute('aria-checked', String(b.dataset.v === updAuto())));
   const pr = $('#upd-progress'); pr.hidden = UPD.state !== 'downloading'; pr.value = UPD.pct;
 }
-$('#upd-auto').addEventListener('change', e => { if (e.target.value in UPD_FREQ) lsSet('pf-maj-auto', e.target.value); });
+// Choix de la fréquence de vérification : liste dans le style de l'appli (plus de liste système).
+$('#upd-auto').addEventListener('click', e => {
+  const b = e.target.closest('[data-v]'); if (!b || !(b.dataset.v in UPD_FREQ)) return;
+  lsSet('pf-maj-auto', b.dataset.v); renderUpdate();
+});
 if (isNative) CapApp.addListener('appStateChange', st => { if (st && st.isActive && S.ready) maybeAutoUpdate(); });
 
 /* ---------- sauvegardes : fichier et Google Drive ---------- */
