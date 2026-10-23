@@ -17,7 +17,7 @@ import { Keyboard } from '@capacitor/keyboard';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { auth, db, isNative } from './firebase.js';
 import * as Drive from './drive.js';
-import { initPickers, openCalendar, openChoice, openHue, popOpen, closePop } from './pickers.js';
+import { initPickers, openCalendar, openChoice, openHue, popOpen, closePop, openPopover, setPopAnchor, popBox } from './pickers.js';
 
 // Module natif de P-Flow (Android) : Drive, Enregistrer sous, mises à jour, couleur des barres système.
 const PFlowNative = registerPlugin('PFlowNative');
@@ -932,7 +932,7 @@ function renderCtx() {
   let h;
   // Pilules en verre : le titre (avec ses flèches) et, dans une sous-page des réglages, le retour.
   if (S.view === 'mois') {
-    h = '<div class="pill"><button class="icon-btn" data-act="prev-month" aria-label="Mois précédent">' + ico('left') + '</button><h1>' + esc(cap(mLabel(S.month))) + '</h1><button class="icon-btn" data-act="next-month" aria-label="Mois suivant">' + ico('right') + '</button></div>';
+    h = '<div class="pill"><button class="icon-btn" data-act="prev-month" aria-label="Mois précédent">' + ico('left') + '</button><h1><button type="button" class="mtitle" data-act="month-cal" aria-haspopup="dialog" aria-expanded="' + (CAL.open ? 'true' : 'false') + '" aria-label="' + esc(cap(mLabel(S.month))) + ', ouvrir le calendrier du mois">' + esc(cap(mLabel(S.month))) + '</button></h1><button class="icon-btn" data-act="next-month" aria-label="Mois suivant">' + ico('right') + '</button></div>';
   } else if (S.view === 'annee') {
     h = '<div class="pill"><button class="icon-btn" data-act="prev-year" aria-label="Année précédente">' + ico('left') + '</button><h1>' + S.year + '</h1><button class="icon-btn" data-act="next-year" aria-label="Année suivante">' + ico('right') + '</button></div>';
   } else if (S.view === 'reglages' && S.sub) {
@@ -1086,6 +1086,7 @@ function renderMois() {
   $('#ep-offer').hidden = !(ok && S.settings.epargne === null && !on && !S.readOnly);
   if (pro) renderUrssaf(m, ok);
   if (on) renderEpCard(d, ok);
+  refreshMonthCal();
 
   const lists = $('#lists');
   if (!ok) { lists.innerHTML = '<p class="empty">Chargement…</p>'; return; }
@@ -1157,6 +1158,86 @@ function renderEpCard(d, ok) {
     (cs.length ? '<div>' + cs.map(c => '<button class="row" data-act="compte-open" data-k="' + esc(c.key) + '"><span class="row-ico ep">' + ico('epargne') + '</span><span class="row-main"><span class="row-label">' + esc(c.label) + '</span>' +
       (c.autos.length ? '<span class="row-meta">' + esc(c.autos.map(p => eur(p.amount) + ' ' + FREQ_LABEL[p.freq]).join(' · ')) + '</span>' : '') + '</span><span class="row-amt">' + eur(c.solde) + '</span></button>').join('') + '</div>'
       : '<p class="empty">Aucun compte pour l\'instant : touche <b>Épargne</b> pour noter ce que tu as ou ce que tu mets de côté.</p>');
+}
+
+/* ----- calendrier du mois (patch 3) ----- */
+// Ouvert en touchant le nom du mois : pastilles par type d'opération, un jour touché = résumé de ses opérations
+// (fixes compris, à leur jour) et « + » à cette date ; le nom du mois = les 12 mois pour sauter directement.
+const CAL = { open: false, sel: null, view: 'days', y: 0 };
+const WDAY = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+function dayItems(m) {
+  const d = monthData(m), out = {};
+  const add = (day, it) => { (out[day] = out[day] || []).push(it); };
+  for (const e of d.ents) add(+String(e.date).slice(8, 10), Object.assign({ dot: e.type === 'revenu' ? 'in' : 'out' }, e));
+  for (const f of d.recs.concat(d.pers)) add(+fixeDate(f, m).slice(8, 10), Object.assign({ dot: 'fix' }, f));
+  for (const e of d.eps) add(+String(e.date).slice(8, 10), Object.assign({ dot: 'ep' }, e));
+  for (const a of d.autos) add(+fixeDate(a, m).slice(8, 10), Object.assign({ dot: 'ep' }, a));
+  // URSSAF à payer ce mois-ci (déclaration du mois ou du trimestre précédent), le jour de l'échéance.
+  if (isPro() && S.settings) {
+    const prev = addM(m, -1);
+    if (pYM(prev).y === S.entriesYear) {
+      const u = urssafPeriod(prev);
+      const dl = u.dl.getFullYear() + '-' + pad(u.dl.getMonth() + 1) + '-' + pad(u.dl.getDate());
+      if (dl.slice(0, 7) === m && u.total > 0) add(+dl.slice(8, 10), { dot: 'urs', kind: 'urs', label: u.title, amount: u.total });
+    }
+  }
+  return out;
+}
+function monthCalHtml() {
+  const m = S.month, { y, m: mm } = pYM(m);
+  const icon = id => ico(id);
+  if (CAL.view === 'months') {
+    const cy = CAL.y || y;
+    return '<div class="cal-head"><button type="button" class="icon-btn" data-mc="prevy" aria-label="Année précédente">' + icon('left') + '</button><span class="cal-title static">' + cy + '</span><button type="button" class="icon-btn" data-mc="nexty" aria-label="Année suivante">' + icon('right') + '</button></div>' +
+      '<div class="cal-months">' + MS.map((s, i) => '<button type="button" class="cal-m' + (cy === y && i + 1 === mm ? ' sel' : '') + (ym(cy, i + 1) === CUR ? ' today' : '') + '" data-mc="m" data-m="' + ym(cy, i + 1) + '" aria-label="' + MONTHS[i] + ' ' + cy + '">' + cap(s) + '</button>').join('') + '</div>' +
+      '<div class="cal-foot"><span></span><button type="button" class="link" data-mc="m" data-m="' + CUR + '">Ce mois-ci</button></div>';
+  }
+  const items = ready() ? dayItems(m) : {}, n = new Date(y, mm, 0).getDate(), first = (new Date(y, mm - 1, 1).getDay() + 6) % 7;
+  let h = '<div class="cal-head"><button type="button" class="icon-btn" data-mc="prev" aria-label="Mois précédent">' + icon('left') + '</button>' +
+    '<button type="button" class="cal-title" data-mc="months" aria-label="Choisir un autre mois">' + esc(cap(mLabel(m))) + icon('down') + '</button>' +
+    '<button type="button" class="icon-btn" data-mc="next" aria-label="Mois suivant">' + icon('right') + '</button></div>';
+  h += '<div class="cal-grid mcal" role="grid">' + ['L', 'M', 'M', 'J', 'V', 'S', 'D'].map(w => '<span class="cal-wd" aria-hidden="true">' + w + '</span>').join('');
+  for (let i = 0; i < first; i++) h += '<span></span>';
+  for (let d = 1; d <= n; d++) {
+    const its = items[d] || [], kinds = ['in', 'out', 'fix', 'ep', 'urs'].filter(k => its.some(i => i.dot === k));
+    const v = m + '-' + pad(d);
+    h += '<button type="button" class="cal-d' + (CAL.sel === d ? ' sel' : '') + (v === TODAY ? ' today' : '') + '" data-mc="day" data-d="' + d + '" aria-label="' + d + ' ' + MONTHS[mm - 1] + (its.length ? ', ' + plural(its.length, 'opération') : '') + '">' +
+      '<span>' + d + '</span><span class="dots" aria-hidden="true">' + kinds.map(k => '<i class="cdot d-' + k + '"></i>').join('') + '</span></button>';
+  }
+  h += '</div><div class="cal-legend" aria-hidden="true"><span><i class="cdot d-in"></i>Rentrée</span><span><i class="cdot d-out"></i>Dépense</span><span><i class="cdot d-fix"></i>Fixe</span>' +
+    (epOn() ? '<span><i class="cdot d-ep"></i>Épargne</span>' : '') + (isPro() ? '<span><i class="cdot d-urs"></i>URSSAF</span>' : '') + '</div>';
+  if (CAL.sel) {
+    const d = CAL.sel, its = items[d] || [], dt = new Date(y, mm - 1, d), date = m + '-' + pad(d);
+    const row = it => {
+      if (it.kind === 'urs') return '<div class="row static"><span class="row-ico urs">' + icon('calc') + '</span><span class="row-main"><span class="row-label">' + esc(it.label) + '</span><span class="row-meta">à payer au plus tard ce jour-là</span></span><span class="row-amt">' + MINUS + eur(it.amount) + '</span></div>';
+      return rowHtml(it, monthData(m).rate);
+    };
+    h += '<div class="day-bubble" role="group" aria-label="' + esc(cap(WDAY[dt.getDay()]) + ' ' + d + ' ' + MONTHS[mm - 1]) + '"><p class="db-title">' + esc(cap(WDAY[dt.getDay()]) + ' ' + (d === 1 ? '1er' : d) + ' ' + MONTHS[mm - 1]) + '</p>' +
+      (its.length ? '<div>' + its.map(row).join('') + '</div>' : '<p class="empty">Rien de noté ce jour-là.</p>') +
+      (S.readOnly ? '' : '<button type="button" class="btn ghost sm" data-act="add-at" data-date="' + date + '">' + icon('plus') + 'Ajouter le ' + (d === 1 ? '1er' : d) + ' ' + MONTHS[mm - 1] + '</button>') + '</div>';
+  }
+  return h;
+}
+function openMonthCal(anchor) {
+  CAL.open = true; CAL.view = 'days'; CAL.y = 0;
+  CAL.sel = S.month === CUR ? NOW.getDate() : null;
+  const box = openPopover(anchor, monthCalHtml(), { label: 'Calendrier du mois', width: 360, cls: 'pop-cal pop-mcal', onClose: () => { CAL.open = false; } });
+  box.addEventListener('click', e => {
+    const b = e.target.closest('[data-mc]'); if (!b) return;
+    const c = b.dataset.mc;
+    if (c === 'prev' || c === 'next') { CAL.sel = null; setMonth(addM(S.month, c === 'prev' ? -1 : 1), c === 'prev' ? -1 : 1); }
+    else if (c === 'months') { CAL.view = 'months'; CAL.y = pYM(S.month).y; refreshMonthCal(); }
+    else if (c === 'prevy' || c === 'nexty') { CAL.y += c === 'prevy' ? -1 : 1; refreshMonthCal(); }
+    else if (c === 'm') { CAL.view = 'days'; CAL.sel = b.dataset.m === CUR ? NOW.getDate() : null; closePop(); if (b.dataset.m !== S.month) setMonth(b.dataset.m, b.dataset.m > S.month ? 1 : -1); }
+    else if (c === 'day') { const d = +b.dataset.d; CAL.sel = CAL.sel === d ? null : d; refreshMonthCal(); const bb = popBox() && popBox().querySelector('.day-bubble'); if (bb) riseIn(bb); }
+  });
+}
+// Redessine le calendrier ouvert (changement de mois, données arrivées) et le recale sous la pilule du mois.
+function refreshMonthCal() {
+  if (!CAL.open || !popOpen()) return;
+  const box = popBox(); if (!box) return;
+  box.innerHTML = monthCalHtml();
+  const t = $('#ctx .mtitle'); if (t) setPopAnchor(t);
 }
 
 /* ----- vue Fixes ----- */
@@ -1598,6 +1679,7 @@ let lastFocus = null;
 const isFixe = () => F.mode === 'edit-rec' || F.mode === 'edit-per';
 function openSheet(o) {
   if (blocked()) return;
+  if (popOpen()) closePop();
   if (layerOpen(pbg)) closePanel();
   lastFocus = document.activeElement;
   F.mode = o.mode; F.armed = false; F.uTouched = false; F.jour = null; F.datePicked = false; F.ctx = o.date && DATE_RE.test(o.date) ? o.date.slice(0, 7) : S.view === 'mois' ? S.month : CUR;
@@ -2145,6 +2227,8 @@ document.addEventListener('click', e => {
   else if (a === 'next-year') setYear(S.year + 1, 1);
   else if (a === 'add') openSheet({ mode: 'new', rec: S.view === 'fixes' });
   else if (a === 'add-type') openSheet({ mode: 'new', type: t.dataset.type });
+  else if (a === 'month-cal') { if (CAL.open && popOpen()) closePop(); else openMonthCal(t); }
+  else if (a === 'add-at') openSheet({ mode: 'new', date: t.dataset.date });
   else if (a === 'edit-entry' || a === 'edit-rec' || a === 'edit-per' || a === 'edit-ep') openSheet({ mode: a, id: t.dataset.id });
   else if (a === 'toggle-fixed') { S.showFixed = !S.showFixed; lsSet('pf-showFixed', S.showFixed ? '1' : '0'); renderMois(); }
   else if (a === 'toggle-fixed-rev') { S.showFixedRev = !S.showFixedRev; lsSet('pf-showFixedRev', S.showFixedRev ? '1' : '0'); renderMois(); }

@@ -16,7 +16,7 @@
   --urssaf:#C2810C; --dep:#6A7D90; --pos:#13865A; --neg:#C8372F; --neg-soft:#FCE9E7; --pos-soft:#DFF3E8; --ep:#7A5AF8;
   --scrim:rgba(8,12,20,.42); --shadow:0 10px 30px rgba(20,35,70,.14); --shadow-bar:0 10px 34px rgba(20,35,70,.18);
   /* couleurs des montants : personnalisables (Réglages → Apparence → Couleurs), sinon celles-ci */
-  --c-brut:#8FA6E6; --c-autres:#0E8C97; --c-urssaf:var(--urssaf); --c-net:var(--accent); --c-dep:var(--dep); --c-reste:var(--pos);
+  --c-brut:#8FA6E6; --c-autres:#0E8C97; --c-fixes:#C9622A; --c-urssaf:var(--urssaf); --c-net:var(--accent); --c-dep:var(--dep); --c-reste:var(--pos);
   --f-display:"Bricolage Grotesque Variable","Bricolage Grotesque","Avenir Next","Segoe UI",system-ui,sans-serif;
   --f-body:"Instrument Sans Variable","Instrument Sans","Segoe UI",system-ui,-apple-system,sans-serif;
   --f-data:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
@@ -36,7 +36,7 @@
   --glass:rgba(22,29,39,.72); --glass-solid:#161D26; --glass-line:rgba(255,255,255,.07);
   --quick:rgba(255,255,255,.08); --quick-ink:var(--ink);
   --urssaf:#E4A940; --dep:#8799AC; --pos:#4DC48B; --neg:#F2766B; --neg-soft:#3A1E1E; --pos-soft:#13301F; --ep:#A58BFF;
-  --scrim:rgba(0,0,0,.55); --shadow:0 10px 30px rgba(0,0,0,.45); --shadow-bar:0 12px 34px rgba(0,0,0,.55); --c-brut:#4E66A8; --c-autres:#31B9C4;
+  --scrim:rgba(0,0,0,.55); --shadow:0 10px 30px rgba(0,0,0,.45); --shadow-bar:0 12px 34px rgba(0,0,0,.55); --c-brut:#4E66A8; --c-autres:#31B9C4; --c-fixes:#F08C4B;
   --shadow-pill:0 6px 20px rgba(0,0,0,.40);
   color-scheme:dark;
 }
@@ -49,7 +49,7 @@
     --glass:rgba(22,29,39,.72); --glass-solid:#161D26; --glass-line:rgba(255,255,255,.07);
     --quick:rgba(255,255,255,.08);
     --urssaf:#E4A940; --dep:#8799AC; --pos:#4DC48B; --neg:#F2766B; --neg-soft:#3A1E1E; --pos-soft:#13301F; --ep:#A58BFF;
-    --scrim:rgba(0,0,0,.55); --shadow:0 10px 30px rgba(0,0,0,.45); --shadow-bar:0 12px 34px rgba(0,0,0,.55); --c-brut:#4E66A8; --c-autres:#31B9C4;
+    --scrim:rgba(0,0,0,.55); --shadow:0 10px 30px rgba(0,0,0,.45); --shadow-bar:0 12px 34px rgba(0,0,0,.55); --c-brut:#4E66A8; --c-autres:#31B9C4; --c-fixes:#F08C4B;
     --shadow-pill:0 6px 20px rgba(0,0,0,.40);
     color-scheme:dark;
   }
@@ -660,3 +660,22 @@ button.cal-title:hover{background:var(--surface-2)}
 .input.pick{display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;color:var(--ink);font-size:16px}
 .input.pick svg.i{width:18px;height:18px;color:var(--muted);flex:none}
 .input.pick[aria-expanded="true"]{border-color:var(--accent)}
+/* Patch 3 : calendrier du mois (ouvert depuis la pilule du mois) */
+.mtitle{font:inherit;color:inherit;letter-spacing:inherit;padding:4px 8px;margin:-4px -8px;border-radius:12px}
+.mtitle:hover{background:var(--surface-2)}
+.pop-mcal{padding:10px 10px 12px}
+.mcal .cal-d{aspect-ratio:auto;min-height:44px;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;line-height:1}
+.mcal .cal-d .dots{display:flex;gap:2px;height:5px}
+.cdot{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--muted)}
+.cdot.d-in{background:var(--pos)} .cdot.d-out{background:var(--c-dep)} .cdot.d-fix{background:var(--c-fixes)} .cdot.d-ep{background:var(--ep)} .cdot.d-urs{background:var(--c-urssaf)}
+.mcal .cal-d.sel{background:var(--accent-soft);color:var(--accent);box-shadow:inset 0 0 0 1.5px var(--accent)}
+.mcal .cal-d.today:not(.sel){box-shadow:inset 0 0 0 1.5px var(--line);color:var(--accent)}
+.cal-legend{display:flex;flex-wrap:wrap;gap:4px 12px;justify-content:center;margin:8px 0 2px;font-size:calc(11.5*var(--u));color:var(--muted)}
+.cal-legend span{display:inline-flex;align-items:center;gap:5px}
+.cal-legend .cdot{width:7px;height:7px}
+.day-bubble{margin-top:10px;padding:10px 10px 12px;border-radius:16px;background:var(--surface-2);border:1px solid var(--glass-line);display:grid;gap:4px}
+.db-title{font-weight:700;margin:0 4px 2px}
+.day-bubble .row{padding-inline:4px}
+.day-bubble .btn{justify-self:start;margin-top:4px}
+.row.static{cursor:default}
+.row-ico.urs{color:var(--c-urssaf)}

@@ -81,6 +81,12 @@ function openPop(anchor, html, o) {
   return box;
 }
 
+// Fenêtre libre (calendrier du mois de main.js) : même comportement que les autres sélecteurs.
+export function openPopover(anchor, html, o) { return openPop(anchor, html, o || {}); }
+export function placePop() { if (P) place(P); }
+export function setPopAnchor(el) { if (P && el) { P.anchor = el; el.setAttribute('aria-expanded', 'true'); place(P); } }
+export function popBox() { return P ? P.box : null; }
+
 /* ---------- liste de choix ---------- */
 // options : [{ v, label, hint? }] ; onPick(v)
 export function openChoice({ anchor, options, value, label, onPick, width }) {
