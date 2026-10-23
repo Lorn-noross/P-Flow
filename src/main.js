@@ -80,6 +80,8 @@ const BK_FREQ = { hebdomadaire: 7, mensuelle: 30, annuelle: 365 };
 const FREQ = { mois: 1, trimestre: 3, annee: 12 };
 const FREQ_LABEL = { mois: 'chaque mois', trimestre: 'chaque trimestre', annee: 'chaque année' };
 const FREQ_UNIT = { mois: '/mois', trimestre: '/trim.', annee: '/an' };
+// Mots des choix de fréquence (patch 3) : courts et de la même forme.
+const FREQ_WORD = { mois: 'Mensuel', trimestre: 'Trimestriel', annee: 'Annuel' };
 const PER_TYPES = ['depense', 'revenu', 'epargne'];
 // Épargne (collection `epargne`) : champ `op` (jamais « kind », réservé à l'affichage et retiré par plain()).
 const OPS = ['depot', 'retrait', 'solde'];
@@ -193,7 +195,8 @@ const S = {
   loaded: { entries: false, recurring: false, settings: false, periodiques: false, epargne: false },
   pend: { entries: false, recurring: false, settings: false, periodiques: false, epargne: false },
   showFixed: lsGet('pf-showFixed') === '1', grouped: lsGet('pf-groupe') === '1', openGroups: new Set(),
-  showEnded: false, colorOpen: null, ucOpen: false, simOpen: false, bubble: null,
+  showEnded: false, colorOpen: null, ucOpen: false, simOpen: false, bubble: null, casInfo: null,
+  showFixedRev: lsGet('pf-showFixedRev') === '1',
   unsubs: [], allow: [], justOnboarded: false,
 };
 { const h = (location.hash || '').slice(1); if (VIEWS.includes(h)) S.view = h; }
@@ -662,14 +665,15 @@ function monthOptions(sel, around) {
 }
 function obRowHtml(kind, r, i) {
   const ep = kind === 'ep';
-  const freq = f => '<select class="input" data-f="freq" aria-label="Fréquence">' + Object.keys(FREQ).map(k => '<option value="' + k + '"' + (r.freq === k ? ' selected' : '') + '>' + cap(FREQ_LABEL[k]) + '</option>').join('') + '</select>';
+  const freq = f => '<select class="input" data-f="freq" aria-label="Fréquence">' + Object.keys(FREQ).map(k => '<option value="' + k + '"' + (r.freq === k ? ' selected' : '') + '>' + FREQ_WORD[k] + '</option>').join('') + '</select>';
   return '<div class="ob-row" data-kind="' + kind + '" data-i="' + i + '">' +
     '<input class="input" data-f="label" value="' + esc(r.label) + '" maxlength="80" placeholder="' + (ep ? 'Nom du compte' : 'À quoi ça correspond') + '" aria-label="' + (ep ? 'Nom du compte' : 'Libellé') + '">' +
     '<input class="input amt" data-f="amount" value="' + esc(r.amount) + '" inputmode="decimal" placeholder="' + (ep ? 'Solde' : '0') + ' €" aria-label="' + (ep ? 'Solde actuel' : 'Montant') + '" autocomplete="off">' +
     '<button type="button" class="icon-btn" data-ob="del" aria-label="Retirer">' + ico('close') + '</button>' +
     (ep
       ? '<div class="more"><label>Versement automatique (facultatif)<input class="input amt" data-f="auto" value="' + esc(r.auto) + '" inputmode="decimal" placeholder="0 €" autocomplete="off"></label><label>Fréquence' + freq() + '</label></div>'
-      : '<div class="more"><label>Revient' + freq() + '</label><label>À partir de<select class="input" data-f="start">' + monthOptions(r.start, [CUR]) + '</select></label></div>') +
+      : '<div class="more"><label>Fréquence' + freq() + '</label><label>À partir de<select class="input" data-f="start">' + monthOptions(r.start, [CUR]) + '</select></label></div>' +
+        (kind === 'rev' && OB.pro ? '<label class="check ob-urssaf"><span>Soumis à l\'URSSAF<small>Ton chiffre d\'affaires. Pas la CAF, une pension ou un salaire.</small></span><input type="checkbox" data-f="urssaf"' + (r.urssaf ? ' checked' : '') + '></label>' : '')) +
     '</div>';
 }
 function existingFixes(type) {
@@ -782,8 +786,10 @@ function obFinish() {
   const jobs = [];
   const fixe = (type, r) => {
     const amount = parseAmount(r.amount), label = r.label.trim().replace(/\s+/g, ' '), start = YM_RE.test(r.start) ? r.start : CUR;
-    if (r.freq === 'mois') jobs.push(addDoc(ucol('recurring'), { type, label, amount, urssaf: false, start, end: null, createdAt: now + n++ }));
-    else jobs.push(addDoc(ucol('periodiques'), { type, label, amount, urssaf: false, freq: r.freq, start, end: null, createdAt: now + n++ }));
+    // Patch 3 : un revenu fixe d'auto-entrepreneur peut être « soumis à l'URSSAF » (client régulier).
+    const urssaf = type === 'revenu' && OB.pro && r.urssaf === true;
+    if (r.freq === 'mois') jobs.push(addDoc(ucol('recurring'), { type, label, amount, urssaf, start, end: null, createdAt: now + n++ }));
+    else jobs.push(addDoc(ucol('periodiques'), { type, label, amount, urssaf, freq: r.freq, start, end: null, createdAt: now + n++ }));
   };
   OB.rev.forEach(r => fixe('revenu', r));
   OB.dep.forEach(r => fixe('depense', r));
@@ -828,7 +834,7 @@ $('#s-onboard').addEventListener('click', e => {
   else if (a === 'ep') { OB.ep = b.dataset.v === '1'; if (!OB.ep) OB.comptes = []; obRender(0); }
   else if (a === 'add') {
     const k = b.dataset.k, list = OB[k === 'ep' ? 'comptes' : k];
-    list.push(k === 'ep' ? { label: b.dataset.l, amount: '', auto: '', freq: 'mois' } : { label: b.dataset.l, amount: '', freq: 'mois', start: CUR });
+    list.push(k === 'ep' ? { label: b.dataset.l, amount: '', auto: '', freq: 'mois' } : { label: b.dataset.l, amount: '', freq: 'mois', start: CUR, urssaf: false });
     obRender(0);
     const rows = $$('#ob-step .ob-row'), last = rows[rows.length - 1];
     if (last) { riseIn(last); const f = b.dataset.l ? $('[data-f="amount"]', last) : $('[data-f="label"]', last); if (f) f.focus(); }
@@ -849,7 +855,7 @@ $('#s-onboard').addEventListener('click', e => {
 $('#s-onboard').addEventListener('input', e => {
   const t = e.target;
   if (t.id === 'o-rate') { OB.rate = t.value; return; }
-  const row = t.closest('.ob-row'); if (!row || !t.dataset.f) return;
+  const row = t.closest('.ob-row'); if (!row || !t.dataset.f || t.type === 'checkbox') return;
   const r = OB[row.dataset.kind === 'ep' ? 'comptes' : row.dataset.kind][+row.dataset.i];
   if (r) r[t.dataset.f] = t.value;
 });
@@ -858,7 +864,7 @@ $('#s-onboard').addEventListener('change', e => {
   if (t.dataset.ob === 'noir') { setAppearance('noir', t.checked); return; }
   const row = t.closest('.ob-row'); if (!row || !t.dataset.f) return;
   const r = OB[row.dataset.kind === 'ep' ? 'comptes' : row.dataset.kind][+row.dataset.i];
-  if (r) r[t.dataset.f] = t.value;
+  if (r) r[t.dataset.f] = t.type === 'checkbox' ? t.checked : t.value;
 });
 
 /* ---------- rendu ---------- */
@@ -958,27 +964,67 @@ function setHero(v) {
   };
   heroRaf = requestAnimationFrame(step);
 }
+// Dépenses jusqu'au jour J inclus d'un mois : fixes en entier (comptés dès le début du mois) + opérations datées
+// jusqu'à ce jour. Sert à comparer le mois en cours au mois d'avant « à date égale » (patch 3).
+function depUntil(d, day) {
+  let t = 0;
+  for (const it of d.items) {
+    if (it.type === 'revenu') continue;
+    if (it.kind === 'entry' && +String(it.date || '').slice(8, 10) > day) continue;
+    t += Number(it.amount) || 0;
+  }
+  return r2(t);
+}
 function heroSubHtml(d, m) {
   const parts = [];
+  if (m > CUR) return '<span>Seulement tes fixes et ce que tu as déjà noté pour ce mois.</span>';
   if (m === CUR) {
     const dim = new Date(NOW.getFullYear(), NOW.getMonth() + 1, 0).getDate(), left = dim - NOW.getDate() + 1;
-    if (d.reste > 0) parts.push('Tu peux encore dépenser <b>~' + esc(eur0(d.reste / left)) + '</b> ' + (left > 1 ? 'par jour jusqu\'au ' + dim + '\u00a0' + MONTHS[NOW.getMonth()] : 'aujourd\'hui'));
+    if (d.reste > 0) parts.push('Tu peux encore dépenser <b>~' + esc(eur0(d.reste / left)) + '</b> ' + (left > 1 ? 'par jour jusqu\'au ' + dim + ' ' + MONTHS[NOW.getMonth()] : 'aujourd\'hui'));
+    // Patch 3 : le message dit la vraie raison (l'épargne peut faire passer le mois en négatif sans dépenser trop).
+    else if (d.reste < 0 && d.ep > 0 && r2(d.net - d.dep) >= 0) parts.push('Avec ce que tu as mis de côté, il manque <b>' + esc(eur(-d.reste)) + '</b> ce mois-ci');
     else if (d.reste < 0) parts.push('Tes dépenses dépassent tes revenus ce mois-ci');
   }
   const pm = addM(m, -1);
   if (pYM(pm).y === S.entriesYear) { // le mois d'avant doit être chargé pour comparer
-    const p = monthData(pm);
-    if (p.dep > 0 && d.dep > 0) {
-      const pct = Math.round((d.dep - p.dep) / p.dep * 100), mo = MONTHS[pYM(pm).m - 1];
-      parts.push(pct === 0 ? 'Dépenses : comme en ' + mo
-        : 'Dépenses : <span class="' + (pct > 0 ? 'up' : 'down') + '">' + (pct > 0 ? '+' : MINUS) + Math.abs(pct) + ' %</span> par rapport à ' + mo);
+    const p = monthData(pm), mo = MONTHS[pYM(pm).m - 1];
+    // Mois en cours : comparaison à date égale (« par rapport au 23 septembre »), sinon mois entiers.
+    let a = d.dep, b = p.dep, ref = 'à ' + mo;
+    if (m === CUR) {
+      const day = NOW.getDate(), pd = Math.min(day, new Date(pYM(pm).y, pYM(pm).m, 0).getDate());
+      a = depUntil(d, day); b = depUntil(p, pd); ref = 'au ' + (pd === 1 ? '1er' : pd) + ' ' + mo;
+    }
+    if (b > 0 && a > 0) {
+      const pct = Math.round((a - b) / b * 100);
+      parts.push(pct === 0 ? 'Dépenses : comme ' + (m === CUR ? 'au ' + ref.slice(3) : 'en ' + mo)
+        : 'Dépenses : <span class="' + (pct > 0 ? 'up' : 'down') + '">' + (pct > 0 ? '+' : MINUS) + Math.abs(pct) + ' %</span> par rapport ' + ref);
     }
   }
   return parts.map(p => '<span>' + p + '</span>').join('');
 }
+// Explication d'une ligne de la cascade (petit ⓘ, patch 3) : une phrase simple, avec les vrais chiffres du mois.
+function casInfoText(k, d, pro) {
+  const u = pro && S.settings ? urssafPeriod(d.m) : null;
+  const dl = u ? u.dl.getDate() + ' ' + MONTHS[u.dl.getMonth()] : '';
+  const T = {
+    brut: 'Ce que tu as facturé ce mois-ci, avant l\'URSSAF : seulement les revenus marqués « soumis à l\'URSSAF ».',
+    urssaf: 'Ta part URSSAF sur ce chiffre d\'affaires (' + pctf(d.rate) + '). Elle est retirée dès maintenant, alors qu\'elle se paie' + (dl ? ' avant le ' + dl : ' plus tard') + '.',
+    autres: 'Ce que tu as reçu sans URSSAF : CAF, France Travail, pension, remboursements…',
+    net: pro ? 'Ce qui te reste de tes revenus une fois l\'URSSAF retirée.' : 'Tout ce qui est rentré ce mois-ci : ce que tu as noté et tes revenus fixes.',
+    dep: 'Tout ce qui est sorti ce mois-ci : tes dépenses notées et tes charges fixes.',
+    ep: d.ep < 0 ? 'Ce que tu as repris de ton épargne ce mois-ci, moins ce que tu as mis de côté : cet argent revient dans ton mois.'
+      : 'Ce que tu as mis de côté ce mois-ci, moins ce que tu as repris : cet argent n\'est plus disponible pour le mois.',
+    reste: d.reste < 0 ? 'Ce qu\'il manque pour finir le mois : tes dépenses et ton épargne dépassent tes revenus nets.'
+      : 'Ce qu\'il te reste une fois tout retiré : revenus nets, moins dépenses, moins épargne.',
+  };
+  return T[k] || '';
+}
 function cascadeHtml(d, ok, pro, on) {
   const apresDep = r2(d.net - d.dep);
-  const lo = Math.min(0, apresDep, d.reste), hi = Math.max(d.brut, d.net, 0);
+  // Profil auto-entrepreneur : « Revenus bruts » = revenus soumis à l'URSSAF seulement (d.base), pour que le %
+  // se lise sur la bonne somme ; les revenus sans URSSAF ont leur propre ligne (patch 3). Calculs inchangés.
+  const autres = pro ? r2(d.brut - d.base) : 0;
+  const lo = Math.min(0, apresDep, d.reste), hi = Math.max(pro ? d.base : d.brut, d.net, 0);
   const X = v => (hi - lo > 0 ? (v - lo) / (hi - lo) * 100 : 0);
   const bar = (cls, a, b) => {
     const x1 = X(Math.min(a, b)), x2 = X(Math.max(a, b));
@@ -986,23 +1032,37 @@ function cascadeHtml(d, ok, pro, on) {
       (x2 - x1 > 0.01 ? '<i class="' + cls + '" style="left:' + x1.toFixed(2) + '%;width:' + (x2 - x1).toFixed(2) + '%"></i>' : '') + '</span>';
   };
   const rows = [];
+  const R = (op, sw, label, v, b, k, cls, note) => rows.push({ op, sw, label, v, b, k, cls, note });
   if (pro) {
-    rows.push(['', 's-brut', 'Revenus bruts', d.brut, bar('s-brut', 0, d.brut)]);
-    rows.push([MINUS, 's-urssaf', 'URSSAF (' + pctf(d.rate) + ')', d.urssaf, bar('s-urssaf', d.net, d.brut)]);
-    rows.push(['=', 's-net', 'Revenus nets', d.net, bar('s-net', 0, d.net), 'sub']);
-  } else rows.push(['', 's-net', 'Revenus', d.brut, bar('s-net', 0, d.brut)]);
-  rows.push([MINUS, 's-dep', 'Dépenses', d.dep, bar('s-dep', apresDep, d.net)]);
-  if (on) rows.push([d.ep < 0 ? '+' : MINUS, 's-ep', d.ep < 0 ? 'Épargne reprise' : 'Épargne', Math.abs(d.ep), bar('s-ep', d.reste, apresDep)]);
+    const apresU = r2(d.base - d.urssaf);
+    R('', 's-brut', 'Revenus bruts', d.base, bar('s-brut', 0, d.base), 'brut');
+    R(MINUS, 's-urssaf', 'URSSAF (' + pctf(d.rate) + ')', d.urssaf, bar('s-urssaf', apresU, d.base), 'urssaf');
+    if (autres > 0) R('+', 's-autres', 'Autres revenus (sans URSSAF)', autres, bar('s-autres', apresU, d.net), 'autres');
+    R('=', 's-net', 'Revenus nets', d.net, bar('s-net', 0, d.net), 'net', 'sub');
+  } else R('', 's-net', 'Revenus', d.brut, bar('s-net', 0, d.brut), 'net');
+  // Patch 3 : la ligne dit la part des fixes (la liste dessous ne montre que les dépenses ponctuelles).
+  const fixDep = sumOf(d.recs.concat(d.pers).filter(i => i.type !== 'revenu'));
+  R(MINUS, 's-dep', 'Dépenses', d.dep, bar('s-dep', apresDep, d.net), 'dep', '', fixDep > 0 ? 'dont ' + eur(fixDep) + ' de fixes' : '');
+  if (on) R(d.ep < 0 ? '+' : MINUS, 's-ep', d.ep < 0 ? 'Épargne reprise' : 'Épargne', Math.abs(d.ep), bar('s-ep', d.reste, apresDep), 'ep');
   const neg = d.reste < 0;
-  rows.push(['=', neg ? 's-manque' : 's-reste', neg ? 'Il manque' : 'Reste', Math.abs(d.reste), bar(neg ? 's-manque' : 's-reste', 0, d.reste), 'tot']);
-  return rows.map(r => '<div' + (r[5] ? ' class="' + r[5] + '"' : '') + '><dt><span class="op">' + r[0] + '</span><i class="sw ' + r[1] + '"></i>' + esc(r[2]) + '</dt><dd>' + (ok ? eur(r[3]) : '…') + '</dd>' + (ok ? r[4] : '') + '</div>').join('');
+  R('=', neg ? 's-manque' : 's-reste', neg ? 'Il manque' : 'Reste', Math.abs(d.reste), bar(neg ? 's-manque' : 's-reste', 0, d.reste), 'reste', 'tot');
+  return rows.map(r => {
+    const open = S.casInfo === r.k;
+    return '<div' + (r.cls ? ' class="' + r.cls + '"' : '') + '><dt><span class="op">' + r.op + '</span><i class="sw ' + r.sw + '"></i>' +
+      '<span class="cl">' + esc(r.label) + (r.note && ok ? '<small>' + esc(r.note) + '</small>' : '') + '</span>' +
+      '<button type="button" class="cinfo" data-act="cas-info" data-k="' + r.k + '" aria-expanded="' + open + '" aria-label="Explication : ' + esc(r.label) + '">' + ico('info') + '</button></dt>' +
+      '<dd>' + (ok ? eur(r.v) : '…') + '</dd>' + (ok ? r.b : '') +
+      (open && ok ? '<p class="cexp">' + esc(casInfoText(r.k, d, pro)) + '</p>' : '') + '</div>';
+  }).join('');
 }
 function renderMois() {
   const m = S.month, ok = ready(), d = monthData(m), pro = isPro(), on = epOn();
   const bt = $('#back-today');
   bt.hidden = m === CUR; bt.textContent = 'Revenir à ' + MONTHS[pYM(CUR).m - 1];
-  const amt = $('#hero-amount');
-  amt.className = 'big' + (ok ? (d.reste < 0 ? ' neg' : ' pos') : '');
+  const amt = $('#hero-amount'), fut = m > CUR;
+  // Mois à venir (patch 3) : une prévision (fixes et opérations déjà notées), en gris, jamais en rouge.
+  $('#hero-label').textContent = fut ? 'Prévu pour ' + MONTHS[pYM(m).m - 1] : 'Reste du mois';
+  amt.className = 'big' + (ok ? (fut ? ' fut' : d.reste < 0 ? ' neg' : ' pos') : '');
   if (ok) setHero(d.reste); else { amt.textContent = '…'; heroVal = null; }
   $('#hero-sub').innerHTML = ok ? heroSubHtml(d, m) : '<span>Chargement…</span>';
   $('#legend').innerHTML = cascadeHtml(d, ok, pro, on);
@@ -1012,14 +1072,21 @@ function renderMois() {
 
   const lists = $('#lists');
   if (!ok) { lists.innerHTML = '<p class="empty">Chargement…</p>'; return; }
-  const revs = d.items.filter(i => i.type === 'revenu').sort((a, b) => (a.kind === b.kind ? byDate(a, b) : (a.kind === 'entry' ? -1 : 1)));
+  // Patch 3 : revenus et dépenses fixes rangés pareil, à part dans une ligne repliable ; les listes du mois ne
+  // montrent que ce qui a été noté à la main (« ponctuels »).
+  const revs = d.ents.filter(i => i.type === 'revenu').sort(byDate);
+  const revR = d.recs.concat(d.pers).filter(i => i.type === 'revenu').sort((a, b) => b.amount - a.amount);
   const depE = d.ents.filter(i => i.type !== 'revenu').sort(byDate);
   const depR = d.recs.concat(d.pers).filter(i => i.type !== 'revenu').sort((a, b) => b.amount - a.amount);
   const epI = d.eps.concat(d.autos).sort(byDate);
   let h = '';
-  h += '<section class="group"><div class="group-head"><h3>Revenus</h3><span class="sum">' + (revs.length ? '+' + eur(sumOf(revs)) : '') + '</span></div>' +
-    (revs.length ? revs.map(i => rowHtml(i, d.rate)).join('') : '<p class="empty">Aucun revenu noté pour ' + esc(mLabel(m)) + '. Ajoute-le avec <b>+</b> puis « Revenu ».</p>') + '</section>';
-  h += '<section class="group"><div class="group-head"><h3>Dépenses du mois</h3><span class="gh-tools">' +
+  h += '<section class="group"><div class="group-head"><h3>Revenus ponctuels</h3><span class="sum">' + (revs.length ? '+' + eur(sumOf(revs)) : '') + '</span></div>' +
+    (revs.length ? revs.map(i => rowHtml(i, d.rate)).join('') : '<p class="empty">' + (revR.length ? 'Aucun autre revenu noté pour ' + esc(mLabel(m)) + '.' : 'Aucun revenu noté pour ' + esc(mLabel(m)) + '. Ajoute-le avec <b>+</b> puis « Revenu ».') + '</p>') + '</section>';
+  if (revR.length) {
+    h += '<section class="group"><button class="group-head" data-act="toggle-fixed-rev" aria-expanded="' + S.showFixedRev + '"><span class="gh-left">' + ico('right', 'chev') + '<span class="h3">Revenus fixes · ' + revR.length + '</span></span><span class="sum">+' + eur(sumOf(revR)) + '</span></button>' +
+      (S.showFixedRev ? revR.map(i => rowHtml(i, d.rate)).join('') : '') + '</section>';
+  }
+  h += '<section class="group"><div class="group-head"><h3>Dépenses ponctuelles</h3><span class="gh-tools">' +
     (depE.length > 1 ? '<button class="toggle-mini" data-act="group-toggle" aria-pressed="' + S.grouped + '" title="Regrouper par libellé">' + ico(S.grouped ? 'group' : 'list') + (S.grouped ? 'Par libellé' : 'Par date') + '</button>' : '') +
     '<span class="sum">' + (depE.length ? MINUS + eur(sumOf(depE)) : '') + '</span></span></div>' +
     (depE.length ? (S.grouped ? groupedHtml(depE, d.rate) : depE.map(i => rowHtml(i, d.rate)).join('')) : '<p class="empty">Aucune dépense notée. Ajoute-la avec <b>+</b> : tu écris toi-même à quoi elle correspond.</p>') + '</section>';
@@ -1142,7 +1209,7 @@ function renderAnnee() {
   $('#kpis').innerHTML = '<p class="eyebrow">' + (neg ? 'Il manque sur l\'année' : 'Reste de l\'année') + '</p>' +
     '<p class="big ' + (ok ? (neg ? 'neg' : 'pos') : '') + '">' + (ok ? eur(Math.abs(T.reste)) : '…') + '</p>' +
     '<p class="hero-sub"><span>' + (!ok ? 'Chargement…' : n === 0 ? 'L\'année ' + y + ' n\'a pas encore commencé.' : 'soit <b>' + esc(eur(yd.avg)) + '</b> par mois en moyenne, sur ' + n + ' mois') + '</span></p>' +
-    '<div class="minis">' + (pro ? mini('s-brut', 'Revenus bruts', T.brut) + mini('s-urssaf', 'URSSAF', T.urssaf) + mini('s-net', 'Revenus nets', T.net) : mini('s-net', 'Revenus', T.brut)) +
+    '<div class="minis">' + (pro ? mini('s-brut', 'Revenus bruts', T.base) + mini('s-urssaf', 'URSSAF', T.urssaf) + (T.brut - T.base > 0.004 ? mini('s-autres', 'Sans URSSAF', r2(T.brut - T.base)) : '') + mini('s-net', 'Revenus nets', T.net) : mini('s-net', 'Revenus', T.brut)) +
     mini('s-dep', 'Dépenses', T.dep) + (on ? mini('s-ep', 'Épargne', T.ep) : '') + '</div>';
   $('#y-period').textContent = !ok || n === 0 ? '' : n === 12 ? 'Année ' + y + ' complète.' : 'De janvier à ' + MONTHS[n - 1] + ' ' + y + '. Les mois suivants sont des prévisions (fixes seulement), en pâle.';
   $('#chart-legend').innerHTML = '<span><i class="sw s-reste"></i>Reste</span><span><i class="sw" style="background:var(--neg)"></i>Manque</span><span><i class="dash"></i>Dépenses moy. ' + (ok ? esc(eur0(yd.avgDep)) : '') + '</span>';
@@ -1496,7 +1563,7 @@ function maybeNews() {
 }
 
 /* ---------- feuille d'ajout / modification ---------- */
-const F = { mode: 'new', type: 'depense', op: 'depot', freq: 'once', orig: null, ctx: CUR, armed: false };
+const F = { mode: 'new', type: 'depense', op: 'depot', freq: 'once', orig: null, ctx: CUR, armed: false, uTouched: false };
 const bg = $('#sheet-bg'), form = $('#sheet');
 const COL = { 'edit-entry': 'entries', 'edit-rec': 'recurring', 'edit-per': 'periodiques', 'edit-ep': 'epargne' };
 let lastFocus = null;
@@ -1505,7 +1572,7 @@ function openSheet(o) {
   if (blocked()) return;
   if (layerOpen(pbg)) closePanel();
   lastFocus = document.activeElement;
-  F.mode = o.mode; F.armed = false; F.ctx = S.view === 'mois' ? S.month : CUR;
+  F.mode = o.mode; F.armed = false; F.uTouched = false; F.ctx = S.view === 'mois' ? S.month : CUR;
   $('#f-error').textContent = '';
   let start = F.ctx;
   if (o.mode === 'new') {
@@ -1572,22 +1639,58 @@ function syncSheet() {
   $('#f-urssaf-row').hidden = !rev || !isPro();
   $('#sheet-title').textContent = isNew ? (ep ? 'Épargne' : once ? 'Nouvelle opération' : 'Nouveau fixe')
     : fixe ? (ep ? 'Modifier le versement' : 'Modifier le fixe') : F.mode === 'edit-ep' ? 'Modifier l\'épargne' : 'Modifier';
-  const del = $('#f-delete'); del.hidden = isNew; del.classList.remove('armed'); del.textContent = 'Supprimer'; F.armed = false;
+  // Patch 3 : un fixe déjà compté dans des mois passés s'arrête (le passé ne change pas) ; le supprimer le retire
+  // aussi de ces mois-là, donc ce bouton passe après « Arrêter » et le dit clairement.
+  const hist = fixe && YM_RE.test(F.orig.start || '') && F.orig.start < CUR;
+  const del = $('#f-delete'); del.hidden = isNew; del.classList.remove('armed'); F.armed = false;
+  del.textContent = hist ? 'Supprimer aussi des mois passés' : 'Supprimer';
   const stop = $('#f-stop');
   if (fixe) { stop.hidden = false; stop.textContent = F.orig.end ? 'Reprendre' : 'Arrêter après ' + MONTHS[pYM(F.ctx).m - 1]; }
   else stop.hidden = true;
-  const hint = $('#f-hint');
-  const hints = [];
-  // Scission seulement si le mois de départ ne change pas (sinon le fixe est réécrit avec le nouveau départ).
-  if (fixe && F.orig.start < F.ctx && (!F.orig.end || F.orig.end >= F.ctx) && $('#f-start').value === F.orig.start) {
-    const ns = F.mode === 'edit-rec' && F.freq === 'mois' ? F.ctx : firstDue(F.orig.start, F.freq, F.ctx);
-    hints.push('Un nouveau montant compte à partir de ' + mLabel(ns) + '. Les mois d\'avant gardent ' + eur(F.orig.amount) + '.');
-  }
-  if (ended) hints.push('Ce fixe a une date de fin : pour changer sa fréquence, touche d\'abord « Reprendre ».');
-  hint.hidden = !hints.length; hint.textContent = hints.join(' ');
+  stop.classList.toggle('lead', hist);
+  sheetHints();
   updatePreview();
   // Les suggestions dépendent du type (dépense, revenu ou compte d'épargne).
   if (document.activeElement === $('#f-label')) suggest(); else closeSuggest();
+}
+// Patch 3 : « Soumis à l'URSSAF » reprend le choix du dernier revenu de même libellé (une CAF reste « sans URSSAF »).
+// null = libellé jamais utilisé pour un revenu (la case reste cochée d'office). Rien de nouveau n'est enregistré.
+function urssafFor(label) {
+  const k = fold(label); if (!k) return null;
+  let best = null, t = -Infinity;
+  for (const arr of [S.entries, S.recurring, S.periodiques]) for (const it of arr) {
+    if (it.type !== 'revenu' || fold(it.label) !== k) continue;
+    const ti = Number(it.createdAt) || 0;
+    if (ti >= t) { t = ti; best = !!it.urssaf; }
+  }
+  return best;
+}
+function guessUrssaf() {
+  if (F.mode !== 'new' || F.type !== 'revenu' || F.uTouched || !isPro()) return;
+  const g = urssafFor($('#f-label').value);
+  const v = g === null ? true : g;
+  if ($('#f-urssaf').checked !== v) { $('#f-urssaf').checked = v; updatePreview(); }
+}
+// Phrases sous le formulaire d'un fixe. « Un nouveau montant… » seulement quand quelque chose qui compte a changé
+// (montant, type, URSSAF ou fréquence), pas dès qu'on ouvre le fixe pour le regarder (patch 3).
+function sheetHints() {
+  const hint = $('#f-hint'), hints = [];
+  if (isFixe() && F.orig) {
+    const o = F.orig, ended = !!o.end;
+    const hist = YM_RE.test(o.start || '') && o.start < CUR;
+    const a = parseAmount($('#f-amount').value);
+    const urs = F.type === 'revenu' && isPro() && $('#f-urssaf').checked;
+    const changed = (a > 0 && a !== Number(o.amount)) || F.type !== (o.type === 'revenu' ? 'revenu' : o.type) || urs !== !!o.urssaf
+      || (F.mode === 'edit-per' && F.freq !== o.freq) || (F.mode === 'edit-rec' && F.freq !== 'mois');
+    // Scission seulement si le mois de départ ne change pas (sinon le fixe est réécrit avec le nouveau départ).
+    if (changed && o.start < F.ctx && (!o.end || o.end >= F.ctx) && $('#f-start').value === o.start) {
+      const ns = F.mode === 'edit-rec' && F.freq === 'mois' ? F.ctx : firstDue(o.start, F.freq, F.ctx);
+      hints.push('Ce changement compte à partir de ' + mLabel(ns) + '. Les mois d\'avant gardent ' + eur(o.amount) + '.');
+    }
+    if (ended) hints.push('Ce fixe a une date de fin : pour changer sa fréquence, touche d\'abord « Reprendre ».');
+    if (hist && !ended) hints.push('« Arrêter » garde les mois passés comme ils sont. « Supprimer aussi des mois passés » le retire de tous les mois depuis ' + mLabel(o.start) + '.');
+  }
+  hint.hidden = !hints.length; hint.textContent = hints.join(' ');
 }
 function cycleTxt(start, freq) {
   if (freq === 'annee') return 'chaque ' + MONTHS[pYM(start).m - 1];
@@ -1613,12 +1716,12 @@ function updatePreview() {
     say('Compté automatiquement ' + FREQ_LABEL[F.freq] + ' à partir de ' + esc(mLabel(m)) + (cycleTxt(m, F.freq) ? ' (' + esc(cycleTxt(m, F.freq)) + ')' : '') + ', en entier le mois où il tombe.');
   } else p.hidden = true;
 }
-$('#type-seg').addEventListener('click', e => { const b = e.target.closest('button[data-type]'); if (!b) return; F.type = b.dataset.type; if (F.type === 'epargne' && F.freq !== 'once' && F.op !== 'depot') F.op = 'depot'; syncSheet(); });
+$('#type-seg').addEventListener('click', e => { const b = e.target.closest('button[data-type]'); if (!b) return; F.type = b.dataset.type; if (F.type === 'epargne' && F.freq !== 'once' && F.op !== 'depot') F.op = 'depot'; syncSheet(); guessUrssaf(); });
 $('#op-seg').addEventListener('click', e => { const b = e.target.closest('button[data-op]'); if (!b) return; F.op = b.dataset.op; syncSheet(); });
 $('#freq-seg').addEventListener('click', e => { const b = e.target.closest('button[data-f]'); if (!b || b.disabled) return; F.freq = b.dataset.f; syncSheet(); });
-['#f-amount', '#f-date'].forEach(id => $(id).addEventListener('input', updatePreview));
+['#f-amount', '#f-date'].forEach(id => $(id).addEventListener('input', () => { updatePreview(); if (isFixe()) sheetHints(); }));
 $('#f-start').addEventListener('change', () => { if (isFixe()) syncSheet(); else updatePreview(); });
-$('#f-urssaf').addEventListener('change', updatePreview);
+$('#f-urssaf').addEventListener('change', () => { F.uTouched = true; updatePreview(); if (isFixe()) sheetHints(); });
 $('#sheet-close').addEventListener('click', closeSheet);
 bg.addEventListener('click', e => { if (e.target === bg) closeSheet(); });
 document.addEventListener('keydown', e => {
@@ -1697,8 +1800,13 @@ $('#f-delete').addEventListener('click', () => {
   if (blocked()) { closeSheet(); return; }
   const b = $('#f-delete');
   if (!F.armed) { F.armed = true; b.classList.add('armed'); b.textContent = isFixe() ? 'Confirmer : retirer de tous les mois' : 'Confirmer la suppression'; return; }
-  const o = F.orig, mode = F.mode; closeSheet();
-  write(deleteDoc(doc(ucol(COL[mode]), o.id)), mode === 'edit-rec' || mode === 'edit-per' ? 'Fixe supprimé' : 'Supprimé');
+  const o = F.orig, mode = F.mode, col = COL[mode]; closeSheet();
+  write(deleteDoc(doc(ucol(col), o.id)));
+  // « Annuler » pendant 5 s : le document revient à l'identique (même identifiant, tous ses champs, même inconnus).
+  toastUndo(mode === 'edit-rec' || mode === 'edit-per' ? 'Fixe supprimé' : 'Supprimé', () => {
+    if (blocked()) return;
+    write(setDoc(doc(ucol(col), o.id), plain(o)), 'Remis comme avant');
+  });
 });
 $('#f-stop').addEventListener('click', () => {
   if (blocked()) { closeSheet(); return; }
@@ -1753,10 +1861,10 @@ function moveSuggest(d) {
 }
 function pickSuggest(i) {
   const v = SG.items[i]; if (v == null) return;
-  lab.value = v; closeSuggest();
+  lab.value = v; closeSuggest(); guessUrssaf();
 }
 lab.addEventListener('focus', suggest);
-lab.addEventListener('input', suggest);
+lab.addEventListener('input', () => { suggest(); guessUrssaf(); });
 lab.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== lab) closeSuggest(); }, 150));
 lab.addEventListener('keydown', e => {
   if (sug.hidden) { if (e.key === 'ArrowDown') { e.preventDefault(); suggest(); } return; }
@@ -1924,6 +2032,8 @@ document.addEventListener('click', e => {
   else if (a === 'add-type') openSheet({ mode: 'new', type: t.dataset.type });
   else if (a === 'edit-entry' || a === 'edit-rec' || a === 'edit-per' || a === 'edit-ep') openSheet({ mode: a, id: t.dataset.id });
   else if (a === 'toggle-fixed') { S.showFixed = !S.showFixed; lsSet('pf-showFixed', S.showFixed ? '1' : '0'); renderMois(); }
+  else if (a === 'toggle-fixed-rev') { S.showFixedRev = !S.showFixedRev; lsSet('pf-showFixedRev', S.showFixedRev ? '1' : '0'); renderMois(); }
+  else if (a === 'cas-info') { S.casInfo = S.casInfo === t.dataset.k ? null : t.dataset.k; renderMois(); if (S.casInfo) riseIn($('#legend .cexp')); }
   else if (a === 'toggle-ended') { S.showEnded = !S.showEnded; renderFixes(); }
   else if (a === 'group-toggle') { S.grouped = !S.grouped; lsSet('pf-groupe', S.grouped ? '1' : '0'); renderMois(); }
   else if (a === 'grp-open') { const k = t.dataset.k; if (S.openGroups.has(k)) S.openGroups.delete(k); else S.openGroups.add(k); renderMois(); }
@@ -2011,12 +2121,26 @@ document.addEventListener('keydown', e => {
   else if (S.view === 'annee') setYear(S.year + d, d);
 });
 
-let toastT = null;
+let toastT = null, toastUndoFn = null;
 function toast(msg, isErr) {
-  const t = $('#toast'); t.textContent = msg; t.classList.toggle('err', !!isErr);
+  const t = $('#toast'); toastUndoFn = null; t.textContent = msg; t.classList.toggle('err', !!isErr); t.classList.remove('undo');
   if (t.hidden) { t.hidden = false; anim(t, [{ transform: 'translateX(-50%) translateY(12px)', opacity: 0 }, { transform: 'translateX(-50%)', opacity: 1 }], { duration: 260, easing: SPRING }); }
   clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, isErr ? 5000 : 2200);
 }
+// Message avec un bouton « Annuler » (patch 3), visible 5 secondes.
+function toastUndo(msg, fn) {
+  toast(msg);
+  const t = $('#toast');
+  toastUndoFn = fn;
+  t.classList.add('undo');
+  t.innerHTML = '<span>' + esc(msg) + '</span><button type="button" class="toast-undo">Annuler</button>';
+  clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; toastUndoFn = null; }, 5000);
+}
+$('#toast').addEventListener('click', e => {
+  if (!e.target.closest('.toast-undo') || !toastUndoFn) return;
+  const fn = toastUndoFn; toastUndoFn = null; clearTimeout(toastT);
+  $('#toast').hidden = true; fn();
+});
 
 /* ---------- appli Android : retour et mises à jour ---------- */
 if (isNative) {

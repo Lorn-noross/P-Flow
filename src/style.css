@@ -16,7 +16,7 @@
   --urssaf:#C2810C; --dep:#6A7D90; --pos:#13865A; --neg:#C8372F; --neg-soft:#FCE9E7; --pos-soft:#DFF3E8; --ep:#7A5AF8;
   --scrim:rgba(8,12,20,.42); --shadow:0 10px 30px rgba(20,35,70,.14); --shadow-bar:0 10px 34px rgba(20,35,70,.18);
   /* couleurs des montants : personnalisables (Réglages → Apparence → Couleurs), sinon celles-ci */
-  --c-brut:#8FA6E6; --c-urssaf:var(--urssaf); --c-net:var(--accent); --c-dep:var(--dep); --c-reste:var(--pos);
+  --c-brut:#8FA6E6; --c-autres:#0E8C97; --c-urssaf:var(--urssaf); --c-net:var(--accent); --c-dep:var(--dep); --c-reste:var(--pos);
   --f-display:"Bricolage Grotesque Variable","Bricolage Grotesque","Avenir Next","Segoe UI",system-ui,sans-serif;
   --f-body:"Instrument Sans Variable","Instrument Sans","Segoe UI",system-ui,-apple-system,sans-serif;
   --f-data:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
@@ -36,7 +36,7 @@
   --glass:rgba(22,29,39,.72); --glass-solid:#161D26; --glass-line:rgba(255,255,255,.07);
   --quick:rgba(255,255,255,.08); --quick-ink:var(--ink);
   --urssaf:#E4A940; --dep:#8799AC; --pos:#4DC48B; --neg:#F2766B; --neg-soft:#3A1E1E; --pos-soft:#13301F; --ep:#A58BFF;
-  --scrim:rgba(0,0,0,.55); --shadow:0 10px 30px rgba(0,0,0,.45); --shadow-bar:0 12px 34px rgba(0,0,0,.55); --c-brut:#4E66A8;
+  --scrim:rgba(0,0,0,.55); --shadow:0 10px 30px rgba(0,0,0,.45); --shadow-bar:0 12px 34px rgba(0,0,0,.55); --c-brut:#4E66A8; --c-autres:#31B9C4;
   --shadow-pill:0 6px 20px rgba(0,0,0,.40);
   color-scheme:dark;
 }
@@ -49,7 +49,7 @@
     --glass:rgba(22,29,39,.72); --glass-solid:#161D26; --glass-line:rgba(255,255,255,.07);
     --quick:rgba(255,255,255,.08);
     --urssaf:#E4A940; --dep:#8799AC; --pos:#4DC48B; --neg:#F2766B; --neg-soft:#3A1E1E; --pos-soft:#13301F; --ep:#A58BFF;
-    --scrim:rgba(0,0,0,.55); --shadow:0 10px 30px rgba(0,0,0,.45); --shadow-bar:0 12px 34px rgba(0,0,0,.55); --c-brut:#4E66A8;
+    --scrim:rgba(0,0,0,.55); --shadow:0 10px 30px rgba(0,0,0,.45); --shadow-bar:0 12px 34px rgba(0,0,0,.55); --c-brut:#4E66A8; --c-autres:#31B9C4;
     --shadow-pill:0 6px 20px rgba(0,0,0,.40);
     color-scheme:dark;
   }
@@ -231,7 +231,7 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
 .big{font-family:var(--f-display);font-weight:750;font-size:clamp(calc(44*var(--u)),13vw,calc(64*var(--u)));line-height:1.02;letter-spacing:-.04em;margin:8px 0 6px;font-variant-numeric:tabular-nums;white-space:nowrap}
 /* Le montant qui défile (compteur) ne doit recalculer et repeindre que lui-même à chaque image. */
 .big{justify-self:stretch;width:100%;contain:layout paint}
-.big.pos{color:var(--c-reste)} .big.neg{color:var(--neg)}
+.big.pos{color:var(--c-reste)} .big.neg{color:var(--neg)} .big.fut{color:var(--muted)}
 .hero-sub{font-size:calc(14*var(--u));color:var(--muted);display:grid;gap:2px;min-height:1.4em}
 .hero-sub b{color:var(--ink);font-weight:600}
 .hero-sub span{text-wrap:balance}
@@ -265,11 +265,17 @@ body:not(.ep-on) .ep-only{display:none!important}
 .cascade .op{width:12px;flex:none;text-align:center;font-family:var(--f-data);color:var(--muted)}
 .cascade dd{margin:0;font-family:var(--f-data);font-size:calc(14*var(--u));font-variant-numeric:tabular-nums;white-space:nowrap}
 .cascade .tot dt{color:var(--ink);font-weight:650}
+.cascade .cl{min-width:0;display:flex;flex-direction:column;gap:1px}
+.cascade .cl small{font-size:calc(11.5*var(--u));color:var(--muted);font-weight:450}
+.cascade .cinfo{flex:none;display:grid;place-items:center;width:30px;height:30px;margin:-8px -6px -8px -4px;border-radius:50%;color:var(--muted);opacity:.75}
+.cascade .cinfo svg.i{width:15px;height:15px}
+.cascade .cinfo[aria-expanded="true"]{color:var(--accent);opacity:1}
+.cascade .cexp{grid-column:1/-1;margin:2px 0 0;padding:9px 12px;border-radius:12px;background:var(--surface-2);border:1px solid var(--glass-line);color:var(--ink);font-size:calc(13*var(--u));line-height:1.45}
 .cascade .tot dd{font-weight:600}
 .cascade .cb{grid-column:1/-1;position:relative;height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden}
 .cascade .cb i{position:absolute;top:0;bottom:0;border-radius:3px;min-width:2px}
 .cascade .zero{position:absolute;top:-2px;bottom:-2px;width:1.5px;background:var(--muted);opacity:.6}
-.s-brut{background:var(--c-brut)} .s-urssaf{background:var(--c-urssaf)} .s-net{background:var(--c-net)} .s-dep{background:var(--c-dep)} .s-reste{background:var(--c-reste)} .s-ep{background:var(--ep)}
+.s-brut{background:var(--c-brut)} .s-autres{background:var(--c-autres)} .s-urssaf{background:var(--c-urssaf)} .s-net{background:var(--c-net)} .s-dep{background:var(--c-dep)} .s-reste{background:var(--c-reste)} .s-ep{background:var(--ep)}
 .s-dep2{background:var(--c-dep);opacity:.5}
 @supports (color:color-mix(in srgb,red,blue)){.s-dep2{background:color-mix(in srgb,var(--c-dep) 45%,var(--surface));opacity:1}}
 .s-manque{background:repeating-linear-gradient(135deg,var(--neg) 0 5px,var(--neg-soft) 5px 9px)}
@@ -489,6 +495,9 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
 .toast{position:fixed;z-index:30;left:50%;transform:translateX(-50%);bottom:calc(var(--bar-h) + var(--bar-gap) + 16px + env(safe-area-inset-bottom,0px));
   background:var(--ink);color:var(--bg);padding:11px 18px;border-radius:999px;font-size:calc(14*var(--u));font-weight:560;box-shadow:var(--shadow);max-width:calc(100% - 32px);text-align:center}
 .toast.err{background:var(--neg);color:#fff}
+.toast.undo{display:flex;align-items:center;gap:14px;pointer-events:auto}
+.toast-undo{color:inherit;font-weight:700;text-decoration:underline;text-underline-offset:3px;padding:6px 2px;min-height:32px}
+.sheet-actions .lead{order:-1}
 @media (min-width:900px){.toast{bottom:28px}}
 /* clavier ouvert : --kb = hauteur qu'il recouvre (calculée dans main.js) */
 .kb-open .sheet{padding-bottom:16px}
@@ -589,6 +598,7 @@ body:not(.native) .native-only{display:none!important}
 .ob-row .input{height:44px}
 .ob-row .amt{font-family:var(--f-data);text-align:right}
 .ob-row .more{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ob-row .ob-urssaf{grid-column:1/-1;padding:4px 2px 0}
 .ob-row .more.three{grid-template-columns:1fr 1fr 1fr}
 .ob-row .more .input{height:42px;font-size:15px;padding:0 10px}
 .ob-row .icon-btn{width:40px;height:40px;color:var(--muted)}

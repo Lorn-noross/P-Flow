@@ -210,7 +210,7 @@
           </article>
           <article class="hero">
             <div class="hero-top">
-              <p class="eyebrow">Reste du mois</p>
+              <p class="eyebrow" id="hero-label">Reste du mois</p>
               <button class="chip" data-act="today" id="back-today" hidden></button>
             </div>
             <p class="big" id="hero-amount">…</p>
@@ -469,12 +469,12 @@
       <ul class="suggest" id="f-suggest" role="listbox" aria-label="Libellés déjà utilisés" hidden></ul>
     </div>
     <div class="field" id="f-freq-field">
-      <span class="field-label" id="f-freq-label">Revient</span>
+      <span class="field-label" id="f-freq-label">Fréquence</span>
       <div class="seg seg4" id="freq-seg" role="group" aria-labelledby="f-freq-label">
         <button type="button" data-f="once">Une fois</button>
-        <button type="button" data-f="mois">Chaque mois</button>
-        <button type="button" data-f="trimestre">Trimestre</button>
-        <button type="button" data-f="annee">Année</button>
+        <button type="button" data-f="mois">Mensuel</button>
+        <button type="button" data-f="trimestre">Trimestriel</button>
+        <button type="button" data-f="annee">Annuel</button>
       </div>
     </div>
     <label class="field" id="f-date-field"><span id="f-date-label">Date</span><input class="input" id="f-date" type="date"></label>
