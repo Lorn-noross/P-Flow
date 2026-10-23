@@ -428,7 +428,6 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
 .dot{width:36px;height:36px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.14);flex:none}
 .dot[aria-pressed="true"]{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--ink)}
 .dot.other{position:relative;display:grid;place-items:center;overflow:hidden;cursor:pointer;background:conic-gradient(#e33,#ec3,#3c5,#3cd,#36e,#c3e,#e33)}
-.dot.other input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;border:0;padding:0}
 .palette .link{margin-left:4px}
 .accents{padding:2px 0 4px}
 .accents .dot{position:relative;display:grid;place-items:center;color:#fff}
@@ -618,3 +617,46 @@ body:not(.native) .native-only{display:none!important}
 .group-note b{color:var(--ink);font-family:var(--f-data);font-weight:500}
 td small.ep-mv{display:block;font-size:calc(10.5*var(--u));color:var(--muted)}
 th small{display:block;font-size:calc(10*var(--u));font-weight:500;text-transform:none;letter-spacing:0}
+/* ---------- Patch 3 : sélecteurs maison (calendrier, liste de choix, teinte) ---------- */
+.pop-scrim{position:fixed;inset:0;z-index:59}
+.pop{position:fixed;z-index:60;background:var(--glass-solid);border:1px solid var(--glass-line);border-radius:22px;box-shadow:var(--shadow);padding:10px;color:var(--ink);max-height:calc(100vh - 24px);overflow:auto}
+.pop-list{display:grid;gap:2px}
+.pop-list button{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;min-height:46px;border-radius:14px;text-align:left;font-weight:560;width:100%}
+.pop-list button span{display:grid;gap:1px}
+.pop-list button small{color:var(--muted);font-weight:450;font-size:calc(12*var(--u))}
+.pop-list button svg.i{width:18px;height:18px;flex:none;color:var(--accent);opacity:0}
+.pop-list button:hover,.pop-list button:focus-visible{background:var(--surface-2);outline:none}
+.pop-list button[aria-selected="true"]{background:var(--accent-soft);color:var(--accent)}
+.pop-list button[aria-selected="true"] svg.i{opacity:1}
+.cal-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px}
+.cal-title{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:calc(16*var(--u));padding:8px 12px;border-radius:12px}
+.cal-title svg.i{width:16px;height:16px;color:var(--muted)}
+button.cal-title:hover{background:var(--surface-2)}
+.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px}
+.cal-wd{text-align:center;font-size:calc(11.5*var(--u));color:var(--muted);font-weight:650;padding:4px 0}
+.cal-d{aspect-ratio:1;min-height:38px;border-radius:50%;display:grid;place-items:center;font-variant-numeric:tabular-nums;font-size:calc(14.5*var(--u));font-weight:560}
+.cal-d:hover{background:var(--surface-2)}
+.cal-d.today{box-shadow:inset 0 0 0 1.5px var(--accent);color:var(--accent)}
+.cal-d.sel{background:var(--accent);color:var(--accent-ink);box-shadow:none}
+.cal-d:disabled{opacity:.3}
+.cal-months{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding-top:4px}
+.cal-m{height:46px;border-radius:14px;background:var(--surface-2);font-weight:600}
+.cal-m.today{box-shadow:inset 0 0 0 1.5px var(--accent)}
+.cal-m.sel{background:var(--accent);color:var(--accent-ink);box-shadow:none}
+.cal-m:disabled{opacity:.3}
+.cal-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:6px;padding:0 6px 2px}
+.hue-title{font-weight:700;margin:2px 4px 8px}
+.hue-prev{height:44px;border-radius:14px;margin-bottom:8px;border:1px solid var(--glass-line)}
+.hue-range{display:block;padding:0 2px}
+.hue-range input{width:100%;-webkit-appearance:none;appearance:none;height:30px;background:transparent;margin:0}
+.hue-range input::-webkit-slider-runnable-track{height:12px;border-radius:999px;background:linear-gradient(90deg,#e33,#ec3,#3c5,#3cd,#36e,#c3e,#e33)}
+.hue-range input::-moz-range-track{height:12px;border-radius:999px;background:linear-gradient(90deg,#e33,#ec3,#3c5,#3cd,#36e,#c3e,#e33)}
+.hue-range input::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;margin-top:-7px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.hue-range input::-moz-range-thumb{width:26px;height:26px;border:0;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.hue-tones{margin:10px 0}
+.pop-hue .btn-row{justify-content:flex-end}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+/* bouton qui ouvre un sélecteur (remplace les listes et le champ de date natifs) */
+.input.pick{display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;color:var(--ink);font-size:16px}
+.input.pick svg.i{width:18px;height:18px;color:var(--muted);flex:none}
+.input.pick[aria-expanded="true"]{border-color:var(--accent)}

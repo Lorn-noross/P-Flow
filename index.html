@@ -481,8 +481,11 @@
         <button type="button" data-f="annee">Annuel</button>
       </div>
     </div>
-    <label class="field" id="f-date-field"><span id="f-date-label">Date</span><input class="input" id="f-date" type="date"></label>
-    <label class="field" id="f-start-field" hidden><span id="f-start-label">À partir de</span><select class="input" id="f-start"></select></label>
+    <div class="field" id="f-when-field">
+      <span class="field-label" id="f-when-label">Date</span>
+      <button type="button" class="input pick" id="f-when" aria-haspopup="dialog" aria-expanded="false" aria-labelledby="f-when-label f-when-txt"><span id="f-when-txt"></span><svg class="i"><use href="#i-mois"/></svg></button>
+      <input type="hidden" id="f-date"><input type="hidden" id="f-start">
+    </div>
     <label class="check" id="f-urssaf-row"><span>Soumis à l'URSSAF<small>Ton chiffre d'affaires. Pas la CAF, France Travail ou un salaire.</small></span><input type="checkbox" id="f-urssaf"></label>
     <p class="preview" id="f-preview" hidden></p>
     <p class="hint" id="f-hint" hidden></p>

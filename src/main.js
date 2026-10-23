@@ -17,6 +17,7 @@ import { Keyboard } from '@capacitor/keyboard';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { auth, db, isNative } from './firebase.js';
 import * as Drive from './drive.js';
+import { initPickers, openCalendar, openChoice, openHue, popOpen, closePop } from './pickers.js';
 
 // Module natif de P-Flow (Android) : Drive, Enregistrer sous, mises à jour, couleur des barres système.
 const PFlowNative = registerPlugin('PFlowNative');
@@ -132,6 +133,7 @@ const mqDark = mq('(prefers-color-scheme: dark)'), mqReduce = mq('(prefers-reduc
 const onMq = (m, fn) => { if (m.addEventListener) m.addEventListener('change', fn); else if (m.addListener) m.addListener(fn); };
 const isDark = () => APP.theme === 'sombre' || (APP.theme !== 'clair' && mqDark.matches);
 const motionOK = () => !mqReduce.matches && APP.effets !== 'reduits';
+initPickers({ motionOK, today: () => new Date() });
 let lastBars = '';
 function applyAppearance() {
   const d = document.documentElement, dark = isDark();
@@ -191,9 +193,11 @@ const S = {
   view: 'mois', month: CUR, year: NOW.getFullYear(), sub: null,
   entries: [], entriesYear: null, unsubEntries: null,
   recurring: [], periodiques: [], epargne: [], demandes: [],
+  // Patch 3 : jours des fixes (`jours/{id du fixe}`), soldes du compte courant (`soldes`), réponses « déjà passée ? » (`pointages`).
+  jours: [], soldes: [], pointages: [],
   settings: null, settingsExists: false, readOnly: false,
-  loaded: { entries: false, recurring: false, settings: false, periodiques: false, epargne: false },
-  pend: { entries: false, recurring: false, settings: false, periodiques: false, epargne: false },
+  loaded: { entries: false, recurring: false, settings: false, periodiques: false, epargne: false, jours: false, soldes: false, pointages: false },
+  pend: { entries: false, recurring: false, settings: false, periodiques: false, epargne: false, jours: false, soldes: false, pointages: false },
   showFixed: lsGet('pf-showFixed') === '1', grouped: lsGet('pf-groupe') === '1', openGroups: new Set(),
   showEnded: false, colorOpen: null, ucOpen: false, simOpen: false, bubble: null, casInfo: null,
   showFixedRev: lsGet('pf-showFixedRev') === '1',
@@ -254,6 +258,10 @@ function rateFor(y) {
 }
 
 /* ---------- calculs ---------- */
+// Jour du mois d'un fixe (patch 3, collection `jours`, rangé à part : jamais dans `recurring`). null = pas choisi (le 1er).
+function jourOf(id) { const j = S.jours.find(x => x.id === id); const n = j && Number(j.jour); return n >= 1 && n <= 31 ? Math.floor(n) : null; }
+// Date réelle d'un fixe dans le mois m (29-31 → dernier jour des mois plus courts).
+function fixeDate(it, m) { const { y, m: mm } = pYM(m); const j = Math.min(jourOf(it.id) || 1, new Date(y, mm, 0).getDate()); return m + '-' + pad(j); }
 // Fixes trimestriels / annuels : comptés en entier le mois où ils tombent, à partir du mois de départ.
 const perStep = p => FREQ[p.freq] || 0;
 function perDue(p, m) {
@@ -539,11 +547,11 @@ function stopData() {
   S.unsubs.forEach(u => { try { u(); } catch (e) { /* ignoré */ } });
   S.unsubs = [];
   if (S.unsubEntries) { try { S.unsubEntries(); } catch (e) { /* ignoré */ } }
-  S.unsubEntries = null; S.entriesYear = null; S.entries = []; S.recurring = []; S.periodiques = []; S.epargne = []; S.demandes = [];
+  S.unsubEntries = null; S.entriesYear = null; S.entries = []; S.recurring = []; S.periodiques = []; S.epargne = []; S.demandes = []; S.jours = []; S.soldes = []; S.pointages = [];
   S.settings = null; S.allow = []; S.sub = null; S.justOnboarded = false; S.bubble = null;
   S.readOnly = false; S.settingsServer = false; $('#outdated').hidden = true; applyColors();
   resetBackupState();
-  S.loaded = { entries: false, recurring: false, settings: false, periodiques: false, epargne: false };
+  S.loaded = { entries: false, recurring: false, settings: false, periodiques: false, epargne: false, jours: false, soldes: false, pointages: false };
   S.ready = false;
 }
 function startData() {
@@ -574,6 +582,10 @@ function startData() {
   // Patch 2 : nouvelles collections (déjà couvertes par les règles users/{uid}/…), ignorées par les anciennes versions.
   sub('periodiques', 'periodiques');
   sub('epargne', 'epargne');
+  // Patch 3 : nouvelles collections (couvertes par la règle users/{uid}/…), ignorées par les anciennes versions.
+  sub('jours', 'jours');
+  sub('soldes', 'soldes');
+  sub('pointages', 'pointages');
   if (S.isAdmin) {
     S.unsubs.push(onSnapshot(collection(db, 'allowlist'), snap => {
       S.allow = snap.docs.map(d => d.id).sort(); renderAllow();
@@ -657,22 +669,20 @@ function openOnboarding(redo) {
   obRender(0);
   window.scrollTo(0, 0);
 }
-function monthOptions(sel, around) {
-  const lo = addM(around.reduce((a, b) => (a < b ? a : b)), -24), hi = addM(around.reduce((a, b) => (a > b ? a : b)), 24);
-  let h = '';
-  for (let m = lo; m <= hi; m = addM(m, 1)) h += '<option value="' + m + '"' + (m === sel ? ' selected' : '') + '>' + cap(mLabel(m)) + '</option>';
-  return h;
-}
 function obRowHtml(kind, r, i) {
   const ep = kind === 'ep';
-  const freq = f => '<select class="input" data-f="freq" aria-label="Fréquence">' + Object.keys(FREQ).map(k => '<option value="' + k + '"' + (r.freq === k ? ' selected' : '') + '>' + FREQ_WORD[k] + '</option>').join('') + '</select>';
+  // Patch 3 : plus de listes natives, une pilule de choix et le calendrier maison.
+  const pick = (f, txt, lbl) => '<button type="button" class="input pick" data-ob="' + f + '" aria-haspopup="dialog" aria-expanded="false" aria-label="' + lbl + ' : ' + esc(txt) + '"><span>' + esc(txt) + '</span>' + ico(f === 'start' ? 'mois' : 'down') + '</button>';
+  const freq = () => pick('freq', FREQ_WORD[r.freq] || FREQ_WORD.mois, 'Fréquence');
+  const sm = YM_RE.test(r.start || '') ? r.start : CUR, { y: sy, m: smm } = pYM(sm);
+  const startTxt = r.jour ? (Math.min(r.jour, new Date(sy, smm, 0).getDate()) === 1 ? '1er' : Math.min(r.jour, new Date(sy, smm, 0).getDate())) + ' ' + MS[smm - 1] + ' ' + sy : cap(mLabel(sm));
   return '<div class="ob-row" data-kind="' + kind + '" data-i="' + i + '">' +
     '<input class="input" data-f="label" value="' + esc(r.label) + '" maxlength="80" placeholder="' + (ep ? 'Nom du compte' : 'À quoi ça correspond') + '" aria-label="' + (ep ? 'Nom du compte' : 'Libellé') + '">' +
     '<input class="input amt" data-f="amount" value="' + esc(r.amount) + '" inputmode="decimal" placeholder="' + (ep ? 'Solde' : '0') + ' €" aria-label="' + (ep ? 'Solde actuel' : 'Montant') + '" autocomplete="off">' +
     '<button type="button" class="icon-btn" data-ob="del" aria-label="Retirer">' + ico('close') + '</button>' +
     (ep
       ? '<div class="more"><label>Versement automatique (facultatif)<input class="input amt" data-f="auto" value="' + esc(r.auto) + '" inputmode="decimal" placeholder="0 €" autocomplete="off"></label><label>Fréquence' + freq() + '</label></div>'
-      : '<div class="more"><label>Fréquence' + freq() + '</label><label>À partir de<select class="input" data-f="start">' + monthOptions(r.start, [CUR]) + '</select></label></div>' +
+      : '<div class="more"><label>Fréquence' + freq() + '</label><label>À partir de' + pick('start', startTxt, 'À partir de') + '</label></div>' +
         (kind === 'rev' && OB.pro ? '<label class="check ob-urssaf"><span>Soumis à l\'URSSAF<small>Ton chiffre d\'affaires. Pas la CAF, une pension ou un salaire.</small></span><input type="checkbox" data-f="urssaf"' + (r.urssaf ? ' checked' : '') + '></label>' : '')) +
     '</div>';
 }
@@ -788,8 +798,10 @@ function obFinish() {
     const amount = parseAmount(r.amount), label = r.label.trim().replace(/\s+/g, ' '), start = YM_RE.test(r.start) ? r.start : CUR;
     // Patch 3 : un revenu fixe d'auto-entrepreneur peut être « soumis à l'URSSAF » (client régulier).
     const urssaf = type === 'revenu' && OB.pro && r.urssaf === true;
-    if (r.freq === 'mois') jobs.push(addDoc(ucol('recurring'), { type, label, amount, urssaf, start, end: null, createdAt: now + n++ }));
-    else jobs.push(addDoc(ucol('periodiques'), { type, label, amount, urssaf, freq: r.freq, start, end: null, createdAt: now + n++ }));
+    const ref = doc(ucol(r.freq === 'mois' ? 'recurring' : 'periodiques'));
+    if (r.freq === 'mois') jobs.push(setDoc(ref, { type, label, amount, urssaf, start, end: null, createdAt: now + n++ }));
+    else jobs.push(setDoc(ref, { type, label, amount, urssaf, freq: r.freq, start, end: null, createdAt: now + n++ }));
+    if (r.jour) jobs.push(setDoc(doc(ucol('jours'), ref.id), { jour: r.jour, createdAt: now }));
   };
   OB.rev.forEach(r => fixe('revenu', r));
   OB.dep.forEach(r => fixe('depense', r));
@@ -841,6 +853,11 @@ $('#s-onboard').addEventListener('click', e => {
   } else if (a === 'del') {
     const row = b.closest('.ob-row'), k = row.dataset.kind;
     OB[k === 'ep' ? 'comptes' : k].splice(+row.dataset.i, 1); obRender(0);
+  } else if (a === 'freq' || a === 'start') {
+    const row = b.closest('.ob-row'), k = row.dataset.kind, r = OB[k === 'ep' ? 'comptes' : k][+row.dataset.i]; if (!r) return;
+    const redraw = () => { obRender(0); const nb = $('#ob-step .ob-row[data-kind="' + k + '"][data-i="' + row.dataset.i + '"] [data-ob="' + a + '"]'); if (nb) nb.focus({ preventScroll: true }); };
+    if (a === 'freq') openChoice({ anchor: b, label: 'Fréquence', value: r.freq, options: Object.keys(FREQ).map(f => ({ v: f, label: FREQ_WORD[f] })), onPick: v => { r.freq = v; redraw(); } });
+    else openCalendar({ anchor: b, mode: 'date', label: 'Départ du fixe', note: 'Le jour où il passe sur ton compte', value: (YM_RE.test(r.start || '') ? r.start : CUR) + '-' + pad(r.jour || 1), onPick: v => { r.start = v.slice(0, 7); r.jour = +v.slice(8, 10); redraw(); } });
   } else if (a === 'theme') { setAppearance('theme', b.dataset.t); obRender(0); }
   else if (a === 'texte') { setAppearance('texte', b.dataset.t); obRender(0); }
   else if (a === 'accent') { if (isAccent(b.dataset.a)) { OB.accent = b.dataset.a; setAccent(OB.accent); obRender(0); } }
@@ -1357,7 +1374,7 @@ function renderReglages() {
 }
 function renderColors() {
   const box = $('#colors');
-  if (box.contains(document.activeElement) && document.activeElement.type === 'color') return; // sélecteur ouvert
+  if (popOpen() && $('.pop-hue')) return; // sélecteur de teinte ouvert
   const c = S.settings.couleurs, cs = getComputedStyle(document.documentElement);
   const html = COLORS.filter(([, , proOnly]) => !proOnly || isPro()).map(([k, label]) => {
     const name = k === 'net' && !isPro() ? 'Revenus' : label;
@@ -1367,7 +1384,7 @@ function renderColors() {
       '<button type="button" class="color-head" data-act="color-open" data-k="' + k + '" aria-expanded="' + open + '"><i class="sw s-' + k + '"></i><span>' + esc(name) + '</span><small>' + (cur ? 'Personnalisée' : 'Par défaut') + '</small>' + ico('right', 'chev') + '</button>' +
       (open ? '<div class="palette" role="group" aria-label="Couleur : ' + esc(name) + '">' +
         PRESETS.map(([hex, n]) => '<button type="button" class="dot" data-act="color-set" data-k="' + k + '" data-c="' + hex + '" style="background:' + hex + '" aria-label="' + n + '" aria-pressed="' + (cur === hex) + '"></button>').join('') +
-        '<label class="dot other" title="Autre couleur"><input type="color" data-k="' + k + '" value="' + (isHex(val) ? val : '#2453c4') + '" aria-label="Autre couleur"></label>' +
+        '<button type="button" class="dot other" data-act="color-other" data-k="' + k + '" data-v="' + (isHex(val) ? val : '#2453c4') + '" aria-label="Autre couleur" title="Autre couleur" aria-haspopup="dialog" aria-expanded="false"></button>' +
         (cur ? '<button type="button" class="link" data-act="color-reset" data-k="' + k + '">Par défaut</button>' : '') +
         '</div>' : '') +
       '</div>';
@@ -1379,9 +1396,14 @@ function setColor(k, v) {
   if (!COLORS.some(([x]) => x === k) || (v !== null && !isHex(v))) return;
   write(setDoc(uref('meta', 'settings'), { couleurs: { [k]: v ? v.toLowerCase() : null } }, { merge: true }));
 }
-// Aperçu en direct pendant qu'on choisit, enregistrement quand le choix est fait.
-$('#colors').addEventListener('input', e => { const i = e.target.closest('input[type="color"]'); if (i && isHex(i.value)) document.documentElement.style.setProperty('--c-' + i.dataset.k, i.value); });
-$('#colors').addEventListener('change', e => { const i = e.target.closest('input[type="color"]'); if (i) setColor(i.dataset.k, i.value); });
+// « Autre couleur » : sélecteur de teinte maison (patch 3). Aperçu en direct, enregistrement quand on valide.
+function pickOtherColor(btn) {
+  const k = btn.dataset.k, root = document.documentElement;
+  openHue({ anchor: btn, value: btn.dataset.v, label: 'Autre couleur',
+    onInput: hex => root.style.setProperty('--c-' + k, hex),
+    onPick: hex => setColor(k, hex),
+    onCancel: () => applyColors() });
+}
 function renderAllow() {
   if (!S.isAdmin) return;
   const me = ((S.user && S.user.email) || '').toLowerCase();
@@ -1569,7 +1591,7 @@ function maybeNews() {
 }
 
 /* ---------- feuille d'ajout / modification ---------- */
-const F = { mode: 'new', type: 'depense', op: 'depot', freq: 'once', orig: null, ctx: CUR, armed: false, uTouched: false };
+const F = { mode: 'new', type: 'depense', op: 'depot', freq: 'once', orig: null, ctx: CUR, armed: false, uTouched: false, jour: null, datePicked: false };
 const bg = $('#sheet-bg'), form = $('#sheet');
 const COL = { 'edit-entry': 'entries', 'edit-rec': 'recurring', 'edit-per': 'periodiques', 'edit-ep': 'epargne' };
 let lastFocus = null;
@@ -1578,7 +1600,7 @@ function openSheet(o) {
   if (blocked()) return;
   if (layerOpen(pbg)) closePanel();
   lastFocus = document.activeElement;
-  F.mode = o.mode; F.armed = false; F.uTouched = false; F.ctx = S.view === 'mois' ? S.month : CUR;
+  F.mode = o.mode; F.armed = false; F.uTouched = false; F.jour = null; F.datePicked = false; F.ctx = o.date && DATE_RE.test(o.date) ? o.date.slice(0, 7) : S.view === 'mois' ? S.month : CUR;
   $('#f-error').textContent = '';
   let start = F.ctx;
   if (o.mode === 'new') {
@@ -1586,7 +1608,8 @@ function openSheet(o) {
     F.type = o.type === 'epargne' && !epOn() ? 'depense' : (o.type || 'depense');
     F.op = 'depot'; F.freq = o.rec ? 'mois' : 'once';
     $('#f-amount').value = ''; $('#f-label').value = ''; $('#f-epstart').value = '';
-    $('#f-date').value = F.ctx === CUR ? TODAY : F.ctx + '-01';
+    $('#f-date').value = o.date && DATE_RE.test(o.date) ? o.date : F.ctx === CUR ? TODAY : F.ctx + '-01';
+    if (o.date) F.datePicked = true;
     $('#f-urssaf').checked = true;
   } else {
     const it = { 'edit-entry': S.entries, 'edit-rec': S.recurring, 'edit-per': S.periodiques, 'edit-ep': S.epargne }[o.mode].find(x => x.id === o.id);
@@ -1599,9 +1622,9 @@ function openSheet(o) {
     $('#f-label').value = it.label || '';
     $('#f-date').value = DATE_RE.test(it.date || '') ? it.date : TODAY;
     if (isFixe() && YM_RE.test(it.start || '')) start = it.start;
+    if (isFixe()) F.jour = jourOf(it.id);
     $('#f-urssaf').checked = !!it.urssaf;
   }
-  $('#f-start').innerHTML = monthOptions(start, [start, F.ctx]);
   $('#f-start').value = start;
   const opening = openLayer(bg, form);
   document.body.style.overflow = 'hidden';
@@ -1637,8 +1660,7 @@ function syncSheet() {
   const ended = fixe && !!F.orig.end;
   $$('#freq-seg button').forEach(b => { b.setAttribute('aria-pressed', String(b.dataset.f === F.freq)); b.disabled = !!ended && b.dataset.f !== F.freq; });
   const once = F.freq === 'once';
-  $('#f-date-field').hidden = !once; $('#f-start-field').hidden = once;
-  $('#f-start-label').textContent = 'À partir de';
+  whenUi();
   $('#f-label-label').textContent = ep ? 'Sur quel compte' : 'À quoi ça correspond';
   $('#f-label').placeholder = ep ? 'Livret A, PEL, tirelire…' : rev ? 'Salaire, facture client, CAF…' : 'Loyer, courses, plein d\'essence…';
   $('#f-amount-label').textContent = ep && F.op === 'solde' ? 'Montant actuellement sur le compte' : 'Montant';
@@ -1744,14 +1766,53 @@ function updatePreview() {
 }
 $('#type-seg').addEventListener('click', e => { const b = e.target.closest('button[data-type]'); if (!b) return; F.type = b.dataset.type; if (F.type === 'epargne' && F.freq !== 'once' && F.op !== 'depot') F.op = 'depot'; syncSheet(); guessUrssaf(); });
 $('#op-seg').addEventListener('click', e => { const b = e.target.closest('button[data-op]'); if (!b) return; F.op = b.dataset.op; syncSheet(); });
-$('#freq-seg').addEventListener('click', e => { const b = e.target.closest('button[data-f]'); if (!b || b.disabled) return; F.freq = b.dataset.f; syncSheet(); });
+$('#freq-seg').addEventListener('click', e => {
+  const b = e.target.closest('button[data-f]'); if (!b || b.disabled) return;
+  const was = F.freq; F.freq = b.dataset.f;
+  // Ajout : la date choisie pour « une fois » devient le départ (et le jour) du fixe, et inversement (patch 3).
+  if (F.mode === 'new' && was === 'once' && F.freq !== 'once') {
+    const d = $('#f-date').value;
+    if (DATE_RE.test(d)) { $('#f-start').value = d.slice(0, 7); F.jour = F.datePicked ? +d.slice(8, 10) : null; }
+  } else if (F.mode === 'new' && was !== 'once' && F.freq === 'once' && F.jour) {
+    const st = $('#f-start').value, { y, m } = pYM(st);
+    $('#f-date').value = st + '-' + pad(Math.min(F.jour, new Date(y, m, 0).getDate()));
+  }
+  syncSheet();
+});
 ['#f-amount', '#f-date'].forEach(id => $(id).addEventListener('input', () => { updatePreview(); if (isFixe()) sheetHints(); }));
-$('#f-start').addEventListener('change', () => { if (isFixe()) syncSheet(); else updatePreview(); });
+// Date ou départ : calendrier maison (patch 3, plus de sélecteur natif). Pour un fixe, le jour choisi est celui
+// où il passe sur le compte (facultatif ; sans choix, il compte le 1er).
+function whenUi() {
+  const once = F.freq === 'once', lbl = $('#f-when-label'), txt = $('#f-when-txt');
+  if (once) {
+    const d = $('#f-date').value;
+    lbl.textContent = 'Date';
+    txt.textContent = DATE_RE.test(d) ? (d === TODAY ? 'Aujourd\'hui, ' : '') + (+d.slice(8, 10) === 1 ? '1er' : +d.slice(8, 10)) + ' ' + MONTHS[+d.slice(5, 7) - 1] + ' ' + d.slice(0, 4) : 'Choisir une date';
+  } else {
+    const st = $('#f-start').value || CUR, { y, m } = pYM(st);
+    const per = F.freq === 'trimestre' || F.freq === 'annee';
+    lbl.textContent = per ? 'Première échéance' : 'À partir de';
+    const j = F.jour ? Math.min(F.jour, new Date(y, m, 0).getDate()) : null;
+    txt.textContent = (j ? (j === 1 ? '1er' : j) + ' ' + MONTHS[m - 1] + ' ' + y : cap(mLabel(st))) + (j || F.type === 'epargne' ? '' : ' · choisis le jour');
+  }
+}
+$('#f-when').addEventListener('click', e => {
+  const once = F.freq === 'once', st = $('#f-start').value || CUR;
+  openCalendar({
+    anchor: e.currentTarget, mode: 'date', label: once ? 'Date de l\'opération' : 'Départ du fixe',
+    value: once ? $('#f-date').value : st + '-' + pad(F.jour || 1),
+    note: once ? '' : (F.type === 'epargne' ? 'Le jour du versement' : 'Le jour où il passe sur ton compte'),
+    onPick: v => {
+      if (F.freq === 'once') { $('#f-date').value = v; F.datePicked = true; whenUi(); updatePreview(); }
+      else { $('#f-start').value = v.slice(0, 7); F.jour = +v.slice(8, 10); whenUi(); if (isFixe()) syncSheet(); else updatePreview(); }
+    },
+  });
+});
 $('#f-urssaf').addEventListener('change', () => { F.uTouched = true; updatePreview(); if (isFixe()) sheetHints(); });
 $('#sheet-close').addEventListener('click', closeSheet);
 bg.addEventListener('click', e => { if (e.target === bg) closeSheet(); });
 document.addEventListener('keydown', e => {
-  if (e.key !== 'Escape') return;
+  if (e.key !== 'Escape' || popOpen()) return;
   if (layerOpen(pbg)) closePanel(); else if (layerOpen(bg)) closeSheet(); else if (S.bubble != null) hideBubble();
 });
 
@@ -1768,7 +1829,7 @@ form.addEventListener('submit', e => {
   if (once && !DATE_RE.test(date)) return err('Choisis une date.');
   if (!once && !YM_RE.test(startSel)) return err('Choisis le mois de départ.');
   const type = F.type, urssaf = type === 'revenu' && isPro() && $('#f-urssaf').checked;
-  const mode = F.mode, o = F.orig, cm = F.ctx, f = F.freq;
+  const mode = F.mode, o = F.orig, cm = F.ctx, f = F.freq, jour = once ? null : F.jour;
   const month = once ? date.slice(0, 7) : startSel;
   closeSheet();
   if (mode === 'new') {
@@ -1779,17 +1840,22 @@ form.addEventListener('submit', e => {
       write(addDoc(ucol('epargne'), { op: 'solde', label, amount: stA, date: d0, month: d0.slice(0, 7), createdAt: Date.now() - 1 }));
     }
     if (ep && once) write(addDoc(ucol('epargne'), { op: F.op, label, amount, date, month, createdAt: Date.now() }), F.op === 'solde' ? 'Solde enregistré' : F.op === 'retrait' ? 'Retrait noté' : 'Mis de côté');
-    else if (ep) write(addDoc(ucol('periodiques'), { type: 'epargne', label, amount, urssaf: false, freq: f, start: month, end: null, createdAt: Date.now() }), 'Versement automatique ajouté à partir de ' + mLabel(month));
-    else if (once) write(addDoc(ucol('entries'), { type, label, amount, urssaf, date, month, createdAt: Date.now() }), (S.view === 'mois' && month !== S.month) ? 'Enregistré en ' + mLabel(month) : 'Enregistré');
-    else if (f === 'mois') write(addDoc(ucol('recurring'), { type, label, amount, urssaf, start: month, end: null, createdAt: Date.now() }), 'Fixe ajouté à partir de ' + mLabel(month));
-    else write(addDoc(ucol('periodiques'), { type, label, amount, urssaf, freq: f, start: month, end: null, createdAt: Date.now() }), 'Fixe ajouté : ' + FREQ_LABEL[f] + ' à partir de ' + mLabel(month));
+    else if (ep) addFixe('periodiques', { type: 'epargne', label, amount, urssaf: false, freq: f, start: month, end: null, createdAt: Date.now() }, jour, 'Versement automatique ajouté à partir de ' + mLabel(month));
+    else if (once) {
+      const ref = doc(ucol('entries'));
+      write(setDoc(ref, { type, label, amount, urssaf, date, month, createdAt: Date.now() }), (S.view === 'mois' && month !== S.month) ? 'Enregistré en ' + mLabel(month) : 'Enregistré');
+      askPassed({ id: ref.id, kind: 'entry', type, label, amount, date, createdAt: Date.now() });
+    }
+    else if (f === 'mois') addFixe('recurring', { type, label, amount, urssaf, start: month, end: null, createdAt: Date.now() }, jour, 'Fixe ajouté à partir de ' + mLabel(month));
+    else addFixe('periodiques', { type, label, amount, urssaf, freq: f, start: month, end: null, createdAt: Date.now() }, jour, 'Fixe ajouté : ' + FREQ_LABEL[f] + ' à partir de ' + mLabel(month));
   } else if (mode === 'edit-entry') {
     // Repartir du document lu : un champ ajouté par une version plus récente n'est jamais effacé.
     write(setDoc(doc(ucol('entries'), o.id), Object.assign(plain(o), { type, label, amount, urssaf, date, month, createdAt: o.createdAt || Date.now() })), 'Modifié');
+    if (date !== o.date || amount !== o.amount || type !== o.type) askPassed({ id: o.id, kind: 'entry', type, label, amount, date, createdAt: o.createdAt || 0, moved: true });
   } else if (mode === 'edit-ep') {
     write(setDoc(doc(ucol('epargne'), o.id), Object.assign(plain(o), { op: F.op, label, amount, date, month, createdAt: o.createdAt || Date.now() })), 'Modifié');
   } else {
-    saveFixe(o, COL[mode], f, { type, label, amount, urssaf, start: startSel }, cm);
+    saveFixe(o, COL[mode], f, { type, label, amount, urssaf, start: startSel }, cm, jour);
   }
 });
 // Fixes (chaque mois → `recurring` ; trimestre, année et épargne automatique → `periodiques`).
@@ -1797,7 +1863,18 @@ form.addEventListener('submit', e => {
 // l'ancien s'arrête au mois d'avant et un nouveau prend le relais (même principe qu'avant le patch 2).
 // Changer le mois de départ réécrit le fixe avec ce nouveau départ (comme avant le patch 2). Les deux écritures partent
 // ensemble (writeBatch) : jamais l'une sans l'autre. Aucun fixe n'est supprimé par une modification.
-function saveFixe(o, src, f, vals, cm) {
+// Question « déjà passée sur ton compte ? » (point 4 du patch 3) : voir la section « solde du compte ».
+function askPassed() { /* complété avec le solde du compte */ }
+// Nouveau fixe (identifiant connu d'avance pour ranger son jour à part, collection `jours`, patch 3).
+function addFixe(col, data, jour, msg) {
+  const ref = doc(ucol(col));
+  if (jour) { const b = writeBatch(db); b.set(ref, data); b.set(doc(ucol('jours'), ref.id), { jour, createdAt: Date.now() }); write(b.commit(), msg); }
+  else write(setDoc(ref, data), msg);
+}
+function saveFixe(o, src, f, vals, cm, jour) {
+  // Patch 3 : le jour du fixe (jours/{id}) suit le fixe ; un nouveau document créé en cours de route le reprend.
+  const j = jour || jourOf(o.id);
+  const setJour = (b, id) => { if (j && (id !== o.id || j !== jourOf(o.id))) b.set(doc(ucol('jours'), id), { jour: j, createdAt: Date.now() }); };
   const dst = vals.type === 'epargne' || f !== 'mois' ? 'periodiques' : 'recurring';
   const moved = dst !== src;
   const past = o.start < cm;
@@ -1809,12 +1886,16 @@ function saveFixe(o, src, f, vals, cm) {
   if (!moved) {
     if (!startChanged && valueChanged && started) {
       const ns = dst === 'recurring' ? cm : firstDue(o.start, f, cm);
-      const b = writeBatch(db);
+      const b = writeBatch(db), nref = doc(ucol(dst));
       b.set(oldRef, Object.assign(plain(o), { label: vals.label, end: addM(cm, -1) }));
-      b.set(doc(ucol(dst)), withFreq(Object.assign(plain(o), vals, { start: ns, end: o.end || null, createdAt: Date.now() }), f));
+      b.set(nref, withFreq(Object.assign(plain(o), vals, { start: ns, end: o.end || null, createdAt: Date.now() }), f));
+      setJour(b, nref.id);
       write(b.commit(), 'Nouveau montant à partir de ' + mLabel(ns));
     } else {
-      write(setDoc(oldRef, withFreq(Object.assign(plain(o), vals), f)), 'Modifié');
+      const b = writeBatch(db);
+      b.set(oldRef, withFreq(Object.assign(plain(o), vals), f));
+      setJour(b, o.id);
+      write(b.commit(), 'Modifié');
     }
     return;
   }
@@ -1823,9 +1904,10 @@ function saveFixe(o, src, f, vals, cm) {
   // avant son début : il ne compte plus nulle part, mais rien n'est effacé).
   const ns = started ? firstDue(vals.start, f, cm) : vals.start;
   const nd = withFreq(Object.assign(plain(o), vals, { start: ns, end: o.end && o.end >= ns ? o.end : null, createdAt: Date.now() }), f);
-  const b = writeBatch(db);
-  b.set(doc(ucol(dst)), nd);
+  const b = writeBatch(db), nref = doc(ucol(dst));
+  b.set(nref, nd);
   b.set(oldRef, Object.assign(plain(o), { end: past ? addM(cm, -1) : addM(o.start, -1) }));
+  setJour(b, nref.id);
   write(b.commit(), 'Modifié : ' + FREQ_LABEL[f] + ' à partir de ' + mLabel(ns));
 }
 $('#f-delete').addEventListener('click', () => {
@@ -2116,6 +2198,7 @@ document.addEventListener('click', e => {
   else if (a === 'restore-cancel') { BK.plan = null; renderBackup(); }
   else if (a === 'color-open') { S.colorOpen = S.colorOpen === t.dataset.k ? null : t.dataset.k; renderColors(); }
   else if (a === 'color-set') setColor(t.dataset.k, t.dataset.c);
+  else if (a === 'color-other') pickOtherColor(t);
   else if (a === 'color-reset') setColor(t.dataset.k, null);
   else if (a === 'colors-reset') {
     if (!Object.keys(S.settings.couleurs).length || blocked()) return;
@@ -2147,7 +2230,7 @@ document.addEventListener('click', e => {
 // PC : flèches gauche / droite pour changer de mois (ou d'année).
 document.addEventListener('keydown', e => {
   const ae = document.activeElement;
-  if (!S.ready || $('#app').hidden || layerOpen(bg) || layerOpen(pbg) || isEditable(ae) || (ae && ae.tagName === 'SELECT') || e.altKey || e.ctrlKey || e.metaKey) return;
+  if (!S.ready || $('#app').hidden || popOpen() || layerOpen(bg) || layerOpen(pbg) || isEditable(ae) || (ae && ae.tagName === 'SELECT') || e.altKey || e.ctrlKey || e.metaKey) return;
   if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
   const d = e.key === 'ArrowLeft' ? -1 : 1;
   if (S.view === 'mois') setMonth(addM(S.month, d), d);
@@ -2178,6 +2261,7 @@ $('#toast').addEventListener('click', e => {
 /* ---------- appli Android : retour et mises à jour ---------- */
 if (isNative) {
   CapApp.addListener('backButton', () => {
+    if (popOpen()) { closePop(); return; }
     if (layerOpen(pbg)) { closePanel(); return; }
     if (layerOpen(bg)) { closeSheet(); return; }
     if (!$('#s-onboard').hidden) {
