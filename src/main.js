@@ -2104,11 +2104,11 @@ function pendingOps(d) {
   for (const p of S.pointages) {
     if (p.passee !== false) continue;
     const e = S.entries.find(x => x.id === p.id) || S.epargne.find(x => x.id === p.id);
-    if (e && DATE_RE.test(e.date || '') && e.date <= d) out.push(e);
+    if (e && e.op !== 'solde' && DATE_RE.test(e.date || '') && e.date <= d) out.push(e); // un « J'ai actuellement » ne passe pas sur le compte
   }
   return out;
 }
-const opTxt = e => esc(e.label) + ' · ' + esc(dShort(e.date)) + ' · ' + (e.op ? (e.op === 'retrait' ? '+' : MINUS) : e.type === 'revenu' ? '+' : MINUS) + esc(eur(e.amount));
+const opTxt = e => esc(e.label) + ' · ' + esc(dShort(e.date)) + ' · ' + (e.op ? (e.op === 'solde' ? '' : e.op === 'retrait' ? '+' : MINUS) : e.type === 'revenu' ? '+' : MINUS) + esc(eur(e.amount));
 // La question remplace le message « Enregistré » (il passerait sur ses boutons).
 const hideToast = () => { const t = $('#toast'); if (!toastUndoFn) { clearTimeout(toastT); t.hidden = true; } };
 function askPending(list, d) {
