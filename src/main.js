@@ -2032,12 +2032,12 @@ function cycleTxt(start, freq) {
   const m0 = pYM(start).m - 1;
   return [0, 3, 6, 9].map(k => MS[(m0 + k) % 12]).join(', ');
 }
-// Phrase sous un nouveau fixe : quand il compte, et quel jour (patch 3).
-function fixeTxt(verbe, m) {
-  const j = F.jour, jt = j ? (j === 1 ? 'le 1er' : 'le ' + j) : 'le 1er', fin = j && j >= 29 ? ' (le dernier jour pour les mois plus courts)' : '';
-  if (F.freq === 'trimestre') return verbe + ' tous les 3 mois ' + aPartir(m) + ' (' + cycleTxt(m, 'trimestre') + '), ' + jt + ' du mois' + fin + '.';
-  if (F.freq === 'annee') return verbe + ' une fois par an ' + aPartir(m) + ', ' + jt + ' ' + MONTHS[pYM(m).m - 1] + fin + '.';
-  return verbe + ' chaque mois ' + aPartir(m) + ', ' + jt + ' du mois' + fin + '.';
+// Phrase sous un nouveau fixe (patch 3, retour du 23/10/2026) : la fréquence et la date sont déjà affichées au-dessus,
+// donc rien pour un fixe mensuel ou annuel ; pour un trimestriel, seulement les mois où il tombe.
+function fixeTxt(m) {
+  if (F.freq !== 'trimestre') return '';
+  const ms = cycleTxt(m, 'trimestre').split(', ');
+  return 'Tombe en ' + ms.slice(0, -1).join(', ') + ' et ' + ms[ms.length - 1] + '.';
 }
 function updatePreview() {
   const p = $('#f-preview'), a = parseAmount($('#f-amount').value);
@@ -2052,9 +2052,9 @@ function updatePreview() {
     if (F.op === 'solde') say('Le compte est fixé à ce montant au ' + esc(DATE_RE.test(date) ? dLabel(date) : '') + ' ; ce que tu mets de côté ou reprends ensuite s\'y ajoute. Le reste du mois ne change pas.');
     else if (F.op === 'retrait') say('Repris : ce montant redonne de l\'argent au reste ' + esc(deMois(pYM(m).m - 1)) + '.');
     else if (once) say('Mis de côté : ce montant est retiré du reste ' + esc(deMois(pYM(m).m - 1)) + '.');
-    else say(esc(fixeTxt('Mis de côté', m)));
-  } else if (!once && F.mode === 'new') {
-    say(esc(fixeTxt('Compté', m)));
+    else if (fixeTxt(m)) say(esc(fixeTxt(m))); else p.hidden = true;
+  } else if (!once && F.mode === 'new' && fixeTxt(m)) {
+    say(esc(fixeTxt(m)));
   } else p.hidden = true;
 }
 $('#type-seg').addEventListener('click', e => { const b = e.target.closest('button[data-type]'); if (!b) return; F.type = b.dataset.type; if (F.type === 'epargne' && F.freq !== 'once' && F.op !== 'depot') F.op = 'depot'; syncSheet(); guessUrssaf(); });

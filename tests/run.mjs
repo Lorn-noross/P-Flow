@@ -1063,7 +1063,10 @@ async function scenarioPatch3(cfg, fx, tag) {
   await until(page, () => !!document.querySelector('.pop .cal-d[data-d="9"]'), null, 'calendrier du fixe');
   await page.click('.pop .cal-d[data-d="9"]');
   check((await page.locator('#f-when-txt').innerText()).includes('9 mars 2026'), 'jour du fixe affiché (9 mars 2026)');
-  check((await page.locator('#f-preview').innerText()).includes('chaque mois à partir de mars 2026, le 9 du mois'), 'phrase du fixe : « Compté chaque mois à partir de mars 2026, le 9 du mois »');
+  check(await page.locator('#f-preview').isHidden(), 'fixe mensuel : pas de phrase en double (la fréquence et la date sont déjà affichées)');
+  await page.click('#freq-seg [data-f="trimestre"]');
+  check((await page.locator('#f-preview').innerText()).includes('Tombe en mars, juin, sept. et déc.'), 'fixe trimestriel : seulement les mois où il tombe');
+  await page.click('#freq-seg [data-f="mois"]');
   await page.fill('#f-amount', '15'); await page.fill('#f-label', 'Cantine'); await page.click('#f-save');
   await until(page, () => Object.values(window.__PFLOW_DB__.dump()).some(v => v.label === 'Cantine' && v.start === '2026-03'), null, 'fixe enregistré');
   db = await dump(page);
