@@ -1063,6 +1063,7 @@ async function scenarioPatch3(cfg, fx, tag) {
   await until(page, () => !!document.querySelector('.pop .cal-d[data-d="9"]'), null, 'calendrier du fixe');
   await page.click('.pop .cal-d[data-d="9"]');
   check((await page.locator('#f-when-txt').innerText()).includes('9 mars 2026'), 'jour du fixe affiché (9 mars 2026)');
+  check((await page.locator('#f-preview').innerText()).includes('chaque mois à partir de mars 2026, le 9 du mois'), 'phrase du fixe : « Compté chaque mois à partir de mars 2026, le 9 du mois »');
   await page.fill('#f-amount', '15'); await page.fill('#f-label', 'Cantine'); await page.click('#f-save');
   await until(page, () => Object.values(window.__PFLOW_DB__.dump()).some(v => v.label === 'Cantine' && v.start === '2026-03'), null, 'fixe enregistré');
   db = await dump(page);
@@ -1081,7 +1082,10 @@ async function scenarioPatch3(cfg, fx, tag) {
 
   // 8a. Couleurs : Fixes, Épargne et Autres revenus réglables ; une couleur déjà prise est bloquée
   await reglages(page, 'apparence');
-  for (const k of ['autres', 'fixes', 'ep']) check(await page.locator('#colors [data-act="color-open"][data-k="' + k + '"]').count() === 1, 'couleur réglable : ' + k);
+  for (const k of ['autres', 'fixes', 'ep']) {
+    check(await page.locator('#colors [data-act="color-open"][data-k="' + k + '"]').count() === 1, 'couleur réglable : ' + k);
+    check(await page.locator('#colors [data-k="' + k + '"] i.sw').evaluate(e => getComputedStyle(e).backgroundColor !== 'rgba(0, 0, 0, 0)'), 'carré de couleur visible : ' + k);
+  }
   await page.click('#colors [data-act="color-open"][data-k="fixes"]');
   const gris = page.locator('#colors [data-act="color-set"][data-k="fixes"][data-c="#6a7d90"]');
   check(await gris.isDisabled() && (await gris.getAttribute('aria-label')).includes('Dépenses'), 'gris déjà pris par « Dépenses » : bloqué pour Fixes');
@@ -1158,6 +1162,7 @@ async function scenarioPatch3(cfg, fx, tag) {
   // 11. Année : total épargné par mois ; choix de l'année ; mois à venir en prévision
   await page.locator('[data-act="view"][data-view="annee"]:visible').click();
   await until(page, () => !document.getElementById('v-annee').hidden && document.querySelector('#v-annee table') && document.querySelector('#v-annee table').innerText.includes('total'), null, 'Année : colonne Épargne (total)');
+  if (cfg.viewport.width < 600) check(await page.locator('#y-table').evaluate(e => e.scrollWidth <= e.clientWidth + 1), 'tableau de l\'année entier sur téléphone (rien de coupé)');
   await page.click('#ctx [data-act="year-pick"]');
   await until(page, () => !!document.querySelector('.pop [data-y="2025"]'), null, 'choix de l\'année ouvert');
   await page.click('.pop .cal-m[data-y="2025"]');

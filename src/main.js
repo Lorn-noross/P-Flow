@@ -103,6 +103,9 @@ const mShort = s => { const { y, m } = pYM(s); return MS[m - 1] + ' ' + y; };
 const dLabel = d => { const p = d.split('-'); return (+p[2]) + ' ' + MS[+p[1] - 1]; };
 // « de mars », mais « d'avril », « d'août », « d'octobre ».
 const deMois = i => (/^[aeiouyàâéèêîôû]/i.test(MONTHS[i]) ? 'd\'' : 'de ') + MONTHS[i];
+// « d'octobre 2026 », « à partir d'avril 2026 » (élision devant avril, août, octobre).
+const deM = s => deMois(pYM(s).m - 1) + ' ' + pYM(s).y;
+const aPartir = s => 'à partir ' + deM(s);
 const norm = s => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 const lsGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* stockage indisponible */ } };
@@ -1495,11 +1498,11 @@ function renderAnneeBottom(yd, ok, pro, on) {
   const epCell = d => '<td>' + n0(epTot(d.m)) + (d.ep ? '<small class="ep-mv">' + (d.ep > 0 ? '+' : MINUS) + NUM0.format(Math.abs(Math.round(d.ep))) + '</small>' : '') + '</td>';
   for (const d of yd.months) {
     const cls = ['go', d.fut ? 'fut' : '', d.now ? 'now' : ''].join(' ');
-    rows += '<tr class="' + cls + '" data-act="goto-month" data-month="' + d.m + '"><td><button class="cell-btn" data-act="goto-month" data-month="' + d.m + '">' + cap(MONTHS[pYM(d.m).m - 1]) + '</button>' + (d.fut ? '<small class="prev-l">prévision</small>' : '') + '</td>' +
+    rows += '<tr class="' + cls + '" data-act="goto-month" data-month="' + d.m + '"><td><button class="cell-btn" data-act="goto-month" data-month="' + d.m + '" aria-label="' + cap(MONTHS[pYM(d.m).m - 1]) + '"><span class="m-l">' + cap(MONTHS[pYM(d.m).m - 1]) + '</span><span class="m-s">' + cap(MS[pYM(d.m).m - 1]) + '</span></button>' + (d.fut ? '<small class="prev-l">prévision</small>' : '') + '</td>' +
       '<td>' + n0(d.net) + '</td><td>' + n0(d.dep) + '</td>' + (on ? epCell(d) : '') + '<td class="' + (d.fut ? '' : (d.reste < 0 ? 'neg' : 'pos')) + '">' + n0(d.reste) + '</td></tr>';
   }
   $('#y-table').innerHTML = ok ? '<table><caption>Montants en euros, arrondis</caption><thead><tr><th>Mois</th><th>' + (pro ? 'Nets' : 'Revenus') + '</th><th>Dépenses</th>' + (on ? '<th>Épargne<small>total</small></th>' : '') + '<th>Reste</th></tr></thead><tbody>' + rows + '</tbody>' +
-    '<tfoot><tr><td>Total</td><td>' + n0(T.net) + '</td><td>' + n0(T.dep) + '</td>' + (on ? '<td>' + (T.ep < -0.5 ? MINUS : '+') + NUM0.format(Math.abs(Math.round(T.ep))) + '<small class="ep-mv">sur l\'année</small></td>' : '') + '<td class="' + (T.reste < 0 ? 'neg' : 'pos') + '">' + n0(T.reste) + '</td></tr></tfoot></table>' : '<p class="empty">Chargement…</p>';
+    '<tfoot><tr><td>Total</td><td>' + n0(T.net) + '</td><td>' + n0(T.dep) + '</td>' + (on ? '<td>' + (T.ep < -0.5 ? MINUS : '+') + NUM0.format(Math.abs(Math.round(T.ep))) + '<small class="ep-mv yr">sur l\'année</small></td>' : '') + '<td class="' + (T.reste < 0 ? 'neg' : 'pos') + '">' + n0(T.reste) + '</td></tr></tfoot></table>' : '<p class="empty">Chargement…</p>';
   // Où part l'argent : 6 premiers libellés + « Autres », en % du total des dépenses.
   const TOPN = 6, top = yd.top.slice(0, TOPN), rest = yd.top.slice(TOPN), tot = T.dep || 1;
   const others = rest.length ? { k: '__autres', label: 'Autres', total: rest.reduce((a, c) => a + c.total, 0), n: rest.length } : null;
@@ -1991,14 +1994,14 @@ function sheetHints() {
     // Scission seulement si le mois de départ ne change pas (sinon le fixe est réécrit avec le nouveau départ).
     if (changed && o.start < F.ctx && (!o.end || o.end >= F.ctx) && $('#f-start').value === o.start) {
       const ns = F.mode === 'edit-rec' && F.freq === 'mois' ? F.ctx : firstDue(o.start, F.freq, F.ctx);
-      hints.push('Ce changement compte à partir de ' + mLabel(ns) + '. Les mois d\'avant gardent ' + eur(o.amount) + '.');
+      hints.push('Ce changement compte ' + aPartir(ns) + '. Les mois d\'avant gardent ' + eur(o.amount) + '.');
     }
     if (ended) hints.push('Ce fixe a une date de fin : pour changer sa fréquence, touche d\'abord « Reprendre ».');
     // Le calendrier choisit le jour ET le mois de départ : prévenir si le mois de départ change (patch 3).
     const ns = $('#f-start').value;
     if (YM_RE.test(ns) && YM_RE.test(o.start || '') && ns !== o.start) {
-      hints.push(ns > o.start ? 'Attention : le départ passe de ' + mLabel(o.start) + ' à ' + mLabel(ns) + '. Ce fixe ne comptera plus de ' + mLabel(o.start) + ' à ' + mLabel(addM(ns, -1)) + '. Pour garder ces mois, choisis un jour en ' + mLabel(o.start) + '.'
-        : 'Le départ passe de ' + mLabel(o.start) + ' à ' + mLabel(ns) + ' : ce fixe comptera aussi les mois d\'avant.');
+      hints.push(ns > o.start ? 'Attention : le départ passe ' + deM(o.start) + ' à ' + mLabel(ns) + '. Ce fixe ne comptera plus ' + deM(o.start) + ' à ' + mLabel(addM(ns, -1)) + '. Pour garder ces mois, choisis un jour en ' + mLabel(o.start) + '.'
+        : 'Le départ passe ' + deM(o.start) + ' à ' + mLabel(ns) + ' : ce fixe comptera aussi les mois d\'avant.');
     }
     if (hist && !ended) hints.push('« Arrêter » garde les mois passés comme ils sont. « Supprimer aussi des mois passés » le retire de tous les mois depuis ' + mLabel(o.start) + '.');
   }
@@ -2029,6 +2032,13 @@ function cycleTxt(start, freq) {
   const m0 = pYM(start).m - 1;
   return [0, 3, 6, 9].map(k => MS[(m0 + k) % 12]).join(', ');
 }
+// Phrase sous un nouveau fixe : quand il compte, et quel jour (patch 3).
+function fixeTxt(verbe, m) {
+  const j = F.jour, jt = j ? (j === 1 ? 'le 1er' : 'le ' + j) : 'le 1er', fin = j && j >= 29 ? ' (le dernier jour pour les mois plus courts)' : '';
+  if (F.freq === 'trimestre') return verbe + ' tous les 3 mois ' + aPartir(m) + ' (' + cycleTxt(m, 'trimestre') + '), ' + jt + ' du mois' + fin + '.';
+  if (F.freq === 'annee') return verbe + ' une fois par an ' + aPartir(m) + ', ' + jt + ' ' + MONTHS[pYM(m).m - 1] + fin + '.';
+  return verbe + ' chaque mois ' + aPartir(m) + ', ' + jt + ' du mois' + fin + '.';
+}
 function updatePreview() {
   const p = $('#f-preview'), a = parseAmount($('#f-amount').value);
   const once = F.freq === 'once';
@@ -2042,9 +2052,9 @@ function updatePreview() {
     if (F.op === 'solde') say('Le compte est fixé à ce montant au ' + esc(DATE_RE.test(date) ? dLabel(date) : '') + ' ; ce que tu mets de côté ou reprends ensuite s\'y ajoute. Le reste du mois ne change pas.');
     else if (F.op === 'retrait') say('Repris : ce montant redonne de l\'argent au reste ' + esc(deMois(pYM(m).m - 1)) + '.');
     else if (once) say('Mis de côté : ce montant est retiré du reste ' + esc(deMois(pYM(m).m - 1)) + '.');
-    else say('Mis de côté automatiquement ' + FREQ_LABEL[F.freq] + ' à partir de ' + esc(mLabel(m)) + (cycleTxt(m, F.freq) ? ' (' + esc(cycleTxt(m, F.freq)) + ')' : '') + '.');
+    else say(esc(fixeTxt('Mis de côté', m)));
   } else if (!once && F.mode === 'new') {
-    say('Compté automatiquement ' + FREQ_LABEL[F.freq] + ' à partir de ' + esc(mLabel(m)) + (cycleTxt(m, F.freq) ? ' (' + esc(cycleTxt(m, F.freq)) + ')' : '') + ', en entier le mois où il tombe.');
+    say(esc(fixeTxt('Compté', m)));
   } else p.hidden = true;
 }
 $('#type-seg').addEventListener('click', e => { const b = e.target.closest('button[data-type]'); if (!b) return; F.type = b.dataset.type; if (F.type === 'epargne' && F.freq !== 'once' && F.op !== 'depot') F.op = 'depot'; syncSheet(); guessUrssaf(); });
@@ -2133,14 +2143,14 @@ form.addEventListener('submit', e => {
       else write(setDoc(ref, data), msg);
       if (F.op !== 'solde' && epOn()) askPassed({ id: ref.id, op: F.op, label, amount, date, createdAt: Date.now() });
     }
-    else if (ep) addFixe('periodiques', { type: 'epargne', label, amount, urssaf: false, freq: f, start: month, end: null, createdAt: Date.now() }, jour, 'Versement automatique ajouté à partir de ' + mLabel(month), pre);
+    else if (ep) addFixe('periodiques', { type: 'epargne', label, amount, urssaf: false, freq: f, start: month, end: null, createdAt: Date.now() }, jour, 'Versement automatique ajouté ' + aPartir(month), pre);
     else if (once) {
       const ref = doc(ucol('entries'));
       write(setDoc(ref, { type, label, amount, urssaf, date, month, createdAt: Date.now() }), (S.view === 'mois' && month !== S.month) ? 'Enregistré en ' + mLabel(month) : 'Enregistré');
       askPassed({ id: ref.id, kind: 'entry', type, label, amount, date, createdAt: Date.now() });
     }
-    else if (f === 'mois') addFixe('recurring', { type, label, amount, urssaf, start: month, end: null, createdAt: Date.now() }, jour, 'Fixe ajouté à partir de ' + mLabel(month));
-    else addFixe('periodiques', { type, label, amount, urssaf, freq: f, start: month, end: null, createdAt: Date.now() }, jour, 'Fixe ajouté : ' + FREQ_LABEL[f] + ' à partir de ' + mLabel(month));
+    else if (f === 'mois') addFixe('recurring', { type, label, amount, urssaf, start: month, end: null, createdAt: Date.now() }, jour, 'Fixe ajouté ' + aPartir(month));
+    else addFixe('periodiques', { type, label, amount, urssaf, freq: f, start: month, end: null, createdAt: Date.now() }, jour, 'Fixe ajouté : ' + FREQ_LABEL[f] + ' ' + aPartir(month));
   } else if (mode === 'edit-entry') {
     // Repartir du document lu : un champ ajouté par une version plus récente n'est jamais effacé.
     write(setDoc(doc(ucol('entries'), o.id), Object.assign(plain(o), { type, label, amount, urssaf, date, month, createdAt: o.createdAt || Date.now() })), 'Modifié');
@@ -2253,7 +2263,7 @@ function saveFixe(o, src, f, vals, cm, jour) {
       b.set(oldRef, Object.assign(plain(o), { label: vals.label, end: addM(cm, -1) }));
       b.set(nref, withFreq(Object.assign(plain(o), vals, { start: ns, end: o.end || null, createdAt: Date.now() }), f));
       setJour(b, nref.id);
-      write(b.commit(), 'Nouveau montant à partir de ' + mLabel(ns));
+      write(b.commit(), 'Nouveau montant ' + aPartir(ns));
     } else {
       const b = writeBatch(db);
       b.set(oldRef, withFreq(Object.assign(plain(o), vals), f));
@@ -2271,7 +2281,7 @@ function saveFixe(o, src, f, vals, cm, jour) {
   b.set(nref, nd);
   b.set(oldRef, Object.assign(plain(o), { end: past ? addM(cm, -1) : addM(o.start, -1) }));
   setJour(b, nref.id);
-  write(b.commit(), 'Modifié : ' + FREQ_LABEL[f] + ' à partir de ' + mLabel(ns));
+  write(b.commit(), 'Modifié : ' + FREQ_LABEL[f] + ' ' + aPartir(ns));
 }
 $('#f-delete').addEventListener('click', () => {
   if (blocked()) { closeSheet(); return; }
