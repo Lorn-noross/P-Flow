@@ -1326,10 +1326,10 @@ function monthCalHtml() {
   h += '</div><div class="cal-legend" aria-hidden="true"><span><i class="cdot d-in"></i>Rentrée</span><span><i class="cdot d-out"></i>Dépense</span><span><i class="cdot d-fix"></i>Fixe</span>' +
     (epOn() ? '<span><i class="cdot d-ep"></i>Épargne</span>' : '') + (isPro() ? '<span><i class="cdot d-urs"></i>URSSAF</span>' : '') + '</div>';
   if (CAL.sel) {
-    const d = CAL.sel, its = items[d] || [], dt = new Date(y, mm - 1, d), date = m + '-' + pad(d);
+    const d = CAL.sel, its = items[d] || [], dt = new Date(y, mm - 1, d), date = m + '-' + pad(d), rate = its.length ? monthData(m).rate : 0;
     const row = it => {
       if (it.kind === 'urs') return '<div class="row static"><span class="row-ico urs">' + icon('calc') + '</span><span class="row-main"><span class="row-label">' + esc(it.label) + '</span><span class="row-meta">à payer au plus tard ce jour-là</span></span><span class="row-amt">' + MINUS + eur(it.amount) + '</span></div>';
-      return rowHtml(it, monthData(m).rate);
+      return rowHtml(it, rate);
     };
     h += '<div class="day-bubble" role="group" aria-label="' + esc(cap(WDAY[dt.getDay()]) + ' ' + d + ' ' + MONTHS[mm - 1]) + '"><p class="db-title">' + esc(cap(WDAY[dt.getDay()]) + ' ' + (d === 1 ? '1er' : d) + ' ' + MONTHS[mm - 1]) + '</p>' +
       (its.length ? '<div>' + its.map(row).join('') + '</div>' : '<p class="empty">Rien de noté ce jour-là.</p>') +
