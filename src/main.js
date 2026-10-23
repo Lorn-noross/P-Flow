@@ -56,7 +56,10 @@ const MI = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 const VIEWS = ['mois', 'fixes', 'annee', 'reglages'];
 const SUBS = { compte: 'Mon compte', pro: 'Auto-entrepreneur', apparence: 'Apparence', donnees: 'Mes données', partage: 'Partager P-Flow', admin: 'Administration', apropos: 'À propos' };
 // Couleurs personnalisables : clé (variable CSS --c-<clé>), libellé, réservée au profil auto-entrepreneur.
-const COLORS = [['brut', 'Revenus bruts', true], ['urssaf', 'URSSAF', true], ['net', 'Revenus nets', false], ['dep', 'Dépenses', false], ['reste', 'Reste', false]];
+// Patch 3 : + Autres revenus (sans URSSAF), Fixes (pastilles du calendrier) et Épargne (affichée si l'épargne est suivie) ;
+// nouvelles clés facultatives de `couleurs`, ignorées par les versions d'avant (elles ne lisent que leurs clés).
+const COLORS = [['brut', 'Revenus bruts', true], ['urssaf', 'URSSAF', true], ['autres', 'Autres revenus', true], ['net', 'Revenus nets', false],
+  ['dep', 'Dépenses', false], ['fixes', 'Fixes', false], ['ep', 'Épargne', false], ['reste', 'Reste', false]];
 const PRESETS = [['#2453c4', 'Bleu'], ['#7da3ff', 'Bleu clair'], ['#0e9aa7', 'Turquoise'], ['#16845a', 'Vert'], ['#4dc48b', 'Vert clair'], ['#c2810c', 'Ambre'],
   ['#e4a940', 'Jaune'], ['#e0662e', 'Orange'], ['#c23b35', 'Rouge'], ['#d9488f', 'Rose'], ['#7a5af8', 'Violet'], ['#6a7d90', 'Gris']];
 const isHex = v => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
@@ -955,7 +958,7 @@ function renderCtx() {
   if (S.view === 'mois') {
     h = '<div class="pill"><button class="icon-btn" data-act="prev-month" aria-label="Mois précédent">' + ico('left') + '</button><h1><button type="button" class="mtitle" data-act="month-cal" aria-haspopup="dialog" aria-expanded="' + (CAL.open ? 'true' : 'false') + '" aria-label="' + esc(cap(mLabel(S.month))) + ', ouvrir le calendrier du mois">' + esc(cap(mLabel(S.month))) + '</button></h1><button class="icon-btn" data-act="next-month" aria-label="Mois suivant">' + ico('right') + '</button></div>';
   } else if (S.view === 'annee') {
-    h = '<div class="pill"><button class="icon-btn" data-act="prev-year" aria-label="Année précédente">' + ico('left') + '</button><h1>' + S.year + '</h1><button class="icon-btn" data-act="next-year" aria-label="Année suivante">' + ico('right') + '</button></div>';
+    h = '<div class="pill"><button class="icon-btn" data-act="prev-year" aria-label="Année précédente">' + ico('left') + '</button><h1><button type="button" class="mtitle" data-act="year-pick" aria-haspopup="dialog" aria-expanded="false" aria-label="' + S.year + ', choisir une autre année">' + S.year + '</button></h1><button class="icon-btn" data-act="next-year" aria-label="Année suivante">' + ico('right') + '</button></div>';
   } else if (S.view === 'reglages' && S.sub) {
     h = '<button class="pill back" data-act="sub-back" aria-label="Retour aux réglages">' + ico('left') + '</button><div class="pill solo"><h1>' + esc(SUBS[S.sub]) + '</h1></div>';
   } else {
@@ -1123,7 +1126,13 @@ function renderMois() {
   const amt = $('#hero-amount'), fut = m > CUR;
   // Patch 3 : avec un solde noté, le mois en cours affiche « Prévu sur ton compte le 31 » (le reste du mois
   // reste dans la cascade). Mois à venir : une prévision (fixes et opérations déjà notées), en gris.
-  const sv = ok && m === CUR ? soldeView(m) : null;
+  // Patch 3 : un interrupteur permet de compter le solde noté ou non (estimation), propre à l'appareil.
+  const useCompte = lsGet('pf-vue-compte') !== '0';
+  const anyView = ok && m >= CUR ? soldeView(m) : null;
+  const hm = $('#hero-mode');
+  hm.hidden = !anyView;
+  if (anyView) $$('button', hm).forEach(b => b.setAttribute('aria-pressed', String((b.dataset.v === 'compte') === useCompte)));
+  const sv = useCompte && m === CUR ? anyView : null;
   if (sv) {
     $('#hero-label').textContent = 'Prévu sur ton compte le ' + dShort(m + '-' + pad(dimOf(m)));
     amt.className = 'big' + (sv.end < 0 ? ' neg' : ' pos');
@@ -1134,7 +1143,7 @@ function renderMois() {
     amt.className = 'big' + (ok ? (fut ? ' fut' : d.reste < 0 ? ' neg' : ' pos') : '');
     if (ok) setHero(d.reste); else { amt.textContent = '…'; heroVal = null; }
     // Mois à venir avec un solde noté : ce qui est prévu sur le compte à la fin de ce mois-là.
-    const fv = ok && fut ? soldeView(m) : null;
+    const fv = useCompte && fut ? anyView : null;
     $('#hero-sub').innerHTML = ok ? heroSubHtml(d, m) + (fv ? '<span>Sur ton compte le ' + esc(dShort(m + '-' + pad(dimOf(m)))) + ' : <b' + (fv.end < 0 ? ' class="neg"' : '') + '>' + esc(eur(fv.end)) + '</b></span>' : '') + soldeLinkHtml(m) : '<span>Chargement…</span>';
   }
   $('#legend').innerHTML = cascadeHtml(d, ok, pro, on);
@@ -1354,7 +1363,7 @@ function monthCalHtml() {
 function openMonthCal(anchor) {
   CAL.open = true; CAL.view = 'days'; CAL.y = 0; CAL.dir = 0;
   CAL.sel = S.month === CUR ? NOW.getDate() : null;
-  const box = openPopover(anchor, monthCalHtml(), { label: 'Calendrier du mois', width: 360, cls: 'pop-cal pop-mcal', onClose: () => { CAL.open = false; } });
+  const box = openPopover(anchor, monthCalHtml(), { label: 'Calendrier du mois', width: 360, cls: 'pop-cal pop-mcal' + (isPro() ? ' pro' : ''), onClose: () => { CAL.open = false; } });
   box.addEventListener('click', e => {
     const b = e.target.closest('[data-mc]'); if (!b) return;
     const c = b.dataset.mc;
@@ -1373,6 +1382,27 @@ function refreshMonthCal() {
   const t = $('#ctx .mtitle'); if (t) setPopAnchor(t);
   // Changement de mois (ou d'année) depuis le calendrier : la grille glisse dans le sens choisi.
   if (CAL.dir) { anim($('.cal-grid, .cal-months', box), [{ opacity: 0, transform: 'translateX(' + (CAL.dir * 22) + 'px)' }, { opacity: 1, transform: 'none' }], { duration: 240, easing: SPRING }); CAL.dir = 0; }
+}
+
+// Choix de l'année (patch 3) : touche l'année en haut de l'écran Année.
+function openYearPick(anchor) {
+  const cy = NOW.getFullYear();
+  let lo = Math.min(cy - 4, S.year);
+  const yearOf = v => { const n = parseInt(String(v || '').slice(0, 4), 10); return n > 1999 && n < 2100 ? n : null; };
+  for (const v of [].concat(S.recurring.map(r => r.start), S.periodiques.map(p => p.start), S.epargne.map(e => e.date), S.soldes.map(x => x.date), Object.keys((S.settings && S.settings.taux) || {}))) {
+    const y = yearOf(v); if (y && y < lo) lo = y;
+  }
+  const hi = Math.max(cy + 1, S.year), ys = [];
+  for (let y = lo; y <= hi; y++) ys.push(y);
+  const box = openPopover(anchor, '<p class="pop-title">Choisir l\'année</p><div class="cal-months">' + ys.map(y =>
+    '<button type="button" class="cal-m' + (y === S.year ? ' sel' : '') + (y === cy ? ' today' : '') + '" data-y="' + y + '" aria-label="' + y + (y === cy ? ', cette année' : '') + '">' + y + '</button>').join('') + '</div>' +
+    '<div class="cal-foot"><span></span><button type="button" class="link" data-y="' + cy + '">Cette année</button></div>', { label: 'Choisir l\'année', width: 300, cls: 'pop-cal' });
+  const sel = box.querySelector('.cal-m.sel'); if (sel) sel.focus({ preventScroll: true });
+  box.addEventListener('click', e => {
+    const b = e.target.closest('[data-y]'); if (!b) return;
+    const y = +b.dataset.y; closePop();
+    if (y !== S.year) setYear(y, y > S.year ? 1 : -1);
+  });
 }
 
 /* ----- vue Fixes ----- */
@@ -1592,30 +1622,60 @@ function renderColors() {
   const box = $('#colors');
   if (popOpen() && $('.pop-hue')) return; // sélecteur de teinte ouvert
   const c = S.settings.couleurs, cs = getComputedStyle(document.documentElement);
-  const html = COLORS.filter(([, , proOnly]) => !proOnly || isPro()).map(([k, label]) => {
-    const name = k === 'net' && !isPro() ? 'Revenus' : label;
+  const html = colorKeys().map(([k, label]) => {
+    const name = colorName(k, label);
     const open = S.colorOpen === k, cur = c[k] || '';
-    const val = cur || (cs.getPropertyValue('--c-' + k).trim().toLowerCase());
+    const val = cur || rgbHex(colorRGB(k));
+    // Patch 3 : une couleur déjà prise par une autre ligne (ou trop proche) est bloquée.
+    const taken = open ? PRESETS.map(([hex]) => (cur === hex ? '' : takenBy(hex, k))) : [];
     return '<div class="color-row">' +
       '<button type="button" class="color-head" data-act="color-open" data-k="' + k + '" aria-expanded="' + open + '"><i class="sw s-' + k + '"></i><span>' + esc(name) + '</span><small>' + (cur ? 'Personnalisée' : 'Par défaut') + '</small>' + ico('right', 'chev') + '</button>' +
       (open ? '<div class="palette" role="group" aria-label="Couleur : ' + esc(name) + '">' +
-        PRESETS.map(([hex, n]) => '<button type="button" class="dot" data-act="color-set" data-k="' + k + '" data-c="' + hex + '" style="background:' + hex + '" aria-label="' + n + '" aria-pressed="' + (cur === hex) + '"></button>').join('') +
+        PRESETS.map(([hex, n], i) => '<button type="button" class="dot' + (taken[i] ? ' taken' : '') + '" data-act="color-set" data-k="' + k + '" data-c="' + hex + '" style="background:' + hex + '" aria-label="' + n + (taken[i] ? ', déjà prise par ' + esc(taken[i]) : '') + '"' + (taken[i] ? ' disabled title="Déjà prise par ' + esc(taken[i]) + '"' : '') + ' aria-pressed="' + (cur === hex) + '"></button>').join('') +
         '<button type="button" class="dot other" data-act="color-other" data-k="' + k + '" data-v="' + (isHex(val) ? val : '#2453c4') + '" aria-label="Autre couleur" title="Autre couleur" aria-haspopup="dialog" aria-expanded="false"></button>' +
         (cur ? '<button type="button" class="link" data-act="color-reset" data-k="' + k + '">Par défaut</button>' : '') +
-        '</div>' : '') +
+        '</div>' + (taken.some(Boolean) ? '<p class="hint color-note">Les couleurs barrées sont déjà prises par une autre ligne : chaque ligne garde sa couleur.</p>' : '') : '') +
       '</div>';
   }).join('');
   if (box.innerHTML !== html) box.innerHTML = html;
 }
+// Lignes de couleur affichées : selon le profil et l'épargne.
+const colorKeys = () => COLORS.filter(([k, , proOnly]) => (!proOnly || isPro()) && (k !== 'ep' || epOn()));
+const colorName = (k, label) => (k === 'net' && !isPro() ? 'Revenus' : label);
+// Couleur réellement affichée pour une ligne (personnalisée ou par défaut du thème), en [r, g, b].
+let colorProbe = null;
+function colorRGB(k) {
+  if (!colorProbe) { colorProbe = document.createElement('i'); colorProbe.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden;visibility:hidden'; document.body.append(colorProbe); }
+  colorProbe.style.color = 'var(--c-' + k + ')';
+  const m = getComputedStyle(colorProbe).color.match(/\d+(\.\d+)?/g) || [0, 0, 0];
+  return m.slice(0, 3).map(Number);
+}
+const hexRGB = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const rgbHex = c => '#' + c.map(x => Math.round(x).toString(16).padStart(2, '0')).join('');
+// Écart perçu entre deux couleurs (« redmean ») : en dessous de 60, on les confond facilement.
+function colorGap(a, b) {
+  const r = (a[0] + b[0]) / 2, dr = a[0] - b[0], dg = a[1] - b[1], db = a[2] - b[2];
+  return Math.sqrt((2 + r / 256) * dr * dr + 4 * dg * dg + (2 + (255 - r) / 256) * db * db);
+}
+// Nom de l'autre ligne qui a déjà cette couleur (ou une trop proche), sinon ''.
+function takenBy(hex, k) {
+  if (!isHex(hex)) return '';
+  const c = hexRGB(hex);
+  for (const [o, label] of colorKeys()) if (o !== k && colorGap(c, colorRGB(o)) < 60) return colorName(o, label);
+  return '';
+}
 function setColor(k, v) {
   if (blocked()) { applyColors(); renderColors(); return; }
   if (!COLORS.some(([x]) => x === k) || (v !== null && !isHex(v))) return;
+  const by = v ? takenBy(v, k) : '';
+  if (by) { toast('Cette couleur est déjà prise par « ' + by + ' » : choisis-en une autre.', true); applyColors(); renderColors(); return; }
   write(setDoc(uref('meta', 'settings'), { couleurs: { [k]: v ? v.toLowerCase() : null } }, { merge: true }));
 }
 // « Autre couleur » : sélecteur de teinte maison (patch 3). Aperçu en direct, enregistrement quand on valide.
 function pickOtherColor(btn) {
   const k = btn.dataset.k, root = document.documentElement;
   openHue({ anchor: btn, value: btn.dataset.v, label: 'Autre couleur',
+    check: hex => { const by = takenBy(hex, k); return by ? 'Trop proche de la couleur de « ' + by + ' »' : ''; },
     onInput: hex => root.style.setProperty('--c-' + k, hex),
     onPick: hex => setColor(k, hex),
     onCancel: () => applyColors() });
@@ -2446,6 +2506,8 @@ document.addEventListener('click', e => {
   else if (a === 'today') setMonth(CUR, S.month < CUR ? 1 : -1);
   else if (a === 'prev-year') setYear(S.year - 1, -1);
   else if (a === 'next-year') setYear(S.year + 1, 1);
+  else if (a === 'year-pick') openYearPick(t);
+  else if (a === 'hero-mode') { lsSet('pf-vue-compte', t.dataset.v === 'reste' ? '0' : '1'); renderMois(); }
   else if (a === 'add') openSheet({ mode: 'new', rec: S.view === 'fixes' });
   else if (a === 'add-type') openSheet({ mode: 'new', type: t.dataset.type });
   else if (a === 'month-cal') { if (CAL.open && popOpen()) closePop(); else openMonthCal(t); }

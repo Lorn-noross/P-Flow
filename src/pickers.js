@@ -180,6 +180,7 @@ export function openCalendar({ anchor, value, mode, label, onPick, min, max, not
 /* ---------- teinte ---------- */
 // Petit sélecteur de couleur maison : une réglette de teinte et trois nuances. onInput(hex) pendant le choix
 // (aperçu), onPick(hex) quand on valide ; fermer sans valider remet l'aperçu d'avant (onCancel).
+// check(hex) facultatif : renvoie un message si la couleur n'est pas permise (déjà prise) ; « Choisir » est alors bloqué.
 function hsl2hex(h, s, l) {
   s /= 100; l /= 100;
   const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
@@ -193,7 +194,7 @@ function hex2hue(hex) {
   let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
   return Math.round((h * 60 + 360) % 360);
 }
-export function openHue({ anchor, value, label, onInput, onPick, onCancel }) {
+export function openHue({ anchor, value, label, onInput, onPick, onCancel, check }) {
   let hue = /^#[0-9a-f]{6}$/i.test(value || '') ? hex2hue(value) : 220, tone = 1, picked = false;
   const TONES = [[70, 72, 'Claire'], [68, 52, 'Moyenne'], [72, 36, 'Foncée']];
   const cur = () => hsl2hex(hue, TONES[tone][0], TONES[tone][1]);
@@ -201,17 +202,23 @@ export function openHue({ anchor, value, label, onInput, onPick, onCancel }) {
     '<div class="hue-prev" aria-hidden="true"></div>' +
     '<label class="hue-range"><span class="sr">Teinte</span><input type="range" min="0" max="359" step="1" value="' + hue + '" aria-label="Teinte"></label>' +
     '<div class="seg seg3 hue-tones" role="group" aria-label="Nuance">' + TONES.map((t, i) => '<button type="button" data-t="' + i + '" aria-pressed="' + (i === tone) + '">' + t[2] + '</button>').join('') + '</div>' +
+    '<p class="hue-warn" role="status"></p>' +
     '<div class="btn-row"><button type="button" class="btn ghost sm" data-c="cancel">Annuler</button><button type="button" class="btn primary sm" data-c="ok">Choisir</button></div>';
   const box = openPop(anchor, html, { label: label || 'Autre couleur', width: 300, cls: 'pop-hue', onClose: () => { if (!picked && onCancel) onCancel(); } });
   const prev = box.querySelector('.hue-prev'), rng = box.querySelector('input[type="range"]');
-  const upd = () => { const h = cur(); prev.style.background = h; if (onInput) onInput(h); };
+  const warn = box.querySelector('.hue-warn'), ok = box.querySelector('[data-c="ok"]');
+  const upd = () => {
+    const h = cur(), msg = check ? check(h) : '';
+    prev.style.background = h; warn.textContent = msg; ok.disabled = !!msg;
+    if (onInput) onInput(h);
+  };
   upd();
   rng.addEventListener('input', () => { hue = +rng.value; upd(); });
   box.addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.t) { tone = +b.dataset.t; box.querySelectorAll('[data-t]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); upd(); }
     else if (b.dataset.c === 'cancel') closePop();
-    else if (b.dataset.c === 'ok') { picked = true; const h = cur(); closePop(true); onPick(h); }
+    else if (b.dataset.c === 'ok') { if (b.disabled) return; picked = true; const h = cur(); closePop(true); onPick(h); }
   });
   rng.focus({ preventScroll: true });
 }

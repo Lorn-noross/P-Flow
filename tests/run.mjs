@@ -381,7 +381,9 @@ async function scenarioCouleurs(cfg, fx, tag) {
   check(await inline('dep') === '', 'une couleur invalide est ignorée (couleur par défaut)');
 
   await reglages(page, 'apparence');
-  await until(page, () => document.querySelectorAll('#colors .color-head').length === 5, null, '5 couleurs réglables (profil auto-entrepreneur)');
+  // Patch 3 : + Autres revenus, Fixes et Épargne (si l'épargne est suivie).
+  const nCol = fx.docs[SET].epargne === true ? 8 : 7;
+  await until(page, n => document.querySelectorAll('#colors .color-head').length === n, nCol, nCol + ' couleurs réglables (profil auto-entrepreneur)');
   await page.click('#colors [data-act="color-open"][data-k="dep"]');
   await page.click('#colors [data-act="color-set"][data-k="dep"][data-c="#c23b35"]');
   await until(page, () => (window.__PFLOW_DB__.dump()['users/uid-test/meta/settings'].couleurs || {}).dep === '#c23b35', null, 'couleur des dépenses enregistrée dans le compte');
@@ -1077,6 +1079,22 @@ async function scenarioPatch3(cfg, fx, tag) {
   check(await page.locator('#f-hint:visible').count() === 0 || !(await page.locator('#f-hint').innerText()).includes('nouveau montant'), 'pas de phrase « nouveau montant » sans changement');
   await page.click('#sheet-close'); await sheetClosed();
 
+  // 8a. Couleurs : Fixes, Épargne et Autres revenus réglables ; une couleur déjà prise est bloquée
+  await reglages(page, 'apparence');
+  for (const k of ['autres', 'fixes', 'ep']) check(await page.locator('#colors [data-act="color-open"][data-k="' + k + '"]').count() === 1, 'couleur réglable : ' + k);
+  await page.click('#colors [data-act="color-open"][data-k="fixes"]');
+  const gris = page.locator('#colors [data-act="color-set"][data-k="fixes"][data-c="#6a7d90"]');
+  check(await gris.isDisabled() && (await gris.getAttribute('aria-label')).includes('Dépenses'), 'gris déjà pris par « Dépenses » : bloqué pour Fixes');
+  const w8 = await page.evaluate(() => window.__PFLOW_DB__.writes());
+  await page.evaluate(() => document.querySelector('#colors [data-act="color-set"][data-k="fixes"][data-c="#6a7d90"]').click());
+  await page.waitForTimeout(300);
+  check(await page.evaluate(() => window.__PFLOW_DB__.writes()) === w8, 'couleur prise : rien n\'est enregistré');
+  await page.click('#colors [data-act="color-set"][data-k="fixes"][data-c="#d9488f"]');
+  await until(page, () => ((window.__PFLOW_DB__.dump()['users/uid-test/meta/settings'].couleurs) || {}).fixes === '#d9488f', null, 'couleur des fixes enregistrée (rose)');
+  check(JSON.stringify((await dump(page))['users/uid-test/meta/settings'].couleurs.reste) === JSON.stringify(fx.docs['users/uid-test/meta/settings'].couleurs.reste), 'les autres couleurs ne changent pas');
+  await page.locator('[data-act="view"][data-view="fixes"]:visible').click();
+  await until(page, () => !document.getElementById('v-fixes').hidden, null, 'retour à la vue Fixes');
+
   // 8b. Changer seulement le jour d'un fixe : jours/{id} mis à jour en fusion (champ inconnu gardé), le fixe ne bouge pas
   await page.locator('#fix-list .row', { hasText: 'Aide' }).click(); await sheetOpen();
   await page.click('#f-when');
@@ -1127,9 +1145,25 @@ async function scenarioPatch3(cfg, fx, tag) {
   await until(page, () => document.getElementById('ep-card').innerText.includes('Livret jeune'), null, 'nouveau compte dans la carte Épargne');
   check(clean(await page.locator('#ep-card .row', { hasText: 'Livret jeune' }).innerText()).includes(eur(120)), 'Livret jeune = 120 € (100 déjà dessus + 20)');
 
-  // 11. Année : total épargné par mois ; mois à venir en prévision
+  // 10b. Interrupteur du gros chiffre : « Reste du mois » sans compter le solde, puis retour
+  await until(page, () => !document.getElementById('hero-mode').hidden, null, 'interrupteur « Sur mon compte / Reste du mois » affiché');
+  await page.click('[data-act="hero-mode"][data-v="reste"]');
+  await until(page, () => document.getElementById('hero-label').textContent === 'Reste du mois', null, 'interrupteur : « Reste du mois »');
+  await until(page, () => { const r = document.querySelector('#legend .tot'), c = t => t.replace(/[\s\u00a0\u202f]/g, '').replace(/−/g, '-');
+    return c(document.getElementById('hero-amount').textContent) === (r.querySelector('dt').textContent.includes('manque') ? '-' : '') + c(r.querySelector('dd').textContent); }, null, 'le gros chiffre redevient le reste du mois');
+  check(await page.evaluate(() => localStorage.getItem('pf-vue-compte')) === '0', 'choix gardé sur cet appareil');
+  await page.click('[data-act="hero-mode"][data-v="compte"]');
+  await until(page, () => document.getElementById('hero-label').textContent.includes('Prévu sur ton compte'), null, 'interrupteur : retour à « Prévu sur ton compte »');
+
+  // 11. Année : total épargné par mois ; choix de l'année ; mois à venir en prévision
   await page.locator('[data-act="view"][data-view="annee"]:visible').click();
   await until(page, () => !document.getElementById('v-annee').hidden && document.querySelector('#v-annee table') && document.querySelector('#v-annee table').innerText.includes('total'), null, 'Année : colonne Épargne (total)');
+  await page.click('#ctx [data-act="year-pick"]');
+  await until(page, () => !!document.querySelector('.pop [data-y="2025"]'), null, 'choix de l\'année ouvert');
+  await page.click('.pop .cal-m[data-y="2025"]');
+  await until(page, () => document.querySelector('#ctx h1').textContent.trim() === '2025', null, 'année 2025 choisie');
+  await page.click('#ctx [data-act="year-pick"]'); await page.click('.pop .link[data-y]');
+  await until(page, () => document.querySelector('#ctx h1').textContent.trim() === '2026', null, '« Cette année » : retour en 2026');
   await page.locator('[data-act="view"][data-view="mois"]:visible').click();
   await page.click('[data-act="next-month"]');
   await until(page, () => document.getElementById('hero-label').textContent.includes('Prévu pour avril') && document.getElementById('hero-amount').classList.contains('fut'), null, 'mois à venir : « Prévu pour avril », en gris');
