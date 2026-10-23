@@ -147,8 +147,26 @@ async function waitApp(page) {
   await until(page, () => { const a = document.getElementById('app'); const h = document.getElementById('hero-amount'); return a && !a.hidden && ((h && h.textContent !== '…') || (location.hash.length > 1 && location.hash !== '#mois' && document.querySelector('.top .sync').dataset.s === 'ok')); }, null, 'l\'appli s\'affiche');
 }
 const txt = (page, sel) => page.locator(sel).first().innerText().then(clean);
-// Cascade du mois (Brut → URSSAF → Net → Dépenses → Épargne → Reste) : libellé sans le signe −, = ou +.
-const legend = page => page.$$eval('#legend > div', ds => ds.map(d => [d.querySelector('dt').innerText.replace(/^[\s−=+]+/, '').trim(), d.querySelector('dd').innerText]));
+// Cascade du mois (Brut → URSSAF → Autres revenus → Net → Dépenses → Épargne → Reste) : libellé seul
+// (sans le signe −, = ou +, ni la petite note « dont X € de fixes » ajoutée au patch 3).
+const legend = page => page.$$eval('#legend > div', ds => ds.map(d => { const c = d.querySelector('dt .cl') || d.querySelector('dt'); return [(c.firstChild && c.firstChild.nodeType === 3 ? c.firstChild.textContent : c.innerText).replace(/^[\s−=+]+/, '').trim(), d.querySelector('dd').innerText]; }));
+const num = s => parseFloat(clean(s).replace('€', '').replace(',', '.'));
+const r2 = n => Math.round(n * 100) / 100;
+// Gros chiffre du mois : « Prévu sur ton compte » quand un solde du compte est noté (patch 3), sinon le reste.
+const heroExp = E => (E.mars.compte != null ? E.mars.compte : E.mars.reste);
+// Patch 3 : les revenus fixes sont rangés dans une ligne repliable « Revenus fixes · N ».
+async function openFixedRev(page) {
+  const t = page.locator('#lists [data-act="toggle-fixed-rev"]');
+  if (await t.count() && await t.getAttribute('aria-expanded') !== 'true') { await t.click(); await page.waitForTimeout(150); }
+}
+// Patch 3 : « Déjà passée sur ton compte ? » (opération datée avant le dernier solde noté) : répondre si posée.
+async function answerPassed(page, yes = true) {
+  await page.waitForTimeout(600);
+  if (await page.locator('#panel-bg').isVisible() && (await page.locator('#panel-title').innerText()).includes('passée')) {
+    await page.locator('#panel-body [data-act="pt"][data-v="' + (yes ? 1 : 0) + '"]').first().click();
+    await page.waitForTimeout(400);
+  }
+}
 
 // ---------- scénarios ----------
 async function scenarioDonnees(cfg, fx, tag) {
@@ -157,15 +175,22 @@ async function scenarioDonnees(cfg, fx, tag) {
   await waitApp(page);
 
   // Mois : montants
-  check(await txt(page, '#hero-amount') === eur(E.mars.reste), 'reste du mois = ' + eur(E.mars.reste));
+  check(await txt(page, '#hero-amount') === eur(heroExp(E)), (E.mars.compte != null ? 'prévu sur le compte = ' : 'reste du mois = ') + eur(heroExp(E)));
   const L = Object.fromEntries((await legend(page)).map(([k, v]) => [k.replace(/\s*\(.*\)/, ''), clean(v)]));
-  check(L['Revenus bruts'] === eur(E.mars.brut), 'revenus bruts');
+  // Patch 3 : « Revenus bruts » = revenus soumis à l'URSSAF ; les autres sur leur propre ligne (calculs inchangés).
+  const rate = fx.docs['users/uid-test/meta/settings'].taux['2026'] / 100, baseM = r2(E.mars.urssaf / rate);
+  check(L['Revenus bruts'] === eur(baseM), 'revenus bruts = revenus soumis à l\'URSSAF (' + L['Revenus bruts'] + ')');
+  check(r2(baseM + (L['Autres revenus'] ? num(L['Autres revenus']) : 0)) === E.mars.brut && (E.mars.brut > baseM) === ('Autres revenus' in L), 'revenus sans URSSAF sur leur propre ligne (total ' + eur(E.mars.brut) + ')');
   check(L['URSSAF'] === eur(E.mars.urssaf), 'URSSAF');
   check(L['Revenus nets'] === eur(E.mars.net), 'revenus nets');
   check(L['Dépenses'] === eur(E.mars.dep), 'dépenses');
   if (E.mars.ep != null) check(L['Épargne'] === eur(E.mars.ep), 'épargne du mois = ' + eur(E.mars.ep));
   else check(!('Épargne' in L), 'pas de ligne Épargne sans épargne');
-  for (const l of ['Facture client A', 'Remboursement', 'Aide', 'Courses']) check(await page.locator('#lists .row', { hasText: l }).count() === 1, 'ligne « ' + l + ' » affichée');
+  check((L['Reste'] || '') === eur(E.mars.reste), 'reste du mois dans la cascade = ' + eur(E.mars.reste));
+  for (const l of ['Facture client A', 'Remboursement', 'Courses']) check(await page.locator('#lists .row', { hasText: l }).count() === 1, 'ligne « ' + l + ' » affichée');
+  check(await page.locator('#lists', { hasText: 'Revenus fixes · ' }).count() === 1, 'revenus fixes rangés dans « Revenus fixes · N »');
+  await openFixedRev(page);
+  check(await page.locator('#lists .row', { hasText: 'Aide' }).count() === 1, 'ligne « Aide » affichée (revenus fixes dépliés)');
   const nf = E.chargesFixes || 1;
   check(await page.locator('#lists', { hasText: 'Charges fixes · ' + nf }).count() === 1, nf + ' charge(s) fixe(s) ce mois-ci (l\'abonnement terminé est exclu)');
   await page.screenshot({ path: join(OUT, tag + '-mois.png'), fullPage: true });
@@ -174,7 +199,9 @@ async function scenarioDonnees(cfg, fx, tag) {
   await page.locator('[data-act="view"][data-view="annee"]:visible').click();
   await until(page, () => !document.getElementById('v-annee').hidden && !document.getElementById('kpis').innerText.includes('…'), null, 'vue Année affichée');
   const K = clean(await page.locator('#kpis').innerText());
-  for (const k of ['brut', 'urssaf', 'net', 'dep', 'ep']) if (E.annee2026[k] != null) check(K.includes(eur(E.annee2026[k])), 'total année ' + k + ' = ' + eur(E.annee2026[k]));
+  const baseY = r2(E.annee2026.urssaf / rate);
+  check(K.includes('Revenusbruts' + eur(baseY)) && (E.annee2026.brut > baseY ? K.includes('SansURSSAF' + eur(r2(E.annee2026.brut - baseY))) : !K.includes('SansURSSAF')), 'année : revenus bruts (soumis à l\'URSSAF) ' + eur(baseY) + ' + sans URSSAF');
+  for (const k of ['urssaf', 'net', 'dep', 'ep']) if (E.annee2026[k] != null) check(K.includes(eur(E.annee2026[k])), 'total année ' + k + ' = ' + eur(E.annee2026[k]));
   check(K.includes(eur(Math.abs(E.annee2026.reste))) && K.includes(E.annee2026.reste < 0 ? 'manque' : 'Reste'), 'reste de l\'année = ' + eur(E.annee2026.reste));
   await page.screenshot({ path: join(OUT, tag + '-annee.png'), fullPage: true });
   await page.locator('[data-act="view"][data-view="mois"]:visible').click();
@@ -191,6 +218,7 @@ async function scenarioDonnees(cfg, fx, tag) {
   check(db['users/uid-test/entries/e2'].label === 'Courses' && db['users/uid-test/entries/e2'].createdAt === fx.docs['users/uid-test/entries/e2'].createdAt, 'libellé et date de création intacts');
 
   // Modifier un fixe en cours de route : l'ancien s'arrête, le nouveau garde les champs inconnus
+  await openFixedRev(page);
   await page.locator('#lists .row', { hasText: 'Aide' }).click();
   await until(page, () => !document.getElementById('sheet-bg').hidden, null, 'fenêtre du fixe ouverte');
   check(await page.locator('#f-hint:visible').count() === 1, 'avertissement « nouveau montant à partir de… » affiché');
@@ -223,7 +251,9 @@ async function scenarioDonnees(cfg, fx, tag) {
     if (path in db) for (const f of Object.keys(d)) check(f in db[path], 'champ « ' + f + ' » toujours présent dans ' + path);
   }
   // Affichage après modifications : 1 000 + 120 bruts, 212 URSSAF, 90 + 500 de dépenses
-  await until(page, v => document.getElementById('hero-amount').textContent.replace(/[\s  ]/g, '') === v, eur(E.apresModif != null ? E.apresModif : 318), 'reste recalculé après modifications');
+  const apres = E.apresModifCompte != null ? E.apresModifCompte : E.apresModif != null ? E.apresModif : 318;
+  await until(page, v => document.getElementById('hero-amount').textContent.replace(/[\s  ]/g, '').replace(/−/g, '-') === v, eur(apres), 'gros chiffre recalculé après modifications (' + eur(apres) + ')');
+  await until(page, v => document.querySelector('#legend .tot dd').textContent.replace(/[\s  ]/g, '').replace(/−/g, '-') === v, eur(E.apresModif != null ? E.apresModif : 318), 'reste recalculé après modifications');
 
   noErr(errors);
   await ctx.close();
@@ -242,7 +272,7 @@ async function scenarioLectureSeule(cfg, fx, tag) {
   await page.waitForTimeout(300);
   check(await page.locator('#sheet-bg').isHidden(), 'modification bloquée en lecture seule');
   check(await page.evaluate(() => window.__PFLOW_DB__.writes()) === 0, 'aucune écriture en lecture seule');
-  check(clean(await page.locator('#hero-amount').innerText()) === eur(fx.expect.mars.reste), 'les données restent consultables');
+  check(clean(await page.locator('#hero-amount').innerText()) === eur(heroExp(fx.expect)), 'les données restent consultables');
   await page.screenshot({ path: join(OUT, tag + '-lecture-seule.png') });
   check(errors.length === 0, 'aucune erreur dans la console' + (errors.length ? ' : ' + errors.join(' | ') : ''));
   await ctx.close();
@@ -351,7 +381,9 @@ async function scenarioCouleurs(cfg, fx, tag) {
   check(await inline('dep') === '', 'une couleur invalide est ignorée (couleur par défaut)');
 
   await reglages(page, 'apparence');
-  await until(page, () => document.querySelectorAll('#colors .color-head').length === 5, null, '5 couleurs réglables (profil auto-entrepreneur)');
+  // Patch 3 : + Autres revenus, Fixes et Épargne (si l'épargne est suivie).
+  const nCol = fx.docs[SET].epargne === true ? 8 : 7;
+  await until(page, n => document.querySelectorAll('#colors .color-head').length === n, nCol, nCol + ' couleurs réglables (profil auto-entrepreneur)');
   await page.click('#colors [data-act="color-open"][data-k="dep"]');
   await page.click('#colors [data-act="color-set"][data-k="dep"][data-c="#c23b35"]');
   await until(page, () => (window.__PFLOW_DB__.dump()['users/uid-test/meta/settings'].couleurs || {}).dep === '#c23b35', null, 'couleur des dépenses enregistrée dans le compte');
@@ -425,9 +457,10 @@ async function scenarioSauvegardes(cfg, fx, tag) {
   const file = join(OUT, tag.normalize('NFD').replace(/[\u0300-\u036f]/g, '') + '-sauvegarde.json');
   await dl.saveAs(file);
   const bk = JSON.parse(readFileSync(file, 'utf8'));
-  check(bk.app === 'P-Flow' && bk.format === 2 && bk.dataVersion === 1 && bk.entries.length === NB.entries && bk.recurring.length === NB.recurring, 'export : toutes les opérations et tous les fixes');
+  check(bk.app === 'P-Flow' && bk.format === 3 && bk.dataVersion === 1 && bk.entries.length === NB.entries && bk.recurring.length === NB.recurring, 'export : toutes les opérations et tous les fixes');
   check(bk.periodiques.length === (NB.periodiques || 0) && bk.epargne.length === (NB.epargne || 0), 'export : fixes non mensuels et épargne (' + bk.periodiques.length + ', ' + bk.epargne.length + ')');
   check(bk.entries.find(e => e.id === 'e2').champFutur === 'à conserver' && bk.settings.pro === true, 'export : champs et réglages complets');
+  check(['jours', 'soldes', 'pointages'].every(c => Array.isArray(bk[c]) && bk[c].length === (NB[c] || 0)), 'export : jours des fixes, soldes du compte et pointages (patch 3)');
   check(/^p-flow-sauvegarde-\d{4}-\d{2}-\d{2}-\d{2}h\d{2}\.json$/.test(dl.suggestedFilename()), 'export : nom de fichier daté');
   await o.ctx.close();
 
@@ -542,19 +575,29 @@ async function scenarioNouveauCompte(cfg, tag) {
   await page.fill('#o-rate', '21,2');
   await page.click('#ob-next');
   // 2. Revenus fixes : passer
-  await until(page, () => document.getElementById('ob-count').textContent.includes('2 sur 6'), null, 'étape 2 sur 6');
+  await until(page, () => document.getElementById('ob-count').textContent.includes('2 sur 7'), null, 'étape 2 sur 7');
   await page.click('#ob-skip');
   // 3. Charges fixes : boutons rapides (libellé modifiable) et charge au libellé libre
   await page.click('[data-ob="add"][data-l="Loyer"]');
   await page.fill('.ob-row[data-i="0"] [data-f="amount"]', '650');
   await page.click('[data-ob="add"][data-l="Assurance"]');
   await page.fill('.ob-row[data-i="1"] [data-f="amount"]', '300');
-  await page.selectOption('.ob-row[data-i="1"] [data-f="freq"]', 'annee');
+  // Patch 3 : plus de liste native, une pilule de choix aux couleurs de l'appli
+  await page.click('.ob-row[data-i="1"] [data-ob="freq"]');
+  await until(page, () => !!document.querySelector('.pop [role="option"][data-v="annee"]'), null, 'pilule de choix de la fréquence ouverte');
+  await page.click('.pop [role="option"][data-v="annee"]');
+  await until(page, () => !document.querySelector('.pop') && document.querySelector('.ob-row[data-i="1"] [data-ob="freq"]').textContent.includes('Annuel'), null, 'fréquence « Annuel » choisie');
   await page.click('[data-ob="add"][data-k="dep"][data-l=""]');
   await page.fill('.ob-row[data-i="2"] [data-f="label"]', 'Cantine des enfants');
   await page.click('#ob-next');
   check((await page.locator('#o-error').innerText()).includes('Cantine'), 'montant manquant signalé');
   await page.fill('.ob-row[data-i="2"] [data-f="amount"]', '45,50');
+  await page.click('#ob-next');
+  // 4. Compte en banque (patch 3, facultatif) : 1 500 € aujourd'hui
+  await until(page, () => !!document.getElementById('o-solde'), null, 'étape « Ton compte en banque »');
+  await page.click('#ob-step [data-ob="sign"][data-n="1"]');
+  await page.click('#ob-step [data-ob="sign"][data-n="0"]');
+  await page.fill('#o-solde', '1 500');
   await page.click('#ob-next');
   // 4. Épargne : Livret A, solde 1 200 €, 50 € chaque mois
   await page.click('[data-ob="ep"][data-v="1"]');
@@ -580,11 +623,13 @@ async function scenarioNouveauCompte(cfg, tag) {
   check(of('recurring', v => v.label === 'Cantine des enfants' && v.amount === 45.5) === 1, 'charge au libellé libre');
   check(of('epargne', v => v.op === 'solde' && v.label === 'Livret A' && v.amount === 1200 && v.date === '2026-03-15') === 1, 'solde du Livret A');
   check(of('periodiques', v => v.type === 'epargne' && v.label === 'Livret A' && v.amount === 50 && v.freq === 'mois' && v.start === '2026-04') === 1, 'versement automatique à partir du mois prochain');
-  check(Object.keys(db).filter(k => k.startsWith(U)).length === 6, 'rien d\'autre n\'est écrit');
+  check(of('soldes', v => v.montant === 1500 && v.date === '2026-03-15') === 1, 'solde du compte courant noté au 15 mars');
+  check(Object.keys(db).filter(k => k.startsWith(U)).length === 7, 'rien d\'autre n\'est écrit');
   await page.waitForTimeout(1200);
   check(await page.locator('#panel-bg').isHidden(), 'pas de « nouveautés » pour un nouveau compte');
   // Mars : aucun revenu, 650 + 300 + 45,50 de charges (le versement automatique commence en avril)
-  await waitHero(page, -995.5, 'reste du mois du nouveau compte');
+  await waitReste(page, -995.5, 'reste du mois du nouveau compte');
+  await waitHero(page, 1500, 'prévu sur le compte le 31 (les fixes sont comptés au 1er, déjà passés)');
   await page.screenshot({ path: join(OUT, tag + '-apres-config.png') });
   noErr(errors);
   await ctx.close();
@@ -593,6 +638,9 @@ async function scenarioNouveauCompte(cfg, tag) {
 // ---------- patch 2 ----------
 const hero = page => page.locator('#hero-amount').innerText().then(clean);
 const waitHero = (page, v, label) => until(page, x => document.getElementById('hero-amount').textContent.replace(/[\s  ]/g, '').replace(/−/g, '-') === x, eur(v), label);
+// Reste du mois lu dans la cascade (le gros chiffre peut être « Prévu sur ton compte » depuis le patch 3).
+const reste = page => page.locator('#legend .tot dd').innerText().then(clean);
+const waitReste = (page, v, label) => until(page, ([x, neg]) => { const r = document.querySelector('#legend .tot'); if (!r) return false; const d = r.querySelector('dd').textContent.replace(/[\s\u00a0\u202f]/g, ''); return d === x && r.querySelector('dt').textContent.includes('manque') === neg; }, [eur(Math.abs(v)), v < 0], label); // négatif : ligne « Il manque », montant sans signe
 
 // Épargne et fixes trimestriels / annuels (jeux de données au nouveau format).
 async function scenarioEpargne(cfg, fx, tag) {
@@ -610,6 +658,7 @@ async function scenarioEpargne(cfg, fx, tag) {
   await until(page, v => document.getElementById('ep-card').innerText.replace(/[\s\u00a0\u202f]/g, '').includes(v) && !document.getElementById('ep-card').innerText.includes('PEL'), eur(1000), 'épargne fin janvier = ' + eur(1000) + ' (PEL pas encore noté)');
   await page.click('[data-act="today"]');
   await until(page, () => document.querySelector('#ctx h1').textContent === 'Mars 2026', null, 'retour en mars');
+  await openFixedRev(page);
   check(await page.locator('#lists .row', { hasText: 'Prime' }).count() === 1, 'fixe trimestriel compté le mois où il tombe (Prime)');
   check(await page.locator('#lists .row', { hasText: 'Assurance auto' }).count() === 0, 'fixe trimestriel absent hors échéance (Assurance auto)');
 
@@ -624,7 +673,7 @@ async function scenarioEpargne(cfg, fx, tag) {
 
   // Nouveau fixe trimestriel depuis Fixes (bouton +)
   await page.locator('[data-act="add"]:visible').click();
-  await until(page, () => !document.getElementById('sheet-bg').hidden && !document.getElementById('f-start-field').hidden, null, 'Fixes : + ouvre « Nouveau fixe »');
+  await until(page, () => !document.getElementById('sheet-bg').hidden && !document.getElementById('f-when-field').hidden && document.getElementById('f-when-label').textContent.includes('partir'), null, 'Fixes : + ouvre « Nouveau fixe »');
   await page.click('#freq-seg [data-f="trimestre"]');
   await page.fill('#f-amount', '90'); await page.fill('#f-label', 'Taxe trimestrielle');
   await page.click('#f-save');
@@ -634,9 +683,10 @@ async function scenarioEpargne(cfg, fx, tag) {
 
   // Retour au mois : la taxe compte en mars
   await page.locator('[data-act="view"][data-view="mois"]:visible').click();
-  await waitHero(page, E.mars.reste - 90, 'reste de mars avec le nouveau trimestriel');
+  await waitReste(page, E.mars.reste - 90, 'reste de mars avec le nouveau trimestriel');
 
   // Modifier le fixe trimestriel en cours de route : l'ancien s'arrête, le nouveau garde le cycle et les champs inconnus
+  await openFixedRev(page);
   await page.locator('#lists .row', { hasText: 'Prime' }).click();
   await until(page, () => !document.getElementById('sheet-bg').hidden, null, 'fenêtre du fixe trimestriel');
   check(await page.locator('#f-hint:visible').count() === 1, 'avertissement « nouveau montant à partir de… » (trimestriel)');
@@ -659,16 +709,17 @@ async function scenarioEpargne(cfg, fx, tag) {
   const nL = Object.entries(db).filter(([k, v]) => k.startsWith(PER) && v.label === 'Loyer');
   check(nL.length === 1 && nL[0][1].freq === 'trimestre' && nL[0][1].start === '2026-03' && nL[0][1].amount === 500 && nL[0][1].end === null, 'loyer trimestriel à partir de mars');
   check(db['users/uid-test/recurring/r1'].start === '2025-09' && db['users/uid-test/recurring/r1'].amount === 500, 'ancien loyer intact pour les mois passés');
-  check(await page.evaluate(() => window.__PFLOW_DB__.writes()) - w0 === 2, 'changement de fréquence : deux écritures ensemble, rien d\'autre');
+  const nw = fx.docs['users/uid-test/jours/r1'] ? 3 : 2; // + le jour du fixe, repris sur le nouveau (patch 3)
+  check(await page.evaluate(() => window.__PFLOW_DB__.writes()) - w0 === nw, 'changement de fréquence : ' + nw + ' écritures ensemble, rien d\'autre');
   await page.locator('[data-act="view"][data-view="mois"]:visible').click();
-  await waitHero(page, E.mars.reste - 90 + 50, 'mars inchangé par le passage au trimestriel');
+  await waitReste(page, E.mars.reste - 90 + 50, 'mars inchangé par le passage au trimestriel');
 
   // Ajouter de l'épargne avec le bouton rond « Épargne »
   await page.click('[data-act="add-type"][data-type="epargne"]');
   await until(page, () => !document.getElementById('sheet-bg').hidden && !document.getElementById('op-seg').hidden, null, 'bouton Épargne : fenêtre en mode épargne');
   await page.fill('#f-amount', '20'); await page.fill('#f-label', 'Livret A'); await page.click('#f-save');
   await until(page, p => Object.entries(window.__PFLOW_DB__.dump()).some(([k, v]) => k.startsWith(p) && v.op === 'depot' && v.amount === 20 && v.month === '2026-03' && v.label === 'Livret A'), EP, 'dépôt d\'épargne enregistré');
-  await waitHero(page, E.mars.reste - 90 + 50 - 20, 'le dépôt baisse le reste du mois');
+  await waitReste(page, E.mars.reste - 90 + 50 - 20, 'le dépôt baisse le reste du mois');
 
   // Modifier un dépôt garde les champs inconnus
   await page.locator('#lists .row', { hasText: 'Livret A' }).filter({ hasText: '8 mars' }).click();
@@ -680,8 +731,8 @@ async function scenarioEpargne(cfg, fx, tag) {
   check(db[EP + 'ep2'].champFutur === 'épargne à conserver' && db[EP + 'ep2'].op === 'depot' && db[EP + 'ep2'].createdAt === fx.docs[EP + 'ep2'].createdAt, 'dépôt : champ inconnu et date de création conservés');
 
   // Un solde (« J'ai actuellement ») ne change pas le reste
-  await waitHero(page, E.mars.reste - 90 + 50 - 20 - 10, 'dépôt modifié pris en compte');
-  const before = await hero(page);
+  await waitReste(page, E.mars.reste - 90 + 50 - 20 - 10, 'dépôt modifié pris en compte');
+  const before = await reste(page);
   await page.click('[data-act="add-type"][data-type="epargne"]');
   await until(page, () => !document.getElementById('sheet-bg').hidden, null, 'fenêtre épargne');
   await page.click('#op-seg [data-op="solde"]');
@@ -689,7 +740,7 @@ async function scenarioEpargne(cfg, fx, tag) {
   await page.fill('#f-amount', '5100'); await page.fill('#f-label', 'PEL'); await page.click('#f-save');
   await until(page, p => Object.entries(window.__PFLOW_DB__.dump()).some(([k, v]) => k.startsWith(p) && v.op === 'solde' && v.amount === 5100), EP, 'solde enregistré');
   await page.waitForTimeout(600);
-  check(await hero(page) === before, 'un solde ne change pas le reste du mois');
+  check(await reste(page) === before, 'un solde ne change pas le reste du mois');
   await until(page, () => document.getElementById('ep-card').innerText.replace(/[\s  ]/g, '').includes('5100,00€'), null, 'nouveau solde du PEL affiché');
 
   // Désactiver l'épargne : plus affichée ni comptée, données gardées
@@ -697,7 +748,7 @@ async function scenarioEpargne(cfg, fx, tag) {
   await page.click('#ep-toggle');
   await until(page, () => window.__PFLOW_DB__.dump()['users/uid-test/meta/settings'].epargne === false, null, 'épargne désactivée dans le compte');
   db = await dump(page);
-  check(Object.keys(db).filter(k => k.startsWith(EP)).length === 6, 'épargne désactivée : les opérations d\'épargne restent enregistrées');
+  check(Object.keys(db).filter(k => k.startsWith(EP)).length === (E.nb ? E.nb.epargne : 4) + 2, 'épargne désactivée : les opérations d\'épargne restent enregistrées');
   check(db['users/uid-test/meta/settings'].pro === true && db['users/uid-test/meta/settings'].taux['2026'] === 21.2, 'les autres réglages sont intacts');
   await page.locator('[data-act="view"][data-view="mois"]:visible').click();
   await until(page, () => document.getElementById('ep-card').offsetParent === null, null, 'carte Épargne masquée');
@@ -907,12 +958,233 @@ async function scenarioRefaireConfig(cfg, fx, tag) {
   await page.click('#ob-step [data-ob="add"][data-l="Internet"]');
   await page.fill('#ob-step .ob-row [data-f="amount"]', '30');
   await page.click('#ob-next');
-  for (let i = 0; i < 3; i++) await page.click(i === 2 ? '#ob-next' : '#ob-skip');
+  for (let i = 0; i < 4; i++) await page.click(i === 3 ? '#ob-next' : '#ob-skip'); // compte, épargne, apparence, sauvegarde
   await until(page, () => !document.getElementById('app').hidden, null, 'retour à l\'appli');
   await until(page, () => Object.values(window.__PFLOW_DB__.dump()).some(v => v.label === 'Internet' && v.amount === 30 && v.start === '2026-03' && v.end === null), null, 'charge ajoutée');
   const db = await dump(page), S0 = fx.docs['users/uid-test/meta/settings'], S1 = db['users/uid-test/meta/settings'];
   check(S1.pro === true && S1.taux['2026'] === 21.2 && S1.periodicite === S0.periodicite && S1.createdAt === S0.createdAt, 'réglages inchangés');
   for (const [path, d] of Object.entries(fx.docs)) check(path in db && Object.keys(d).every(f => f in db[path]), 'rien de supprimé : ' + path);
+  noErr(errors);
+  await ctx.close();
+}
+
+// ---------- patch 3 ----------
+// Solde du compte courant, « déjà passée ? », calendriers maison, jour des fixes, URSSAF retenue par libellé,
+// suppression d'un fixe avec historique, « Annuler », comptes d'épargne, mois à venir. Jeu de données 0.1.3.
+async function scenarioPatch3(cfg, fx, tag) {
+  const E = fx.expect, U = 'users/uid-test/';
+  const { ctx, page, errors } = await open(cfg, fx.docs, { date: E._date });
+  await waitApp(page);
+  const sub = () => page.locator('#hero-sub').innerText().then(clean);
+  const sheetOpen = () => until(page, () => !document.getElementById('sheet-bg').hidden, null, 'fenêtre d\'ajout ouverte');
+  const sheetClosed = () => until(page, () => document.getElementById('sheet-bg').hidden, null, 'fenêtre fermée');
+  const natives = () => page.evaluate(() => document.querySelectorAll('select, input[type="date"], input[type="month"], input[type="color"], datalist').length);
+
+  // 1. Gros chiffre : prévu sur le compte le 31, aujourd'hui, point le plus bas
+  check(clean(await page.locator('#hero-label').innerText()) === 'Prévusurtoncomptele31mars', 'gros chiffre : « Prévu sur ton compte le 31 mars »');
+  check(await hero(page) === eur(E.mars.compte), 'prévu le 31 = ' + eur(E.mars.compte));
+  let sb = await sub();
+  check(sb.includes('Aujourd\'hui:' + eur(E.compte.aujourdhui)), 'aujourd\'hui = ' + eur(E.compte.aujourdhui) + ' (' + sb.slice(0, 120) + ')');
+  check(sb.includes('Pointleplusbas:' + eur(E.compte.bas) + 'le' + clean(E.compte.basLe)), 'point le plus bas = ' + eur(E.compte.bas) + ' le ' + E.compte.basLe);
+  check(sb.includes('Tupeuxencoredépenser'), '« Tu peux encore dépenser » calculé sur le compte');
+  check((L => L.includes('Reste'))(await page.locator('#legend').innerText()), 'le reste du mois reste dans la cascade');
+  await page.screenshot({ path: join(OUT, tag + '-compte.png'), fullPage: true });
+
+  // 2. Petites explications de la cascade
+  await page.click('#legend [data-act="cas-info"][data-k="urssaf"]');
+  await until(page, () => { const p = document.querySelector('#legend .cexp'); return !!p && p.textContent.length > 20; }, null, 'ⓘ URSSAF : explication affichée');
+  await page.click('#legend [data-act="cas-info"][data-k="urssaf"]');
+  await until(page, () => !document.querySelector('#legend .cexp'), null, 'ⓘ : un second toucher referme');
+
+  // 3. Calendrier du mois (pilule du mois) : pastilles, bulle du jour, + à cette date
+  await page.click('#ctx .mtitle');
+  await until(page, () => !!document.querySelector('.pop .cal-d[data-d="20"]'), null, 'calendrier du mois ouvert');
+  check(await page.locator('.pop .cal-d[data-d="20"] .cdot').count() > 0, 'pastille le 20 (Assurance habitation, jour du fixe)');
+  check(await page.locator('.pop .cal-d[data-d="5"] .cdot.d-fix').count() > 0, 'pastille « fixe » le 5 (Loyer)');
+  await page.click('.pop .cal-d[data-d="20"]');
+  await until(page, () => { const b = document.querySelector('.day-bubble'); return !!b && b.textContent.includes('Assurance habitation'); }, null, 'bulle du 20 : Assurance habitation');
+  await page.screenshot({ path: join(OUT, tag + '-calendrier-mois.png') });
+  await page.keyboard.press('Escape');
+  await until(page, () => !document.querySelector('.pop'), null, 'Échap referme le calendrier');
+  check(await page.locator('#sheet-bg').isHidden(), 'Échap n\'ouvre ni ne ferme rien d\'autre');
+
+  // 4. Noter un nouveau solde : signe −, historique, puis reposer la question pour « pas encore passée »
+  await page.click('[data-act="solde-open"]');
+  await until(page, () => !document.getElementById('panel-bg').hidden && document.getElementById('panel-title').textContent.includes('compte en banque'), null, 'fenêtre « Mon compte en banque »');
+  check(await page.locator('#panel-body .row.static').count() === E.nb.soldes, 'historique des soldes notés (' + E.nb.soldes + ')');
+  await page.click('[data-act="sd-sign"][data-n="1"]');
+  await page.fill('#sd-amount', '75,5');
+  await page.click('[data-act="sd-save"]');
+  await until(page, p => Object.entries(window.__PFLOW_DB__.dump()).some(([k, v]) => k.startsWith(p) && v.montant === -75.5 && v.date === '2026-03-15'), U + 'soldes/', 'solde à découvert enregistré (−75,50 € le 15 mars)');
+  await until(page, () => !document.getElementById('panel-bg').hidden && document.getElementById('panel-title').textContent.includes('passées'), null, 'question reposée pour l\'opération « pas encore passée »');
+  check((await page.locator('#panel-body').innerText()).includes('Remboursement'), 'question : Remboursement du 10 mars');
+  await page.locator('#panel-body .pt-row [data-act="pt"][data-v="1"]').click();
+  await until(page, k => (window.__PFLOW_DB__.dump()[k] || {}).passee === true, U + 'pointages/e3', '« Oui » : opération marquée passée');
+  await page.click('#panel-close');
+  // 1 250 → nouveau solde −75,50 le 15 ; ensuite −50 (18), −180 (20), +100 (25) : −205,50 le 31
+  await waitHero(page, -205.5, 'prévu le 31 recalculé depuis le nouveau solde');
+  sb = await sub();
+  check(sb.includes('découvert'), 'compte à découvert signalé');
+  check(await page.locator('#hero-amount.neg').count() === 1, 'gros chiffre en rouge quand le compte est prévu sous 0');
+  let db = await dump(page);
+  for (const [path, d] of Object.entries(fx.docs)) if (path.includes('/soldes/')) check(JSON.stringify(db[path]) === JSON.stringify(d), 'ancien solde intact : ' + path);
+
+  // 5. Opération datée avant le dernier solde : « Elle était déjà passée ? » → Non, pas encore
+  await page.locator('[data-act="add"]:visible').click(); await sheetOpen();
+  check(await natives() === 0, 'aucune liste, date ou couleur native dans la fenêtre d\'ajout');
+  await page.click('#f-when');
+  await until(page, () => !!document.querySelector('.pop .cal-d[data-d="12"]'), null, 'calendrier maison de la date');
+  await page.click('.pop .cal-d[data-d="12"]');
+  check(await page.inputValue('#f-date') === '2026-03-12', 'date choisie au calendrier (12 mars)');
+  await page.fill('#f-amount', '10'); await page.fill('#f-label', 'Pain'); await page.click('#f-save');
+  await until(page, () => !document.getElementById('panel-bg').hidden && document.getElementById('panel-title').textContent.includes('Déjà passée'), null, 'question « Déjà passée sur ton compte ? »');
+  await page.locator('#panel-body [data-act="pt"][data-v="0"]').click();
+  await until(page, () => { const d = window.__PFLOW_DB__.dump(); const e = Object.entries(d).find(([k, v]) => k.includes('/entries/') && v.label === 'Pain'); return e && (d['users/uid-test/pointages/' + e[0].split('/').pop()] || {}).passee === false; }, null, '« Non, pas encore » rangé à part (pointages), pas dans l\'opération');
+  db = await dump(page);
+  const pain = Object.entries(db).find(([k, v]) => k.includes('/entries/') && v.label === 'Pain');
+  check(pain && Object.keys(pain[1]).sort().join() === 'amount,createdAt,date,label,month,type,urssaf', 'l\'opération n\'a que les champs habituels');
+  await waitHero(page, -215.5, '« pas encore passée » : retirée du prévu');
+
+  // 6. URSSAF retenue par libellé
+  await page.click('[data-act="add-type"][data-type="revenu"]'); await sheetOpen();
+  await page.fill('#f-label', 'Remboursement'); await page.waitForTimeout(150);
+  check(!(await page.isChecked('#f-urssaf')), 'libellé déjà utilisé sans URSSAF : case décochée');
+  await page.fill('#f-label', 'Facture client A'); await page.waitForTimeout(150);
+  check(await page.isChecked('#f-urssaf'), 'libellé déjà utilisé avec URSSAF : case cochée');
+  await page.fill('#f-label', 'Tout nouveau client'); await page.waitForTimeout(150);
+  check(await page.isChecked('#f-urssaf'), 'libellé jamais utilisé : cochée d\'office');
+  await page.click('#sheet-close'); await sheetClosed();
+
+  // 7. Fixe avec un jour : rangé à part (jours), jamais dans recurring
+  await page.locator('[data-act="add"]:visible').click(); await sheetOpen();
+  await page.click('#freq-seg [data-f="mois"]');
+  check((await page.locator('#f-when-label').innerText()).includes('partir'), 'fixe : « À partir de »');
+  await page.click('#f-when');
+  await until(page, () => !!document.querySelector('.pop .cal-d[data-d="9"]'), null, 'calendrier du fixe');
+  await page.click('.pop .cal-d[data-d="9"]');
+  check((await page.locator('#f-when-txt').innerText()).includes('9 mars 2026'), 'jour du fixe affiché (9 mars 2026)');
+  check(await page.locator('#f-preview').isHidden(), 'fixe mensuel : pas de phrase en double (la fréquence et la date sont déjà affichées)');
+  await page.click('#freq-seg [data-f="trimestre"]');
+  check((await page.locator('#f-preview').innerText()).includes('Tombe en mars, juin, sept. et déc.'), 'fixe trimestriel : seulement les mois où il tombe');
+  await page.click('#freq-seg [data-f="mois"]');
+  await page.fill('#f-amount', '15'); await page.fill('#f-label', 'Cantine'); await page.click('#f-save');
+  await until(page, () => Object.values(window.__PFLOW_DB__.dump()).some(v => v.label === 'Cantine' && v.start === '2026-03'), null, 'fixe enregistré');
+  db = await dump(page);
+  const cant = Object.entries(db).find(([k, v]) => k.includes('/recurring/') && v.label === 'Cantine');
+  check(cant && !('jour' in cant[1]) && Object.keys(cant[1]).sort().join() === 'amount,createdAt,end,label,start,type,urssaf', 'recurring : seulement les champs habituels');
+  check(cant && (db[U + 'jours/' + cant[0].split('/').pop()] || {}).jour === 9, 'jour du fixe rangé à part (jours/{id} = 9)');
+
+  // 8. Fixe commencé avant ce mois : « Arrêter » en principal, « Supprimer aussi des mois passés »
+  await page.locator('[data-act="view"][data-view="fixes"]:visible').click();
+  await until(page, () => !document.getElementById('v-fixes').hidden, null, 'vue Fixes');
+  await page.locator('#fix-list .row', { hasText: 'Loyer' }).click(); await sheetOpen();
+  check(await page.locator('#f-stop.lead:visible').count() === 1, '« Arrêter après… » en bouton principal');
+  check((await page.locator('#f-delete').innerText()).includes('mois passés'), '« Supprimer aussi des mois passés »');
+  check(await page.locator('#f-hint:visible').count() === 0 || !(await page.locator('#f-hint').innerText()).includes('nouveau montant'), 'pas de phrase « nouveau montant » sans changement');
+  await page.click('#sheet-close'); await sheetClosed();
+
+  // 8a. Couleurs : Fixes, Épargne et Autres revenus réglables ; une couleur déjà prise est bloquée
+  await reglages(page, 'apparence');
+  for (const k of ['autres', 'fixes', 'ep']) {
+    check(await page.locator('#colors [data-act="color-open"][data-k="' + k + '"]').count() === 1, 'couleur réglable : ' + k);
+    check(await page.locator('#colors [data-k="' + k + '"] i.sw').evaluate(e => getComputedStyle(e).backgroundColor !== 'rgba(0, 0, 0, 0)'), 'carré de couleur visible : ' + k);
+  }
+  await page.click('#colors [data-act="color-open"][data-k="fixes"]');
+  const gris = page.locator('#colors [data-act="color-set"][data-k="fixes"][data-c="#6a7d90"]');
+  check(await gris.isDisabled() && (await gris.getAttribute('aria-label')).includes('Dépenses'), 'gris déjà pris par « Dépenses » : bloqué pour Fixes');
+  const w8 = await page.evaluate(() => window.__PFLOW_DB__.writes());
+  await page.evaluate(() => document.querySelector('#colors [data-act="color-set"][data-k="fixes"][data-c="#6a7d90"]').click());
+  await page.waitForTimeout(300);
+  check(await page.evaluate(() => window.__PFLOW_DB__.writes()) === w8, 'couleur prise : rien n\'est enregistré');
+  await page.click('#colors [data-act="color-set"][data-k="fixes"][data-c="#d9488f"]');
+  await until(page, () => ((window.__PFLOW_DB__.dump()['users/uid-test/meta/settings'].couleurs) || {}).fixes === '#d9488f', null, 'couleur des fixes enregistrée (rose)');
+  check(JSON.stringify((await dump(page))['users/uid-test/meta/settings'].couleurs.reste) === JSON.stringify(fx.docs['users/uid-test/meta/settings'].couleurs.reste), 'les autres couleurs ne changent pas');
+  await page.locator('[data-act="view"][data-view="fixes"]:visible').click();
+  await until(page, () => !document.getElementById('v-fixes').hidden, null, 'retour à la vue Fixes');
+
+  // 8b. Changer seulement le jour d'un fixe : jours/{id} mis à jour en fusion (champ inconnu gardé), le fixe ne bouge pas
+  await page.locator('#fix-list .row', { hasText: 'Aide' }).click(); await sheetOpen();
+  await page.click('#f-when');
+  await until(page, () => !!document.querySelector('.pop .cal-d[data-d="26"]'), null, 'calendrier du fixe Aide');
+  check((await page.locator('.pop .cal-title').innerText()).includes('Janvier 2026'), 'calendrier ouvert sur le mois de départ du fixe');
+  await page.click('.pop .cal-d[data-d="26"]');
+  check(!(await page.locator('#f-hint').innerText()).includes('départ passe'), 'même mois de départ : pas d\'avertissement');
+  await page.click('#f-save');
+  await until(page, k => (window.__PFLOW_DB__.dump()[k] || {}).jour === 26, U + 'jours/r3', 'jour du fixe changé (26)');
+  db = await dump(page);
+  check(db[U + 'jours/r3'].champFutur === 'jour à conserver' && db[U + 'jours/r3'].createdAt === fx.docs[U + 'jours/r3'].createdAt, 'jours/r3 : champ inconnu et date de création gardés');
+  check(JSON.stringify(db[U + 'recurring/r3']) === JSON.stringify(fx.docs[U + 'recurring/r3']), 'le fixe lui-même n\'a pas changé');
+  // Choisir un jour d'un autre mois change le départ : avertissement avant d'enregistrer
+  await page.locator('#fix-list .row', { hasText: 'Aide' }).click(); await sheetOpen();
+  await page.click('#f-when');
+  await until(page, () => !!document.querySelector('.pop [data-c="today"]'), null, 'calendrier rouvert');
+  await page.click('.pop [data-c="today"]');
+  await until(page, () => document.getElementById('f-hint').textContent.includes('départ passe de janvier 2026 à mars 2026'), null, 'avertissement : le départ change et les mois d\'avant ne compteront plus');
+  await page.click('#sheet-close'); await sheetClosed();
+  check(JSON.stringify((await dump(page))[U + 'recurring/r3']) === JSON.stringify(fx.docs[U + 'recurring/r3']), 'fermer sans enregistrer : rien ne change');
+
+  // 9. Supprimer puis « Annuler » : remis à l'identique (champs inconnus compris)
+  await page.locator('[data-act="view"][data-view="mois"]:visible').click();
+  await page.locator('#lists .row', { hasText: 'Courses' }).click(); await sheetOpen();
+  await page.click('#f-delete'); await page.click('#f-delete');
+  await until(page, k => !(k in window.__PFLOW_DB__.dump()), U + 'entries/e2', 'opération supprimée');
+  await until(page, () => !!document.querySelector('#toast:not([hidden]) .toast-undo'), null, 'message avec « Annuler »');
+  await page.click('#toast .toast-undo');
+  await until(page, ([k, v]) => JSON.stringify(window.__PFLOW_DB__.dump()[k]) === v, [U + 'entries/e2', JSON.stringify(fx.docs[U + 'entries/e2'])], '« Annuler » : opération remise à l\'identique');
+
+  // 10. Épargne : choix du compte, nouveau compte avec ce qu'il y a déjà dessus, total et explication
+  check((await page.locator('#ep-card').innerText()).includes('fin du mois'), 'carte Épargne : explication du total');
+  check(clean(await page.locator('#lists').innerText()).includes('Totalsurtescomptes:'), '« Total sur tes comptes » à côté de l\'épargne du mois');
+  await page.click('[data-act="add-type"][data-type="epargne"]'); await sheetOpen();
+  check(await page.locator('#f-accounts [data-acc="LDDS"]').count() === 1 && await page.locator('#f-accounts [data-acc="Livret A"]').count() === 1, 'comptes existants proposés en pilules');
+  await page.click('#f-accounts [data-acc="LDDS"]');
+  check(await page.inputValue('#f-label') === 'LDDS' && await page.locator('#f-epstart-field').isHidden(), 'compte existant choisi (pas de solde de départ demandé)');
+  await page.click('#f-accounts [data-acc=""]');
+  await page.fill('#f-label', 'Livret jeune'); await page.dispatchEvent('#f-label', 'input');
+  await until(page, () => !document.getElementById('f-epstart-field').hidden, null, 'nouveau compte : « Combien as-tu déjà dessus ? »');
+  await page.fill('#f-epstart', '100'); await page.fill('#f-amount', '20'); await page.click('#f-save');
+  await answerPassed(page, true);
+  await until(page, () => Object.values(window.__PFLOW_DB__.dump()).filter(v => v.label === 'Livret jeune').length === 2, null, 'nouveau compte : solde de départ et dépôt enregistrés');
+  db = await dump(page);
+  const lj = Object.values(db).filter(v => v.label === 'Livret jeune');
+  const sol = lj.find(v => v.op === 'solde'), dep = lj.find(v => v.op === 'depot');
+  check(sol && dep && sol.amount === 100 && dep.amount === 20 && sol.date === dep.date && sol.createdAt < dep.createdAt, 'solde de départ noté avant le dépôt');
+  await until(page, () => document.getElementById('ep-card').innerText.includes('Livret jeune'), null, 'nouveau compte dans la carte Épargne');
+  check(clean(await page.locator('#ep-card .row', { hasText: 'Livret jeune' }).innerText()).includes(eur(120)), 'Livret jeune = 120 € (100 déjà dessus + 20)');
+
+  // 10b. Interrupteur du gros chiffre : « Reste du mois » sans compter le solde, puis retour
+  await until(page, () => !document.getElementById('hero-mode').hidden, null, 'interrupteur « Sur mon compte / Reste du mois » affiché');
+  await page.click('[data-act="hero-mode"][data-v="reste"]');
+  await until(page, () => document.getElementById('hero-label').textContent === 'Reste du mois', null, 'interrupteur : « Reste du mois »');
+  await until(page, () => { const r = document.querySelector('#legend .tot'), c = t => t.replace(/[\s\u00a0\u202f]/g, '').replace(/−/g, '-');
+    return c(document.getElementById('hero-amount').textContent) === (r.querySelector('dt').textContent.includes('manque') ? '-' : '') + c(r.querySelector('dd').textContent); }, null, 'le gros chiffre redevient le reste du mois');
+  check(await page.evaluate(() => localStorage.getItem('pf-vue-compte')) === '0', 'choix gardé sur cet appareil');
+  await page.click('[data-act="hero-mode"][data-v="compte"]');
+  await until(page, () => document.getElementById('hero-label').textContent.includes('Prévu sur ton compte'), null, 'interrupteur : retour à « Prévu sur ton compte »');
+
+  // 11. Année : total épargné par mois ; choix de l'année ; mois à venir en prévision
+  await page.locator('[data-act="view"][data-view="annee"]:visible').click();
+  await until(page, () => !document.getElementById('v-annee').hidden && document.querySelector('#v-annee table') && document.querySelector('#v-annee table').innerText.includes('total'), null, 'Année : colonne Épargne (total)');
+  if (cfg.viewport.width < 600) check(await page.locator('#y-table').evaluate(e => e.scrollWidth <= e.clientWidth + 1), 'tableau de l\'année entier sur téléphone (rien de coupé)');
+  await page.click('#ctx [data-act="year-pick"]');
+  await until(page, () => !!document.querySelector('.pop [data-y="2025"]'), null, 'choix de l\'année ouvert');
+  await page.click('.pop .cal-m[data-y="2025"]');
+  await until(page, () => document.querySelector('#ctx h1').textContent.trim() === '2025', null, 'année 2025 choisie');
+  await page.click('#ctx [data-act="year-pick"]'); await page.click('.pop .link[data-y]');
+  await until(page, () => document.querySelector('#ctx h1').textContent.trim() === '2026', null, '« Cette année » : retour en 2026');
+  await page.locator('[data-act="view"][data-view="mois"]:visible').click();
+  await page.click('[data-act="next-month"]');
+  await until(page, () => document.getElementById('hero-label').textContent.includes('Prévu pour avril') && document.getElementById('hero-amount').classList.contains('fut'), null, 'mois à venir : « Prévu pour avril », en gris');
+  check(clean(await page.locator('#hero-sub').innerText()).includes('Surtoncomptele30avril:'), 'mois à venir : ce qui est prévu sur le compte le 30 avril');
+  check(await natives() === 0, 'aucune fenêtre native dans la page');
+  await page.screenshot({ path: join(OUT, tag + '-avril.png'), fullPage: true });
+
+  // Tout ce qui existait est encore là (sauf ce qu'on a supprimé puis remis)
+  db = await dump(page);
+  for (const [path, d] of Object.entries(fx.docs)) {
+    check(path in db, 'document toujours présent : ' + path);
+    if (path in db) for (const f of Object.keys(d)) check(f in db[path], 'champ « ' + f + ' » toujours présent dans ' + path);
+  }
   noErr(errors);
   await ctx.close();
 }
@@ -947,6 +1219,7 @@ for (const file of fixtures) {
     if (fx.expect.epargne) await go('Epargne', () => scenarioEpargne(cfg, fx, tag));
     if (oldFormat) await go('OffreEpargne', () => scenarioOffreEpargne(cfg, fx, tag));
     if (cfg.name === 'téléphone clair') await go('RefaireConfig', () => scenarioRefaireConfig(cfg, fx, tag));
+    if (last && cfg.name !== 'tablette clair') await go('Patch3', () => scenarioPatch3(cfg, fx, tag));
     if (last) {
       await go('Demandes', () => scenarioDemandes(cfg, fx, tag));
       await go('Nouveautes', () => scenarioNouveautes(cfg, fx, tag));

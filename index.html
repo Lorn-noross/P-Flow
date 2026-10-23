@@ -209,8 +209,12 @@
             </div>
           </article>
           <article class="hero">
+            <div class="seg hero-mode" id="hero-mode" role="group" aria-label="Gros chiffre : compter le solde de ton compte ou non" hidden>
+              <button type="button" data-act="hero-mode" data-v="compte">Sur mon compte</button>
+              <button type="button" data-act="hero-mode" data-v="reste">Reste du mois</button>
+            </div>
             <div class="hero-top">
-              <p class="eyebrow">Reste du mois</p>
+              <p class="eyebrow" id="hero-label">Reste du mois</p>
               <button class="chip" data-act="today" id="back-today" hidden></button>
             </div>
             <p class="big" id="hero-amount">…</p>
@@ -467,18 +471,25 @@
       <label for="f-label" id="f-label-label">À quoi ça correspond</label>
       <input class="input" id="f-label" autocomplete="off" maxlength="80" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="f-suggest">
       <ul class="suggest" id="f-suggest" role="listbox" aria-label="Libellés déjà utilisés" hidden></ul>
+      <div class="acc-chips" id="f-accounts" role="group" aria-label="Tes comptes d'épargne" hidden></div>
     </div>
+    <label class="field" id="f-epstart-field" hidden><span>Nouveau compte : combien as-tu déjà dessus ? (facultatif)</span>
+      <div class="amount-wrap small"><input id="f-epstart" inputmode="decimal" placeholder="0,00" autocomplete="off" aria-label="Montant déjà sur ce compte, en euros"><span>€</span></div>
+    </label>
     <div class="field" id="f-freq-field">
-      <span class="field-label" id="f-freq-label">Revient</span>
+      <span class="field-label" id="f-freq-label">Fréquence</span>
       <div class="seg seg4" id="freq-seg" role="group" aria-labelledby="f-freq-label">
         <button type="button" data-f="once">Une fois</button>
-        <button type="button" data-f="mois">Chaque mois</button>
-        <button type="button" data-f="trimestre">Trimestre</button>
-        <button type="button" data-f="annee">Année</button>
+        <button type="button" data-f="mois">Mensuel</button>
+        <button type="button" data-f="trimestre">Trimestriel</button>
+        <button type="button" data-f="annee">Annuel</button>
       </div>
     </div>
-    <label class="field" id="f-date-field"><span id="f-date-label">Date</span><input class="input" id="f-date" type="date"></label>
-    <label class="field" id="f-start-field" hidden><span id="f-start-label">À partir de</span><select class="input" id="f-start"></select></label>
+    <div class="field" id="f-when-field">
+      <span class="field-label" id="f-when-label">Date</span>
+      <button type="button" class="input pick" id="f-when" aria-haspopup="dialog" aria-expanded="false" aria-labelledby="f-when-label f-when-txt"><span id="f-when-txt"></span><svg class="i"><use href="#i-mois"/></svg></button>
+      <input type="hidden" id="f-date"><input type="hidden" id="f-start">
+    </div>
     <label class="check" id="f-urssaf-row"><span>Soumis à l'URSSAF<small>Ton chiffre d'affaires. Pas la CAF, France Travail ou un salaire.</small></span><input type="checkbox" id="f-urssaf"></label>
     <p class="preview" id="f-preview" hidden></p>
     <p class="hint" id="f-hint" hidden></p>

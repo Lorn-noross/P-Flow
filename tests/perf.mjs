@@ -25,7 +25,8 @@ const server = createServer((req, res) => {
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const URL_APP = 'http://127.0.0.1:' + server.address().port + '/';
 const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH, args: (process.env.CHROME_ARGS || '--no-sandbox').split(' ') } : {});
-const fx = JSON.parse(readFileSync(join(ROOT, 'tests/fixtures/v0.1.2-beta.json'), 'utf8'));
+// Jeu de données le plus récent (patch 3 : avec un solde du compte, donc le calcul « Prévu sur ton compte »).
+const fx = JSON.parse(readFileSync(join(ROOT, 'tests/fixtures/v0.1.3-beta.json'), 'utf8'));
 const notes = (await import('../vite.config.js')).latestNotes().version;
 
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: 'fr-FR', timezoneId: 'Europe/Paris', colorScheme: 'dark' });
@@ -78,6 +79,16 @@ R.push(await measure('Glisser le doigt (mois suivant)', () => page.evaluate(() =
 R.push(await measure('Ouvrir la fenêtre d\'ajout', tap('.tabbar .fab')));
 R.push(await measure('Fermer la fenêtre d\'ajout', tap('#sheet-close')));
 R.push(await measure('Déplier la carte URSSAF', tap('#urssaf-line')));
+// Patch 3 : calendrier du mois (pilule du mois), bulle d'un jour, mois suivant dans le calendrier, calendrier de la date.
+R.push(await measure('Ouvrir le calendrier du mois', tap('#ctx .mtitle')));
+R.push(await measure('Toucher un jour (bulle)', tap('.pop .cal-d[data-d="20"]')));
+R.push(await measure('Calendrier : mois suivant', tap('.pop [data-mc="next"]')));
+R.push(await measure('Fermer le calendrier', () => page.keyboard.press('Escape')));
+R.push(await measure('Ouvrir l\'explication ⓘ', tap('#legend [data-act="cas-info"][data-k="urssaf"]')));
+await page.evaluate(() => document.querySelector('.tabbar .fab').click()); await page.waitForTimeout(600);
+R.push(await measure('Ouvrir le calendrier de la date', tap('#f-when')));
+R.push(await measure('Calendrier de la date : mois suivant', tap('.pop [data-c="next"]')));
+await page.keyboard.press('Escape'); await page.evaluate(() => document.getElementById('sheet-close').click()); await page.waitForTimeout(600);
 // Défilement du contenu sous les pilules floutées du haut et la barre du bas (le flou est recalculé à chaque image).
 const scrollTo = y => () => page.evaluate(y => { const y0 = scrollY, t0 = performance.now();
   const step = t => { const p = Math.min(1, (t - t0) / 600); scrollTo(0, y0 + (y - y0) * p); if (p < 1) requestAnimationFrame(step); }; requestAnimationFrame(step); }, y);
