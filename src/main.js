@@ -812,9 +812,10 @@ function obFinish() {
     // Patch 3 : un revenu fixe d'auto-entrepreneur peut être « soumis à l'URSSAF » (client régulier).
     const urssaf = type === 'revenu' && OB.pro && r.urssaf === true;
     const ref = doc(ucol(r.freq === 'mois' ? 'recurring' : 'periodiques'));
-    if (r.freq === 'mois') jobs.push(setDoc(ref, { type, label, amount, urssaf, start, end: null, createdAt: now + n++ }));
-    else jobs.push(setDoc(ref, { type, label, amount, urssaf, freq: r.freq, start, end: null, createdAt: now + n++ }));
-    if (r.jour) jobs.push(setDoc(doc(ucol('jours'), ref.id), { jour: r.jour, createdAt: now }));
+    const data = r.freq === 'mois' ? { type, label, amount, urssaf, start, end: null, createdAt: now + n++ } : { type, label, amount, urssaf, freq: r.freq, start, end: null, createdAt: now + n++ };
+    // Le fixe et son jour (patch 3) partent ensemble : jamais l'un sans l'autre.
+    if (r.jour) { const b = writeBatch(db); b.set(ref, data); b.set(doc(ucol('jours'), ref.id), { jour: r.jour, createdAt: now }); jobs.push(b.commit()); }
+    else jobs.push(setDoc(ref, data));
   };
   OB.rev.forEach(r => fixe('revenu', r));
   OB.dep.forEach(r => fixe('depense', r));
@@ -2144,7 +2145,8 @@ function addFixe(col, data, jour, msg) {
 function saveFixe(o, src, f, vals, cm, jour) {
   // Patch 3 : le jour du fixe (jours/{id}) suit le fixe ; un nouveau document créé en cours de route le reprend.
   const j = jour || jourOf(o.id);
-  const setJour = (b, id) => { if (j && (id !== o.id || j !== jourOf(o.id))) b.set(doc(ucol('jours'), id), { jour: j, createdAt: Date.now() }); };
+  // Fusion : un champ ajouté plus tard à `jours` par une version plus récente n'est jamais effacé.
+  const setJour = (b, id) => { if (j && (id !== o.id || j !== jourOf(o.id))) b.set(doc(ucol('jours'), id), id === o.id && jourOf(o.id) ? { jour: j } : { jour: j, createdAt: Date.now() }, { merge: true }); };
   const dst = vals.type === 'epargne' || f !== 'mois' ? 'periodiques' : 'recurring';
   const moved = dst !== src;
   const past = o.start < cm;
