@@ -679,3 +679,15 @@ button.cal-title:hover{background:var(--surface-2)}
 .day-bubble .btn{justify-self:start;margin-top:4px}
 .row.static{cursor:default}
 .row-ico.urs{color:var(--c-urssaf)}
+/* Solde du compte courant (patch 3, point 4) */
+.hero-sub b.neg{color:var(--neg)}
+.hero-sub .warn{color:var(--neg);font-weight:600}
+.hero-sub .link.sm{font-size:calc(13*var(--u));padding:6px 4px;min-height:32px}
+.sd-row{display:flex;align-items:center;gap:12px}
+.sd-row .amount-wrap{flex:1}
+.seg.sd-sign{flex:none;width:104px}
+.seg.sd-sign button{font-size:calc(20*var(--u));font-weight:700}
+.pt-list{display:grid;gap:10px}
+.pt-row{display:grid;gap:8px;padding:12px 14px;border-radius:18px;background:var(--surface-2);transition:opacity .25s}
+.pt-row.done{opacity:.55}
+.pt-row .btn[aria-pressed="true"]{background:var(--accent);color:#fff;border-color:transparent}

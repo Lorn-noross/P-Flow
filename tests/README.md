@@ -17,6 +17,7 @@ Pour chaque jeu de données de `fixtures/` (format d'une ancienne version, donn�
 - les mises à jour (navigateur) : bandeau « Recharger », intervalle, vérification manuelle ;
 - le premier démarrage guidé d'un nouveau compte (documents identiques à un ajout manuel) et « Refaire la configuration » (rien de supprimé) ;
 - patch 2 : épargne (soldes, dépôts, retraits, versements automatiques, désactivation sans perte), fixes trimestriels et annuels (échéances, modification en cours de route qui garde le cycle et les champs inconnus), proposition d'activer l'épargne aux anciens comptes, demandes d'accès (côté personne et côté administrateur), nouveautés affichées une seule fois, apparence propre à l'appareil, sous-pages des Réglages, glisser pour changer de mois ;
+- patch 3 (jeu `v0.1.3-beta`) : solde du compte courant (« Prévu sur ton compte le 31 », aujourd'hui, point le plus bas, nouveau solde à découvert avec le bouton −, historique intact), question « Déjà passée sur ton compte ? » (réponses rangées à part dans `pointages`, rien de nouveau dans `entries`), calendrier du mois (pastilles, bulle du jour), calendrier maison de la date, jour d'un fixe rangé à part (`jours`, rien de nouveau dans `recurring`), URSSAF retenue par libellé, « Arrêter » / « Supprimer aussi des mois passés », « Annuler » après une suppression (document remis à l'identique), comptes d'épargne en pilules avec solde de départ, revenus sans URSSAF sur leur propre ligne, revenus fixes repliables, mois à venir, aucune liste / date / couleur native dans la page ;
 - aucune erreur dans la console.
 
 L'appli est construite avec un faux Firebase en mémoire (`fakes/`, `vite.config.js`) et Internet est simulé (version publiée, bibliothèque Google, Google Drive) : aucun accès au vrai projet, aucune donnée réelle. Ces fichiers ne sont jamais inclus dans l'appli publiée.
@@ -39,7 +40,7 @@ Une partie seulement : `FX=0.1.2` (jeu de données), `CFG=PC` (appareil), `ONLY=
 node tests/perf.mjs            # processeur ralenti ×6 (vieux téléphone) ; --rate=4 pour ×4
 ```
 
-Mesure chaque image pendant les transitions (onglets, mois, glisser, fenêtre d'ajout, sous-pages, carte URSSAF) et pendant le défilement du contenu sous les pilules floutées. « Affichage » = calcul du nouvel écran avant le départ de l'animation ; « animation » = les images de l'animation elle-même, qui ne doivent pas dépasser 50 ms au ralenti ×6 (plus de 2 par animation = saccade).
+Mesure chaque image pendant les transitions (onglets, mois, glisser, fenêtre d'ajout, sous-pages, carte URSSAF ; patch 3 : calendrier du mois, bulle d'un jour, calendrier de la date, explication ⓘ), avec le jeu de données le plus récent, et pendant le défilement du contenu sous les pilules floutées. « Affichage » = calcul du nouvel écran avant le départ de l'animation ; « animation » = les images de l'animation elle-même, qui ne doivent pas dépasser 50 ms au ralenti ×6 (plus de 2 par animation = saccade).
 Captures d'écran : `tests/.out/` (ignoré par git).
 
 ## Quand le format des données change

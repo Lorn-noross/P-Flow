@@ -28,9 +28,11 @@ export function serverTimestamp() { return SERVER_TS; }
 
 const newId = () => 'gen' + (++ids);
 export function collection(db, ...parts) { return { type: 'collection', path: parts.join('/') }; }
+// Comme le vrai Firestore, une référence connaît son identifiant (`ref.id`), même créée sans identifiant.
+const ref = path => ({ type: 'doc', path, id: path.split('/').pop() });
 export function doc(base, ...parts) {
-  if (base && base.type === 'collection') return { type: 'doc', path: base.path + '/' + (parts[0] || newId()) };
-  return { type: 'doc', path: parts.join('/') };
+  if (base && base.type === 'collection') return ref(base.path + '/' + (parts[0] || newId()));
+  return ref(parts.join('/'));
 }
 export function where(field, op, value) { return { field, op, value }; }
 export function query(coll, ...filters) { return { type: 'query', path: coll.path, filters }; }
