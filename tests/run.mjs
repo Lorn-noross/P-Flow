@@ -1077,6 +1077,27 @@ async function scenarioPatch3(cfg, fx, tag) {
   check(await page.locator('#f-hint:visible').count() === 0 || !(await page.locator('#f-hint').innerText()).includes('nouveau montant'), 'pas de phrase « nouveau montant » sans changement');
   await page.click('#sheet-close'); await sheetClosed();
 
+  // 8b. Changer seulement le jour d'un fixe : jours/{id} mis à jour en fusion (champ inconnu gardé), le fixe ne bouge pas
+  await page.locator('#fix-list .row', { hasText: 'Aide' }).click(); await sheetOpen();
+  await page.click('#f-when');
+  await until(page, () => !!document.querySelector('.pop .cal-d[data-d="26"]'), null, 'calendrier du fixe Aide');
+  check((await page.locator('.pop .cal-title').innerText()).includes('Janvier 2026'), 'calendrier ouvert sur le mois de départ du fixe');
+  await page.click('.pop .cal-d[data-d="26"]');
+  check(!(await page.locator('#f-hint').innerText()).includes('départ passe'), 'même mois de départ : pas d\'avertissement');
+  await page.click('#f-save');
+  await until(page, k => (window.__PFLOW_DB__.dump()[k] || {}).jour === 26, U + 'jours/r3', 'jour du fixe changé (26)');
+  db = await dump(page);
+  check(db[U + 'jours/r3'].champFutur === 'jour à conserver' && db[U + 'jours/r3'].createdAt === fx.docs[U + 'jours/r3'].createdAt, 'jours/r3 : champ inconnu et date de création gardés');
+  check(JSON.stringify(db[U + 'recurring/r3']) === JSON.stringify(fx.docs[U + 'recurring/r3']), 'le fixe lui-même n\'a pas changé');
+  // Choisir un jour d'un autre mois change le départ : avertissement avant d'enregistrer
+  await page.locator('#fix-list .row', { hasText: 'Aide' }).click(); await sheetOpen();
+  await page.click('#f-when');
+  await until(page, () => !!document.querySelector('.pop [data-c="today"]'), null, 'calendrier rouvert');
+  await page.click('.pop [data-c="today"]');
+  await until(page, () => document.getElementById('f-hint').textContent.includes('départ passe de janvier 2026 à mars 2026'), null, 'avertissement : le départ change et les mois d\'avant ne compteront plus');
+  await page.click('#sheet-close'); await sheetClosed();
+  check(JSON.stringify((await dump(page))[U + 'recurring/r3']) === JSON.stringify(fx.docs[U + 'recurring/r3']), 'fermer sans enregistrer : rien ne change');
+
   // 9. Supprimer puis « Annuler » : remis à l'identique (champs inconnus compris)
   await page.locator('[data-act="view"][data-view="mois"]:visible').click();
   await page.locator('#lists .row', { hasText: 'Courses' }).click(); await sheetOpen();

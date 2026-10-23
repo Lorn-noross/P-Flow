@@ -550,6 +550,7 @@ function stopData() {
   S.unsubs.forEach(u => { try { u(); } catch (e) { /* ignoré */ } });
   S.unsubs = [];
   if (S.unsubEntries) { try { S.unsubEntries(); } catch (e) { /* ignoré */ } }
+  toastUndoFn = null; // « Annuler » ne doit jamais écrire dans un autre compte
   S.unsubEntries = null; S.entriesYear = null; S.entries = []; S.recurring = []; S.periodiques = []; S.epargne = []; S.demandes = []; S.jours = []; S.soldes = []; S.pointages = [];
   S.settings = null; S.allow = []; S.sub = null; S.justOnboarded = false; S.bubble = null;
   S.readOnly = false; S.settingsServer = false; $('#outdated').hidden = true; applyColors();
@@ -1219,7 +1220,7 @@ function renderEpCard(d, ok) {
 // Seul compte ce qui se passe APRÈS le dernier solde noté : opérations datées après lui, fixes à leur jour,
 // versements d'épargne, URSSAF à son échéance. Une opération datée avant ou le jour du solde est déjà dedans,
 // sauf si on a répondu « pas encore passée » (`pointages/{id de l'opération}` = { passee: false, … }) :
-// elle compte alors aujourd'hui.
+// elle compte alors aujourd'hui (ou le lendemain si le solde est daté d'aujourd'hui : elle n'y est pas encore).
 const addD = (d, k) => { const x = new Date(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10) + k); return x.getFullYear() + '-' + pad(x.getMonth() + 1) + '-' + pad(x.getDate()); };
 const dimOf = m => new Date(pYM(m).y, pYM(m).m, 0).getDate();
 const dShort = d => (+d.slice(8, 10) === 1 ? '1er' : +d.slice(8, 10)) + '\u00a0' + MONTHS[+d.slice(5, 7) - 1];
@@ -1241,7 +1242,7 @@ function soldeMoves(L, T) {
   const on = epOn();
   if (on) for (const e of S.epargne) if ((e.op === 'depot' || e.op === 'retrait') && DATE_RE.test(e.date || '')) op(e.id, e.date, (e.op === 'retrait' ? 1 : -1) * (Number(e.amount) || 0));
   const seen = new Set();
-  for (let m = addM(D0.slice(0, 7), -3); m <= T.slice(0, 7); m = addM(m, 1)) {
+  for (let m = soldeFrom(D0.slice(0, 7)); m <= T.slice(0, 7); m = addM(m, 1)) {
     if (m >= D0.slice(0, 7)) {
       for (const r of S.recurring) if (r.start && r.start <= m && (!r.end || r.end >= m)) put(fixeDate(r, m), (r.type === 'revenu' ? 1 : -1) * (Number(r.amount) || 0));
       for (const p of S.periodiques) {
@@ -1258,11 +1259,23 @@ function soldeMoves(L, T) {
   }
   return ev;
 }
+// Premier mois dont les opérations comptent après un solde noté en D0m : l'URSSAF du mois d'avant (ou du trimestre
+// qui le contient) se paie après lui.
+function soldeFrom(D0m) {
+  if (!isPro() || !S.settings) return D0m;
+  const p = addM(D0m, -1);
+  if (S.settings.periodicite !== 'trimestrielle') return p;
+  const { y, m } = pYM(p);
+  return ym(y, Math.floor((m - 1) / 3) * 3 + 1);
+}
 // Solde prévu jour par jour pour le mois m (depuis le dernier solde) ; null sans solde ou pour un mois d'avant.
 function soldeView(m) {
   const L = lastSolde(); if (!L) return null;
   const T = m + '-' + pad(dimOf(m));
   if (T < L.date) return null;
+  // Opérations chargées par année (+ octobre à décembre d'avant) : sans les mois depuis le solde (et ceux dont
+  // l'URSSAF se paie après lui), la prévision serait fausse. On ne l'affiche pas plutôt que de se tromper.
+  if (!entCovered(soldeFrom(L.date.slice(0, 7))) || !entCovered(m)) return null;
   const ev = soldeMoves(L, T), dates = Object.keys(ev).sort();
   let bal = Number(L.montant) || 0, i = 0;
   const at = d => { while (i < dates.length && dates[i] <= d) bal = r2(bal + ev[dates[i++]]); return bal; };
@@ -1904,7 +1917,7 @@ function guessUrssaf() {
   const v = g === null ? true : g;
   if ($('#f-urssaf').checked !== v) { $('#f-urssaf').checked = v; updatePreview(); }
 }
-// Phrases sous le formulaire d'un fixe. « Un nouveau montant… » seulement quand quelque chose qui compte a changé
+// Phrases sous le formulaire d'un fixe. « Ce changement compte à partir de… » seulement quand quelque chose qui compte a changé
 // (montant, type, URSSAF ou fréquence), pas dès qu'on ouvre le fixe pour le regarder (patch 3).
 function sheetHints() {
   const hint = $('#f-hint'), hints = [];
@@ -1921,6 +1934,12 @@ function sheetHints() {
       hints.push('Ce changement compte à partir de ' + mLabel(ns) + '. Les mois d\'avant gardent ' + eur(o.amount) + '.');
     }
     if (ended) hints.push('Ce fixe a une date de fin : pour changer sa fréquence, touche d\'abord « Reprendre ».');
+    // Le calendrier choisit le jour ET le mois de départ : prévenir si le mois de départ change (patch 3).
+    const ns = $('#f-start').value;
+    if (YM_RE.test(ns) && YM_RE.test(o.start || '') && ns !== o.start) {
+      hints.push(ns > o.start ? 'Attention : le départ passe de ' + mLabel(o.start) + ' à ' + mLabel(ns) + '. Ce fixe ne comptera plus de ' + mLabel(o.start) + ' à ' + mLabel(addM(ns, -1)) + '. Pour garder ces mois, choisis un jour en ' + mLabel(o.start) + '.'
+        : 'Le départ passe de ' + mLabel(o.start) + ' à ' + mLabel(ns) + ' : ce fixe comptera aussi les mois d\'avant.');
+    }
     if (hist && !ended) hints.push('« Arrêter » garde les mois passés comme ils sont. « Supprimer aussi des mois passés » le retire de tous les mois depuis ' + mLabel(o.start) + '.');
   }
   hint.hidden = !hints.length; hint.textContent = hints.join(' ');
@@ -2025,8 +2044,11 @@ form.addEventListener('submit', e => {
   if (blocked()) { closeSheet(); return; }
   const err = m => { $('#f-error').textContent = m; };
   const amount = parseAmount($('#f-amount').value);
-  const label = $('#f-label').value.trim().replace(/\s+/g, ' ');
+  let label = $('#f-label').value.trim().replace(/\s+/g, ' ');
   const once = F.freq === 'once', ep = F.type === 'epargne';
+  // Épargne : « Epargne » tapé pour le compte « Épargne » va sur ce compte (sinon un autre compte repartirait de 0).
+  const known = ep && label ? comptes().find(c => fold(c.label) === fold(label)) : null;
+  if (known && F.mode === 'new') label = known.label;
   const date = $('#f-date').value, startSel = $('#f-start').value;
   if (!(amount > 0 || (ep && F.op === 'solde' && amount === 0))) return err('Indique un montant supérieur à 0, par exemple 12,50.');
   if (!label) return err(ep ? 'Indique le compte, par exemple Livret A.' : 'Écris à quoi correspond ce montant.');
@@ -2038,17 +2060,20 @@ form.addEventListener('submit', e => {
   closeSheet();
   if (mode === 'new') {
     // Nouveau compte : ce qu'il y a déjà dessus devient un « J'ai actuellement » juste avant l'opération (patch 3).
-    const st = $('#f-epstart').value.trim(), stA = parseAmount(st);
-    if (ep && F.op !== 'solde' && st && stA >= 0 && !comptes().some(c => fold(c.label) === fold(label))) {
+    // Les deux écritures partent ensemble (writeBatch) : jamais le dépôt sans le solde de départ.
+    const st = $('#f-epstart').value.trim(), stA = parseAmount(st), pre = [];
+    if (ep && F.op !== 'solde' && st && stA >= 0 && !known) {
       const d0 = once ? date : TODAY; // versement automatique : ce qu'il y a dessus aujourd'hui
-      write(addDoc(ucol('epargne'), { op: 'solde', label, amount: stA, date: d0, month: d0.slice(0, 7), createdAt: Date.now() - 1 }));
+      pre.push([doc(ucol('epargne')), { op: 'solde', label, amount: stA, date: d0, month: d0.slice(0, 7), createdAt: Date.now() - 1 }]);
     }
     if (ep && once) {
-      const ref = doc(ucol('epargne'));
-      write(setDoc(ref, { op: F.op, label, amount, date, month, createdAt: Date.now() }), F.op === 'solde' ? 'Solde enregistré' : F.op === 'retrait' ? 'Retrait noté' : 'Mis de côté');
+      const ref = doc(ucol('epargne')), data = { op: F.op, label, amount, date, month, createdAt: Date.now() };
+      const msg = F.op === 'solde' ? 'Solde enregistré' : F.op === 'retrait' ? 'Retrait noté' : 'Mis de côté';
+      if (pre.length) { const b = writeBatch(db); pre.forEach(([r, d]) => b.set(r, d)); b.set(ref, data); write(b.commit(), msg); }
+      else write(setDoc(ref, data), msg);
       if (F.op !== 'solde' && epOn()) askPassed({ id: ref.id, op: F.op, label, amount, date, createdAt: Date.now() });
     }
-    else if (ep) addFixe('periodiques', { type: 'epargne', label, amount, urssaf: false, freq: f, start: month, end: null, createdAt: Date.now() }, jour, 'Versement automatique ajouté à partir de ' + mLabel(month));
+    else if (ep) addFixe('periodiques', { type: 'epargne', label, amount, urssaf: false, freq: f, start: month, end: null, createdAt: Date.now() }, jour, 'Versement automatique ajouté à partir de ' + mLabel(month), pre);
     else if (once) {
       const ref = doc(ucol('entries'));
       write(setDoc(ref, { type, label, amount, urssaf, date, month, createdAt: Date.now() }), (S.view === 'mois' && month !== S.month) ? 'Enregistré en ' + mLabel(month) : 'Enregistré');
@@ -2132,10 +2157,16 @@ function setPointage(id, passee) {
   write(setDoc(doc(ucol('pointages'), id), { passee, createdAt: Date.now() }, { merge: true }));
 }
 // Nouveau fixe (identifiant connu d'avance pour ranger son jour à part, collection `jours`, patch 3).
-function addFixe(col, data, jour, msg) {
-  const ref = doc(ucol(col));
-  if (jour) { const b = writeBatch(db); b.set(ref, data); b.set(doc(ucol('jours'), ref.id), { jour, createdAt: Date.now() }); write(b.commit(), msg); }
-  else write(setDoc(ref, data), msg);
+// pre : écritures liées envoyées avec (solde de départ d'un nouveau compte d'épargne).
+function addFixe(col, data, jour, msg, pre) {
+  const ref = doc(ucol(col)), linked = pre || [];
+  if (jour || linked.length) {
+    const b = writeBatch(db);
+    linked.forEach(([r, d]) => b.set(r, d));
+    b.set(ref, data);
+    if (jour) b.set(doc(ucol('jours'), ref.id), { jour, createdAt: Date.now() });
+    write(b.commit(), msg);
+  } else write(setDoc(ref, data), msg);
 }
 // Fixes (chaque mois → `recurring` ; trimestre, année et épargne automatique → `periodiques`).
 // Un changement de montant ou de fréquence en cours de route (mois de départ inchangé) garde le passé :

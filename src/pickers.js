@@ -1,7 +1,7 @@
 // Sélecteurs maison de P-Flow (patch 3) : calendrier, liste de choix et teinte, en verre, aux couleurs du thème.
 // Ils remplacent les fenêtres natives d'Android (sélecteur de date, liste <select>, sélecteur de couleur) :
 // voir CLAUDE.md, « Sous-interfaces aux couleurs de l'appli ».
-// Une seule fenêtre à la fois, posée au-dessus de l'élément touché (ou en dessous s'il n'y a pas la place).
+// Une seule fenêtre à la fois, posée sous l'élément touché (ou au-dessus s'il n'y a pas la place).
 // Elle se ferme en touchant à côté, avec Échap ou le bouton retour d'Android (closePop(), appelé par main.js).
 
 const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
@@ -24,7 +24,7 @@ function anim(el, frames, opts) {
 }
 
 /* ---------- la fenêtre ---------- */
-let P = null; // { scrim, box, anchor, onClose, keep }
+let P = null; // { scrim, box, anchor, onClose, width, below }
 export const popOpen = () => !!P;
 export function closePop(silent) {
   if (!P) return;
@@ -72,7 +72,10 @@ function openPop(anchor, html, o) {
   box.innerHTML = html;
   document.body.append(scrim, box);
   P = { scrim, box, anchor, onClose: o.onClose, width: o.width };
-  scrim.addEventListener('pointerdown', e => { e.preventDefault(); closePop(); });
+  // Fermeture au « click » (et pas dès l'appui) : le toucher entier reste sur le voile, rien ne passe à travers
+  // vers l'élément du dessous, même quand le voile disparaît sans animation (effets réduits).
+  scrim.addEventListener('pointerdown', e => e.preventDefault());
+  scrim.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); closePop(); });
   document.addEventListener('keydown', onKey, true);
   window.addEventListener('resize', onResize);
   if (anchor && anchor.setAttribute) anchor.setAttribute('aria-expanded', 'true');
@@ -109,7 +112,8 @@ export function openChoice({ anchor, options, value, label, onPick, width }) {
 
 /* ---------- calendrier ---------- */
 // mode 'date' : renvoie 'AAAA-MM-JJ' ; mode 'month' : renvoie 'AAAA-MM'.
-// value : 'AAAA-MM-JJ' ou 'AAAA-MM' ; dots(y, m) : facultatif, { jour: ['cls', …] } pour des pastilles.
+// value : 'AAAA-MM-JJ' ou 'AAAA-MM' ; min / max : 'AAAA-MM-JJ' facultatifs (jours hors limites grisés) ;
+// note : petite phrase facultative en bas du calendrier.
 export function openCalendar({ anchor, value, mode, label, onPick, min, max, note }) {
   const today = cfg.today();
   const T = { y: today.getFullYear(), m: today.getMonth() + 1, d: today.getDate() };
