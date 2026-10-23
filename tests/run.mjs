@@ -638,7 +638,7 @@ const hero = page => page.locator('#hero-amount').innerText().then(clean);
 const waitHero = (page, v, label) => until(page, x => document.getElementById('hero-amount').textContent.replace(/[\s  ]/g, '').replace(/−/g, '-') === x, eur(v), label);
 // Reste du mois lu dans la cascade (le gros chiffre peut être « Prévu sur ton compte » depuis le patch 3).
 const reste = page => page.locator('#legend .tot dd').innerText().then(clean);
-const waitReste = (page, v, label) => until(page, x => { const d = document.querySelector('#legend .tot dd'); return !!d && d.textContent.replace(/[\s  ]/g, '').replace(/−/g, '-') === x; }, eur(v), label);
+const waitReste = (page, v, label) => until(page, ([x, neg]) => { const r = document.querySelector('#legend .tot'); if (!r) return false; const d = r.querySelector('dd').textContent.replace(/[\s\u00a0\u202f]/g, ''); return d === x && r.querySelector('dt').textContent.includes('manque') === neg; }, [eur(Math.abs(v)), v < 0], label); // négatif : ligne « Il manque », montant sans signe
 
 // Épargne et fixes trimestriels / annuels (jeux de données au nouveau format).
 async function scenarioEpargne(cfg, fx, tag) {
