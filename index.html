@@ -467,7 +467,11 @@
       <label for="f-label" id="f-label-label">À quoi ça correspond</label>
       <input class="input" id="f-label" autocomplete="off" maxlength="80" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="f-suggest">
       <ul class="suggest" id="f-suggest" role="listbox" aria-label="Libellés déjà utilisés" hidden></ul>
+      <div class="acc-chips" id="f-accounts" role="group" aria-label="Tes comptes d'épargne" hidden></div>
     </div>
+    <label class="field" id="f-epstart-field" hidden><span>Nouveau compte : combien as-tu déjà dessus ? (facultatif)</span>
+      <div class="amount-wrap small"><input id="f-epstart" inputmode="decimal" placeholder="0,00" autocomplete="off" aria-label="Montant déjà sur ce compte, en euros"><span>€</span></div>
+    </label>
     <div class="field" id="f-freq-field">
       <span class="field-label" id="f-freq-label">Fréquence</span>
       <div class="seg seg4" id="freq-seg" role="group" aria-labelledby="f-freq-label">

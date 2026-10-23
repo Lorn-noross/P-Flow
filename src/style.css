@@ -604,3 +604,17 @@ body:not(.native) .native-only{display:none!important}
 .ob-row .icon-btn{width:40px;height:40px;color:var(--muted)}
 .ob-row label{display:grid;gap:4px;font-size:calc(12*var(--u));color:var(--muted)}
 .ob-done{font-size:calc(13.5*var(--u));color:var(--muted)}
+/* Patch 3 : en-tête « Dépenses ponctuelles » sur une ligne au téléphone (le bouton de tri garde son icône). */
+@media (max-width:440px){.toggle-mini .tm-t{display:none}.group-head h3{white-space:nowrap}}
+/* Patch 3 : comptes d'épargne en pilules, explications de l'épargne */
+.acc-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.acc-chips button{height:34px;padding:0 13px;border-radius:999px;background:var(--surface-2);border:1px solid var(--glass-line);font-size:calc(13*var(--u));font-weight:600;color:var(--ink);transition:transform .15s var(--ease)}
+.acc-chips button.new{color:var(--accent)}
+.acc-chips button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.amount-wrap.small input{font-size:calc(24*var(--u))}
+.amount-wrap.small span{font-size:calc(18*var(--u))}
+.ep-explain{font-size:calc(12.5*var(--u));color:var(--muted);margin:2px 0 6px;line-height:1.45}
+.group-note{margin:0 8px 6px;font-size:calc(13*var(--u));color:var(--muted)}
+.group-note b{color:var(--ink);font-family:var(--f-data);font-weight:500}
+td small.ep-mv{display:block;font-size:calc(10.5*var(--u));color:var(--muted)}
+th small{display:block;font-size:calc(10*var(--u));font-weight:500;text-transform:none;letter-spacing:0}

@@ -1087,7 +1087,7 @@ function renderMois() {
       (S.showFixedRev ? revR.map(i => rowHtml(i, d.rate)).join('') : '') + '</section>';
   }
   h += '<section class="group"><div class="group-head"><h3>Dépenses ponctuelles</h3><span class="gh-tools">' +
-    (depE.length > 1 ? '<button class="toggle-mini" data-act="group-toggle" aria-pressed="' + S.grouped + '" title="Regrouper par libellé">' + ico(S.grouped ? 'group' : 'list') + (S.grouped ? 'Par libellé' : 'Par date') + '</button>' : '') +
+    (depE.length > 1 ? '<button class="toggle-mini" data-act="group-toggle" aria-pressed="' + S.grouped + '" title="Regrouper par libellé" aria-label="' + (S.grouped ? 'Triées par libellé' : 'Triées par date') + '">' + ico(S.grouped ? 'group' : 'list') + '<span class="tm-t">' + (S.grouped ? 'Par libellé' : 'Par date') + '</span></button>' : '') +
     '<span class="sum">' + (depE.length ? MINUS + eur(sumOf(depE)) : '') + '</span></span></div>' +
     (depE.length ? (S.grouped ? groupedHtml(depE, d.rate) : depE.map(i => rowHtml(i, d.rate)).join('')) : '<p class="empty">Aucune dépense notée. Ajoute-la avec <b>+</b> : tu écris toi-même à quoi elle correspond.</p>') + '</section>';
   if (depR.length) {
@@ -1095,7 +1095,9 @@ function renderMois() {
       (S.showFixed ? depR.map(i => rowHtml(i, d.rate)).join('') : '') + '</section>';
   }
   if (on && epI.length) {
-    h += '<section class="group"><div class="group-head"><h3>Épargne du mois</h3><span class="sum">' + (d.ep ? (d.ep > 0 ? MINUS : '+') + eur(Math.abs(d.ep)) : '') + '</span></div>' + epI.map(i => rowHtml(i, d.rate)).join('') + '</section>';
+    const epTot = r2(comptes(m).reduce((a, c) => a + c.solde, 0));
+    h += '<section class="group"><div class="group-head"><h3>Épargne du mois</h3><span class="sum">' + (d.ep ? (d.ep > 0 ? MINUS : '+') + eur(Math.abs(d.ep)) : '') + '</span></div>' +
+      '<p class="group-note">Total sur tes comptes' + esc(m === CUR ? '' : ' ' + (m < CUR ? 'à la fin ' : 'prévu à la fin ') + deMois(pYM(m).m - 1)) + ' : <b>' + esc(eur(epTot)) + '</b></p>' + epI.map(i => rowHtml(i, d.rate)).join('') + '</section>';
   }
   lists.innerHTML = h;
 }
@@ -1133,6 +1135,7 @@ function renderEpCard(d, ok) {
   const when = epWhen(d.m);
   const mline = [d.epIn ? 'mis de côté ' + eur(d.epIn) : '', d.epOut ? 'repris ' + eur(d.epOut) : ''].filter(Boolean).join(' · ');
   $('#ep-card').innerHTML = '<div class="ep-head"><h3>Épargne' + (when ? ' <span class="ep-when">' + esc(when) + '</span>' : '') + '</h3><span class="ep-total">' + (ok ? eur(total) : '…') + '</span></div>' +
+    '<p class="ep-explain">Total de tes comptes à la fin du mois : le dernier montant noté avec « J\'ai actuellement », plus ce que tu as mis de côté, moins ce que tu as repris.</p>' +
     (mline ? '<p class="ep-month">En ' + esc(mo) + ' : ' + esc(mline) + '</p>' : '') +
     (cs.length ? '<div>' + cs.map(c => '<button class="row" data-act="compte-open" data-k="' + esc(c.key) + '"><span class="row-ico ep">' + ico('epargne') + '</span><span class="row-main"><span class="row-label">' + esc(c.label) + '</span>' +
       (c.autos.length ? '<span class="row-meta">' + esc(c.autos.map(p => eur(p.amount) + ' ' + FREQ_LABEL[p.freq]).join(' · ')) + '</span>' : '') + '</span><span class="row-amt">' + eur(c.solde) + '</span></button>').join('') + '</div>'
@@ -1210,7 +1213,7 @@ function renderAnnee() {
     '<p class="big ' + (ok ? (neg ? 'neg' : 'pos') : '') + '">' + (ok ? eur(Math.abs(T.reste)) : '…') + '</p>' +
     '<p class="hero-sub"><span>' + (!ok ? 'Chargement…' : n === 0 ? 'L\'année ' + y + ' n\'a pas encore commencé.' : 'soit <b>' + esc(eur(yd.avg)) + '</b> par mois en moyenne, sur ' + n + ' mois') + '</span></p>' +
     '<div class="minis">' + (pro ? mini('s-brut', 'Revenus bruts', T.base) + mini('s-urssaf', 'URSSAF', T.urssaf) + (T.brut - T.base > 0.004 ? mini('s-autres', 'Sans URSSAF', r2(T.brut - T.base)) : '') + mini('s-net', 'Revenus nets', T.net) : mini('s-net', 'Revenus', T.brut)) +
-    mini('s-dep', 'Dépenses', T.dep) + (on ? mini('s-ep', 'Épargne', T.ep) : '') + '</div>';
+    mini('s-dep', 'Dépenses', T.dep) + (on ? mini('s-ep', 'Mis de côté', T.ep) + mini('s-ep', 'Total épargné', yd.n ? r2(comptes(yd.counted[yd.n - 1].m).reduce((a, c) => a + c.solde, 0)) : 0) : '') + '</div>';
   $('#y-period').textContent = !ok || n === 0 ? '' : n === 12 ? 'Année ' + y + ' complète.' : 'De janvier à ' + MONTHS[n - 1] + ' ' + y + '. Les mois suivants sont des prévisions (fixes seulement), en pâle.';
   $('#chart-legend').innerHTML = '<span><i class="sw s-reste"></i>Reste</span><span><i class="sw" style="background:var(--neg)"></i>Manque</span><span><i class="dash"></i>Dépenses moy. ' + (ok ? esc(eur0(yd.avgDep)) : '') + '</span>';
   lastChartW = 0; renderChart();
@@ -1224,13 +1227,16 @@ let yearLater = 0;
 function renderAnneeBottom(yd, ok, pro, on) {
   const y = yd.months[0].m.slice(0, 4), T = yd.T;
   let rows = '';
+  // Patch 3 : colonne Épargne = total sur les comptes à la fin du mois, avec le mouvement du mois en petit.
+  const epTot = m => r2(comptes(m).reduce((a, c) => a + c.solde, 0));
+  const epCell = d => '<td>' + n0(epTot(d.m)) + (d.ep ? '<small class="ep-mv">' + (d.ep > 0 ? '+' : MINUS) + NUM0.format(Math.abs(Math.round(d.ep))) + '</small>' : '') + '</td>';
   for (const d of yd.months) {
     const cls = ['go', d.fut ? 'fut' : '', d.now ? 'now' : ''].join(' ');
     rows += '<tr class="' + cls + '" data-act="goto-month" data-month="' + d.m + '"><td><button class="cell-btn" data-act="goto-month" data-month="' + d.m + '">' + cap(MONTHS[pYM(d.m).m - 1]) + '</button>' + (d.fut ? '<small class="prev-l">prévision</small>' : '') + '</td>' +
-      '<td>' + n0(d.net) + '</td><td>' + n0(d.dep) + '</td>' + (on ? '<td>' + n0(d.ep) + '</td>' : '') + '<td class="' + (d.fut ? '' : (d.reste < 0 ? 'neg' : 'pos')) + '">' + n0(d.reste) + '</td></tr>';
+      '<td>' + n0(d.net) + '</td><td>' + n0(d.dep) + '</td>' + (on ? epCell(d) : '') + '<td class="' + (d.fut ? '' : (d.reste < 0 ? 'neg' : 'pos')) + '">' + n0(d.reste) + '</td></tr>';
   }
-  $('#y-table').innerHTML = ok ? '<table><caption>Montants en euros, arrondis</caption><thead><tr><th>Mois</th><th>' + (pro ? 'Nets' : 'Revenus') + '</th><th>Dépenses</th>' + (on ? '<th>Épargne</th>' : '') + '<th>Reste</th></tr></thead><tbody>' + rows + '</tbody>' +
-    '<tfoot><tr><td>Total</td><td>' + n0(T.net) + '</td><td>' + n0(T.dep) + '</td>' + (on ? '<td>' + n0(T.ep) + '</td>' : '') + '<td class="' + (T.reste < 0 ? 'neg' : 'pos') + '">' + n0(T.reste) + '</td></tr></tfoot></table>' : '<p class="empty">Chargement…</p>';
+  $('#y-table').innerHTML = ok ? '<table><caption>Montants en euros, arrondis</caption><thead><tr><th>Mois</th><th>' + (pro ? 'Nets' : 'Revenus') + '</th><th>Dépenses</th>' + (on ? '<th>Épargne<small>total</small></th>' : '') + '<th>Reste</th></tr></thead><tbody>' + rows + '</tbody>' +
+    '<tfoot><tr><td>Total</td><td>' + n0(T.net) + '</td><td>' + n0(T.dep) + '</td>' + (on ? '<td>' + (T.ep < -0.5 ? MINUS : '+') + NUM0.format(Math.abs(Math.round(T.ep))) + '<small class="ep-mv">sur l\'année</small></td>' : '') + '<td class="' + (T.reste < 0 ? 'neg' : 'pos') + '">' + n0(T.reste) + '</td></tr></tfoot></table>' : '<p class="empty">Chargement…</p>';
   // Où part l'argent : 6 premiers libellés + « Autres », en % du total des dépenses.
   const TOPN = 6, top = yd.top.slice(0, TOPN), rest = yd.top.slice(TOPN), tot = T.dep || 1;
   const others = rest.length ? { k: '__autres', label: 'Autres', total: rest.reduce((a, c) => a + c.total, 0), n: rest.length } : null;
@@ -1299,7 +1305,7 @@ function showBubble(i) {
   hideBubble(); S.bubble = i;
   const g = $('#chart .bar-g[data-i="' + i + '"]'); if (g) g.classList.add('sel');
   const l = (k, v) => '<div class="l"><span>' + k + '</span><span>' + eur(v) + '</span></div>';
-  b.innerHTML = '<b>' + esc(cap(mLabel(d.m))) + (d.fut ? ' · prévision' : '') + '</b>' + l(isPro() ? 'Revenus nets' : 'Revenus', d.net) + l('Dépenses', d.dep) + (on ? l('Épargne', d.ep) : '') + l(d.reste < 0 ? 'Il manque' : 'Reste', Math.abs(d.reste)) +
+  b.innerHTML = '<b>' + esc(cap(mLabel(d.m))) + (d.fut ? ' · prévision' : '') + '</b>' + l(isPro() ? 'Revenus nets' : 'Revenus', d.net) + l('Dépenses', d.dep) + (on ? l('Mis de côté', d.ep) + l('Total épargné', r2(comptes(d.m).reduce((a, c) => a + c.solde, 0))) : '') + l(d.reste < 0 ? 'Il manque' : 'Reste', Math.abs(d.reste)) +
     '<button class="link" data-act="goto-month" data-month="' + d.m + '">Voir le mois</button>';
   b.hidden = false;
   const wrap = $('.chart-wrap'), bw = b.offsetWidth, bh = b.offsetHeight, W = wrap.clientWidth;
@@ -1579,7 +1585,7 @@ function openSheet(o) {
     F.orig = null;
     F.type = o.type === 'epargne' && !epOn() ? 'depense' : (o.type || 'depense');
     F.op = 'depot'; F.freq = o.rec ? 'mois' : 'once';
-    $('#f-amount').value = ''; $('#f-label').value = '';
+    $('#f-amount').value = ''; $('#f-label').value = ''; $('#f-epstart').value = '';
     $('#f-date').value = F.ctx === CUR ? TODAY : F.ctx + '-01';
     $('#f-urssaf').checked = true;
   } else {
@@ -1637,6 +1643,7 @@ function syncSheet() {
   $('#f-label').placeholder = ep ? 'Livret A, PEL, tirelire…' : rev ? 'Salaire, facture client, CAF…' : 'Loyer, courses, plein d\'essence…';
   $('#f-amount-label').textContent = ep && F.op === 'solde' ? 'Montant actuellement sur le compte' : 'Montant';
   $('#f-urssaf-row').hidden = !rev || !isPro();
+  accountsUi();
   $('#sheet-title').textContent = isNew ? (ep ? 'Épargne' : once ? 'Nouvelle opération' : 'Nouveau fixe')
     : fixe ? (ep ? 'Modifier le versement' : 'Modifier le fixe') : F.mode === 'edit-ep' ? 'Modifier l\'épargne' : 'Modifier';
   // Patch 3 : un fixe déjà compté dans des mois passés s'arrête (le passé ne change pas) ; le supprimer le retire
@@ -1692,6 +1699,25 @@ function sheetHints() {
   }
   hint.hidden = !hints.length; hint.textContent = hints.join(' ');
 }
+// Patch 3 : comptes d'épargne existants en pilules (une faute de frappe créait un autre compte qui repartait de 0).
+// Un nom qui n'est pas encore un compte = nouveau compte : on propose de noter ce qu'il y a déjà dessus.
+function accountsUi() {
+  const box = $('#f-accounts'), ep = F.type === 'epargne', field = $('#f-epstart-field');
+  if (!ep) { box.hidden = true; field.hidden = true; return; }
+  const cs = comptes().map(c => c.label).sort((a, b) => a.localeCompare(b, 'fr'));
+  const cur = fold($('#f-label').value);
+  const known = cs.some(l => fold(l) === cur);
+  box.innerHTML = cs.map(l => '<button type="button" data-acc="' + esc(l) + '" aria-pressed="' + (fold(l) === cur) + '">' + esc(l) + '</button>').join('') +
+    '<button type="button" class="new" data-acc="" aria-pressed="' + (!!cur && !known) + '">+ Nouveau compte</button>';
+  box.hidden = false;
+  field.hidden = !(F.mode === 'new' && F.op !== 'solde' && cur && !known);
+}
+$('#f-accounts').addEventListener('click', e => {
+  const b = e.target.closest('button[data-acc]'); if (!b) return;
+  const lab = $('#f-label');
+  lab.value = b.dataset.acc; accountsUi();
+  if (!b.dataset.acc) lab.focus();
+});
 function cycleTxt(start, freq) {
   if (freq === 'annee') return 'chaque ' + MONTHS[pYM(start).m - 1];
   if (freq !== 'trimestre') return '';
@@ -1746,6 +1772,12 @@ form.addEventListener('submit', e => {
   const month = once ? date.slice(0, 7) : startSel;
   closeSheet();
   if (mode === 'new') {
+    // Nouveau compte : ce qu'il y a déjà dessus devient un « J'ai actuellement » juste avant l'opération (patch 3).
+    const st = $('#f-epstart').value.trim(), stA = parseAmount(st);
+    if (ep && F.op !== 'solde' && st && stA >= 0 && !comptes().some(c => fold(c.label) === fold(label))) {
+      const d0 = once ? date : (TODAY < month + '-01' ? TODAY : month + '-01');
+      write(addDoc(ucol('epargne'), { op: 'solde', label, amount: stA, date: d0, month: d0.slice(0, 7), createdAt: Date.now() - 1 }));
+    }
     if (ep && once) write(addDoc(ucol('epargne'), { op: F.op, label, amount, date, month, createdAt: Date.now() }), F.op === 'solde' ? 'Solde enregistré' : F.op === 'retrait' ? 'Retrait noté' : 'Mis de côté');
     else if (ep) write(addDoc(ucol('periodiques'), { type: 'epargne', label, amount, urssaf: false, freq: f, start: month, end: null, createdAt: Date.now() }), 'Versement automatique ajouté à partir de ' + mLabel(month));
     else if (once) write(addDoc(ucol('entries'), { type, label, amount, urssaf, date, month, createdAt: Date.now() }), (S.view === 'mois' && month !== S.month) ? 'Enregistré en ' + mLabel(month) : 'Enregistré');
@@ -1832,6 +1864,7 @@ function labelPool(type) {
   return Array.from(m.values()).sort((a, b) => b.n - a.n || b.t - a.t);
 }
 function suggest() {
+  if (F.type === 'epargne') { closeSuggest(); accountsUi(); return; } // les comptes sont en pilules (patch 3)
   const q = fold(lab.value), pool = labelPool(F.type);
   let list;
   if (!q) list = pool.slice(0, 5);
