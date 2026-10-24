@@ -1,6 +1,7 @@
 /* P-Flow : style inspiré de Revolut (patch 2).
    - Fond en dégradé fixe (peint une seule fois), gros montant centré, cartes très arrondies.
-   - Barre de navigation flottante en pilule et pilules du haut : seuls éléments floutés (jamais les listes).
+   - Flou seulement sur la barre de navigation en pilule, les pilules du haut, les fenêtres maison en verre
+     (.pop), la bulle du graphique et le message de confirmation (jamais les listes ni les cartes).
    - Mouvements sur transform / opacity uniquement (src/main.js) ; ailleurs, seulement de courts fondus de
      couleur (pas de recalcul de la mise en page). Tout est coupé par « Effets réduits » et par le réglage
      système « réduire les animations ».
@@ -143,7 +144,7 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
 .ctx .back svg.i{width:22px;height:22px;stroke-width:2.2}
 .pill .icon-btn{border-radius:50%}
 .icon-btn{width:40px;height:40px;flex:none;border-radius:14px;display:grid;place-items:center;color:var(--ink)}
-.icon-btn:hover{background:var(--surface-2)}
+@media (hover:hover){.icon-btn:hover{background:var(--surface-2)}}
 
 .sync{display:inline-flex;align-items:center;gap:8px;font-size:calc(12.5*var(--u));color:var(--muted);white-space:nowrap}
 .sync svg.i{width:22px;height:22px;transition:color .3s}
@@ -190,7 +191,7 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
 .side-add{width:100%}
 .nav{display:grid;gap:4px}
 .nav button{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:14px;color:var(--muted);font-weight:550;text-align:left}
-.nav button:hover{background:var(--surface-2);color:var(--ink)}
+@media (hover:hover){.nav button:hover{background:var(--surface-2);color:var(--ink)}}
 .nav button[aria-current="page"]{background:var(--accent-soft);color:var(--accent)}
 .side .sync{margin-top:auto;padding-left:8px}
 
@@ -205,13 +206,16 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
 .btn svg.i{width:18px;height:18px}
 .btn.primary{background:var(--accent);color:var(--accent-ink)}
 .btn.ghost{background:var(--surface-2);color:var(--ink)}
-.btn.ghost:hover{background:var(--surface-3)}
+@media (hover:hover){.btn.ghost:hover{background:var(--surface-3)}}
 .screen .btn.ghost{background:var(--surface);border:1px solid var(--line)}
 .btn.danger{color:var(--neg)}
 .btn.danger.armed{background:var(--neg);color:#fff}
 .btn:active,.row:active,.chip:active,.quick button:active .qi,.set-list button:active{transform:scale(.97)}
 .link{color:var(--accent);font-weight:650;font-size:calc(14*var(--u))}
-.link:hover{text-decoration:underline}
+/* Patch 4 : survols seulement avec une souris (au doigt, le survol reste « collé » après un toucher). */
+@media (hover:hover){.link:hover{text-decoration:underline}}
+.link:disabled{opacity:.45;cursor:not-allowed;text-decoration:none}
+.btn:disabled{opacity:.45;cursor:not-allowed}
 .chip{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 13px;border-radius:999px;background:var(--surface);border:1px solid var(--line);font-size:calc(13*var(--u));font-weight:600;color:var(--accent);transition:transform .15s var(--ease)}
 .hint{font-size:calc(13*var(--u));color:var(--muted)}
 .field-label{font-size:calc(13*var(--u));color:var(--muted);font-weight:500}
@@ -287,7 +291,12 @@ body:not(.ep-on) .ep-only{display:none!important}
 
 .offer{display:flex;gap:14px;align-items:flex-start}
 .offer-ico{width:44px;height:44px;border-radius:14px;background:var(--surface-2);background:color-mix(in srgb,var(--c-ep) 16%,transparent);color:var(--c-ep);display:grid;place-items:center;flex:none}
-.ep-card{display:grid;gap:10px}
+.ep-card,.fin-card{display:grid;gap:10px}
+/* Patch 4 : « Fin du mois » (objectif, épargne possible) et « URSSAF payée ? » : mêmes éléments que la carte Épargne et l'offre d'épargne. */
+.fin-ep{display:grid;gap:6px;padding:0 8px}
+.fin-ep b{color:var(--ink);font-weight:600}
+.fin-ep .neg,.fin-ep .neg b{color:var(--neg)}
+.offer-ico.urs{background:color-mix(in srgb,var(--c-urssaf) 16%,transparent);color:var(--c-urssaf)}
 .ep-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
 .ep-total{font-family:var(--f-display);font-size:calc(24*var(--u));font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .ep-month{font-size:calc(13*var(--u));color:var(--muted)}
@@ -305,7 +314,7 @@ body:not(.ep-on) .ep-only{display:none!important}
 .toggle-mini svg.i{width:14px;height:14px}
 .toggle-mini[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent)}
 .row{display:flex;width:100%;text-align:left;align-items:center;justify-content:space-between;gap:12px;padding:11px 8px;border-radius:14px;transition:transform .15s var(--ease),background-color .15s}
-.row:hover{background:var(--surface-2)}
+@media (hover:hover){.row:hover{background:var(--surface-2)}}
 .row-ico{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--surface-2);color:var(--muted)}
 .row-ico svg.i{width:18px;height:18px}
 .row-ico.in{color:var(--pos);background:var(--pos-soft)}
@@ -354,7 +363,8 @@ td .prev-l{display:block;font-size:calc(11*var(--u));color:var(--accent);font-we
 #chart svg{display:block;overflow:visible}
 .b-pos{fill:var(--c-reste)} .b-neg{fill:var(--neg)} .b-hit{fill:transparent}
 .bar-g{cursor:pointer}
-.bar-g.sel .b-hit,.bar-g:hover .b-hit{fill:var(--surface-2)}
+.bar-g.sel .b-hit{fill:var(--surface-2)}
+@media (hover:hover){.bar-g:hover .b-hit{fill:var(--surface-2)}}
 .bar-g.fut .b-pos,.bar-g.fut .b-neg{fill-opacity:.32}
 .avg-line{stroke:var(--c-dep);stroke-width:1.6;stroke-dasharray:5 4;fill:none}
 .gl{stroke:var(--line);stroke-width:1} .gl0{stroke:var(--muted);stroke-width:1;opacity:.7}
@@ -385,7 +395,7 @@ th:first-child,td:first-child{text-align:left;padding-left:4px}
 td:first-child{font-family:var(--f-body);font-size:calc(14*var(--u))}
 td .tag{margin-left:4px}
 tr.go{cursor:pointer}
-tr.go:hover td{background:var(--surface-2)}
+@media (hover:hover){tr.go:hover td{background:var(--surface-2)}}
 tr.fut td{color:var(--muted)}
 tr.now td:first-child{font-weight:700}
 td.pos{color:var(--c-reste)} td.neg{color:var(--neg)}
@@ -394,7 +404,7 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
 .top-list{display:grid;margin-top:8px}
 .top-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;padding:10px 4px;border-bottom:1px solid var(--line);width:100%;text-align:left;border-radius:10px}
 .top-row:last-child{border-bottom:0}
-.top-row:hover{background:var(--surface-2)}
+@media (hover:hover){.top-row:hover{background:var(--surface-2)}}
 .top-row .l{font-weight:580;overflow-wrap:anywhere}
 .top-row .l small{color:var(--muted);font-weight:500;margin-left:6px}
 .top-row .a{font-family:var(--f-data);font-size:calc(13.5*var(--u));font-variant-numeric:tabular-nums}
@@ -418,9 +428,9 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
 @media (min-width:900px){.set-home,.set-sub{margin-inline:0}}
 .set-list{padding:6px}
 .set-list button{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:11px 10px;border-radius:16px;transition:transform .15s var(--ease),background-color .15s}
-.set-list button:hover{background:var(--surface-2)}
+@media (hover:hover){.set-list button:hover{background:var(--surface-2)}}
 .set-list button+button{box-shadow:0 -1px 0 var(--line)}
-.set-list button:hover+button,.set-list button+button:hover{box-shadow:none}
+@media (hover:hover){.set-list button:hover+button,.set-list button+button:hover{box-shadow:none}}
 .si{width:38px;height:38px;border-radius:12px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;flex:none}
 .sl{flex:1;min-width:0;display:grid;gap:1px}
 .sl b{font-weight:620}
@@ -430,7 +440,7 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
 .field>span,.field>label{font-size:calc(13*var(--u));color:var(--muted);font-weight:500}
 .colors{display:grid;gap:2px}
 .color-head{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:8px 4px;text-align:left;border-radius:12px;font-weight:560}
-.color-head:hover{background:var(--surface-2)}
+@media (hover:hover){.color-head:hover{background:var(--surface-2)}}
 .color-head .sw{width:18px;height:18px;border-radius:6px}
 .color-head small{margin-left:auto;color:var(--muted);font-size:calc(12.5*var(--u));font-weight:400}
 .color-head .chev{width:16px;height:16px;color:var(--muted);transition:transform .25s var(--ease)}
@@ -467,7 +477,8 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
 /* suggestions de libellés : dans la fenêtre, sous le champ (jamais par-dessus le clavier) */
 .suggest{list-style:none;margin:0;padding:4px;border:1px solid var(--line);border-radius:14px;background:var(--surface);display:grid;gap:2px}
 .suggest li{min-height:44px;padding:8px 12px;display:flex;align-items:center;border-radius:10px;cursor:pointer;font-weight:500;overflow-wrap:anywhere}
-.suggest li:hover,.suggest li.on{background:var(--surface-2)}
+.suggest li.on{background:var(--surface-2)}
+@media (hover:hover){.suggest li:hover{background:var(--surface-2)}}
 
 /* ---------- fenêtres (ajout, panneau) ---------- */
 .backdrop{position:fixed;inset:var(--kb-top,0px) 0 var(--kb,0px);z-index:20;background:var(--scrim);display:flex;align-items:flex-end;justify-content:center}
@@ -536,7 +547,7 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
 .screen-card h2{font-family:var(--f-display);font-size:calc(24*var(--u));font-weight:700;letter-spacing:-.02em}
 .btn.block{width:100%}
 .btn.google{background:var(--surface);border:1px solid var(--line);color:var(--ink)}
-.btn.google:hover{background:var(--surface-2)}
+@media (hover:hover){.btn.google:hover{background:var(--surface-2)}}
 .divider{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:calc(12.5*var(--u))}
 .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--line)}
 .auth-links{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
@@ -568,7 +579,7 @@ select.input{appearance:auto;font:inherit;font-size:16px;color:inherit}
 .opt-list{display:grid;border:1px solid var(--line);border-radius:18px;overflow:hidden;background:var(--surface-2)}
 .opt-list button{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:50px;padding:10px 16px;text-align:left;font-weight:560;transition:background-color .2s}
 .opt-list button+button{border-top:1px solid var(--line)}
-.opt-list button:hover{background:var(--surface-3)}
+@media (hover:hover){.opt-list button:hover{background:var(--surface-3)}}
 .opt-list button[aria-checked="true"]{color:var(--accent);background:var(--accent-soft)}
 .opt-list .radio{width:22px;height:22px;border-radius:50%;border:2px solid var(--muted);flex:none;display:grid;place-items:center;transition:border-color .2s}
 .opt-list .radio::after{content:"";width:10px;height:10px;border-radius:50%;background:var(--accent);transform:scale(0);transition:transform .28s cubic-bezier(.3,1.5,.5,1)}
@@ -636,6 +647,7 @@ th small{display:block;font-size:calc(10*var(--u));font-weight:500;text-transfor
 /* reflet « liquide » aux couleurs de l'accentuation, en haut à gauche */
 @supports (color:color-mix(in srgb,red,blue)){.pop{background:linear-gradient(150deg,color-mix(in srgb,var(--accent) 7%,transparent) 0%,transparent 40%),var(--pop-glass)}}
 :root[data-effets="reduits"] .pop,:root[data-effets="reduits"] .bubble,:root[data-effets="reduits"] .toast:not(.err){-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--glass-solid)}
+:root[data-effets="reduits"] .toast.err{-webkit-backdrop-filter:none;backdrop-filter:none}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.pop,.bubble,.toast:not(.err){background:var(--glass-solid)}}
 .pop .seg{background:var(--pop-fill)}
 .pop-list{display:grid;gap:2px}

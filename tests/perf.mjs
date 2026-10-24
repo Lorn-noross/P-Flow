@@ -25,8 +25,9 @@ const server = createServer((req, res) => {
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const URL_APP = 'http://127.0.0.1:' + server.address().port + '/';
 const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH, args: (process.env.CHROME_ARGS || '--no-sandbox').split(' ') } : {});
-// Jeu de données le plus récent (patch 3 : avec un solde du compte, donc le calcul « Prévu sur ton compte »).
-const fx = JSON.parse(readFileSync(join(ROOT, 'tests/fixtures/v0.1.3-beta.json'), 'utf8'));
+// Jeu de données le plus récent (patch 3 : avec un solde du compte, donc le calcul « Prévu sur ton compte » ;
+// patch 4 : URSSAF payée et objectif de fin de mois, donc la carte « Fin du mois »).
+const fx = JSON.parse(readFileSync(join(ROOT, 'tests/fixtures/v0.1.4-beta.json'), 'utf8'));
 const notes = (await import('../vite.config.js')).latestNotes().version;
 
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: 'fr-FR', timezoneId: 'Europe/Paris', colorScheme: 'dark' });
@@ -85,6 +86,11 @@ R.push(await measure('Toucher un jour (bulle)', tap('.pop .cal-d[data-d="20"]'))
 R.push(await measure('Calendrier : mois suivant', tap('.pop [data-mc="next"]')));
 R.push(await measure('Fermer le calendrier', () => page.keyboard.press('Escape')));
 R.push(await measure('Ouvrir l\'explication ⓘ', tap('#legend [data-act="cas-info"][data-k="urssaf"]')));
+// Patch 4 : objectif de fin de mois et paiement de l'URSSAF (fenêtres du bas).
+R.push(await measure('Ouvrir l\'objectif de fin de mois', tap('#fin-card [data-act="obj-open"]')));
+R.push(await measure('Fermer l\'objectif', tap('#panel-close')));
+R.push(await measure('Ouvrir « URSSAF payée »', tap('#uc-info [data-act="up-open"]')));
+R.push(await measure('Fermer « URSSAF payée »', tap('#panel-close')));
 await page.evaluate(() => document.querySelector('.tabbar .fab').click()); await page.waitForTimeout(600);
 R.push(await measure('Ouvrir le calendrier de la date', tap('#f-when')));
 R.push(await measure('Calendrier de la date : mois suivant', tap('.pop [data-c="next"]')));
