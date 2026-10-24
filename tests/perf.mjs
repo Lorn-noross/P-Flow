@@ -106,6 +106,13 @@ const scrollTo = y => () => page.evaluate(y => { const y0 = scrollY, t0 = perfor
   const step = t => { const p = Math.min(1, (t - t0) / 600); scrollTo(0, y0 + (y - y0) * p); if (p < 1) requestAnimationFrame(step); }; requestAnimationFrame(step); }, y);
 R.push(await measure('Défiler sous les pilules (bas)', scrollTo(900), 800));
 R.push(await measure('Défiler sous les pilules (haut)', scrollTo(0), 800));
+// Patch 4 : fond vivant (les reflets dérivent sous les pilules floutées). Pire cas : on le lance à la main et on fait
+// défiler en même temps (l'appli, elle, le met en pause pendant un défilement).
+const drift = () => page.evaluate(() => ['.glow .b1', '.glow .b2'].forEach((s, i) => document.querySelector(s).animate([{ transform: 'none', opacity: 1 }, { transform: 'translate(3%,2%) scale(1.08)', opacity: .82, offset: .5 }, { transform: 'none', opacity: 1 }], { duration: 3000, delay: i * 200, easing: 'ease-in-out' })));
+R.push(await measure('Fond vivant, au repos', drift, 1500));
+await page.waitForTimeout(1800);
+R.push(await measure('Fond vivant + défilement (pire cas)', async () => { await drift(); await scrollTo(900)(); }, 1200));
+await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(400);
 
 await browser.close(); server.close();
 const bad = R.filter(r => r.slow > 2);

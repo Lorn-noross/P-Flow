@@ -1,7 +1,5 @@
-import '@fontsource-variable/bricolage-grotesque';
-import '@fontsource-variable/instrument-sans';
-import '@fontsource/ibm-plex-mono/400.css';
-import '@fontsource/ibm-plex-mono/500.css';
+// Patch 4 : une seule police, Figtree (variable, chiffres tabulaires), à la place de trois.
+import '@fontsource-variable/figtree/wght.css';
 import './style.css';
 
 import {
@@ -54,7 +52,7 @@ const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet'
 const MS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 const MI = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 const VIEWS = ['mois', 'fixes', 'annee', 'reglages'];
-const SUBS = { compte: 'Mon compte', pro: 'Auto-entrepreneur', apparence: 'Apparence', donnees: 'Mes données', partage: 'Partager P-Flow', admin: 'Administration', apropos: 'À propos' };
+const SUBS = { compte: 'Mon compte et mon profil', pro: 'Auto-entrepreneur', apparence: 'Apparence', donnees: 'Mes données', partage: 'Partager P-Flow', admin: 'Administration', apropos: 'À propos' };
 // Couleurs personnalisables : clé (variable CSS --c-<clé>), libellé, réservée au profil auto-entrepreneur.
 // Patch 3 : + Autres revenus (sans URSSAF), Fixes (pastilles du calendrier) et Épargne (affichée si l'épargne est suivie) ;
 // nouvelles clés facultatives de `couleurs`, ignorées par les versions d'avant (elles ne lisent que leurs clés).
@@ -189,11 +187,82 @@ function anim(el, frames, opts) {
   try { return el.animate(frames, opts); } catch (e) { return null; }
 }
 const slideIn = (el, dir, dist) => anim(el, [{ transform: 'translateX(' + (dir * (dist || 28)) + 'px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 340, easing: SPRING });
-const riseIn = el => anim(el, [{ transform: 'translateY(10px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 300, easing: EASE });
+const riseIn = el => anim(el, [{ transform: 'translateY(10px) scale(.98)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 380, easing: SPRING });
+/* Patch 4 : passe d'animations (toujours transform / opacity, coupées par « Effets réduits »). */
+// Éléments qui arrivent en cascade : seulement ceux visibles à l'écran (positions lues une fois, avant le mouvement).
+function cascadeIn(els, o) {
+  if (!motionOK()) return;
+  const H = window.innerHeight, max = (o && o.max) || 10, dy = (o && o.dy) || 14, step = (o && o.step) || 34;
+  let i = 0;
+  for (const el of els) {
+    if (i >= max) break;
+    const r = el.getBoundingClientRect();
+    if (!r.height || r.bottom < 0 || r.top > H) continue;
+    anim(el, [{ opacity: 0, transform: 'translateY(' + dy + 'px)' }, { opacity: 1, transform: 'none' }], { duration: 460, delay: i * step, easing: SPRING, fill: 'backwards' });
+    i++;
+  }
+}
+// Montant qui défile d'une valeur à l'autre (écran Année, Fixes) ; le premier affichage ne bouge pas.
+const ROLL = new Map();
+function rollNumber(el, key, v, fmt) {
+  const from = ROLL.get(key); ROLL.set(key, v);
+  if (!el || from == null || from === v || !motionOK()) return;
+  const f = fmt || eur, t0 = performance.now(), D = 520;
+  const step = t => {
+    if (!el.isConnected) return;
+    const p = Math.min(1, (t - t0) / D), k = 1 - Math.pow(1 - p, 3);
+    el.textContent = f(p < 1 ? from + (v - from) * k : v);
+    if (p < 1) requestAnimationFrame(step);
+  };
+  el.textContent = f(from);
+  requestAnimationFrame(step);
+}
+// Barres qui poussent depuis la ligne du zéro (graphique de l'année, barres du calcul du mois).
+function growBars(els, axis) {
+  if (!motionOK()) return;
+  const s = axis === 'x' ? 'scaleX(0)' : 'scaleY(0)';
+  Array.from(els).slice(0, 24).forEach((el, i) => anim(el, [{ transform: s }, { transform: 'none' }], { duration: 560, delay: i * 22, easing: SPRING, fill: 'backwards' }));
+}
+// Boutons à choix (segments) : le choix fait un petit rebond « liquide ».
+document.addEventListener('click', e => {
+  const b = e.target.closest('.seg button');
+  if (!b || b.disabled) return;
+  requestAnimationFrame(() => {
+    const on = b.closest('.seg') && b.closest('.seg').querySelector('button[aria-pressed="true"]');
+    if (on) anim(on, [{ transform: 'scale(.9)' }, { transform: 'scale(1.04)', offset: 0.55 }, { transform: 'none' }], { duration: 380, easing: EASE });
+  });
+});
 
 /* ---------- écrans ---------- */
 const SCREENS = ['s-boot', 's-login', 's-verify', 's-denied', 's-onboard', 'app'];
-function show(id) { SCREENS.forEach(s => { $('#' + s).hidden = s !== id; }); }
+function show(id) {
+  SCREENS.forEach(s => {
+    // Patch 4 : l'écran de chargement ne disparaît pas d'un coup : les vagues dévoilent l'écran suivant.
+    if (s === 's-boot' && id !== 's-boot') { bootReveal(); return; }
+    $('#' + s).hidden = s !== id;
+  });
+}
+// Animation d'ouverture (patch 4) : courte si tout est prêt (au moins la chute de la goutte et la première vague,
+// ~0,75 s après le lancement), sinon les vagues tournent en boucle tant que ça charge. Elle ne bloque jamais les
+// touchers (pointer-events: none). « Effets réduits » ou « réduire les animations » : simple fondu.
+let bootState = 'on';
+function bootReveal() {
+  const b = $('#s-boot');
+  if (bootState !== 'on' || !b || b.hidden) return;
+  bootState = 'leaving';
+  const go = () => {
+    if (motionOK()) {
+      b.classList.add('out');
+      setTimeout(() => { b.hidden = true; bootState = 'off'; }, 760);
+    } else {
+      const a = b.animate ? b.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, fill: 'forwards' }) : null;
+      const end = () => { b.hidden = true; bootState = 'off'; };
+      if (a) a.finished.then(end, end); else end();
+    }
+  };
+  const wait = 750 - performance.now();
+  if (wait > 0 && motionOK()) setTimeout(go, wait); else go();
+}
 
 /* ---------- état ---------- */
 const S = {
@@ -564,7 +633,7 @@ function stopReq() { REQ.unsubs.forEach(u => { try { u(); } catch (e) { /* ignor
 const tsMs = v => (v && typeof v.toMillis === 'function' ? v.toMillis() : Number(v) || 0);
 const dateFr = ms => { const d = new Date(ms); return isNaN(d) || !ms ? '' : d.getDate() + ' ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear(); };
 function enterDenied(user, email) {
-  $('#d-email').textContent = user.email || ''; $('#d-uid').textContent = user.uid; $('#d-mail').textContent = email;
+  $('#d-email').textContent = user.email || ''; // patch 4 : plus d'instructions de la console Firebase sur cet écran
   REQ.sent = null; renderReq('');
   show('s-denied');
   getDoc(doc(db, 'demandes', email)).then(s => { if (S.user === user && s.exists()) { REQ.sent = s.data(); renderReq(''); } }, () => {});
@@ -671,12 +740,28 @@ function startData() {
 function enterApp() {
   if (!S.ready) {
     S.ready = true;
+    countEpOffer();
     if ($('#s-onboard').hidden || !OB.redo) show('app');
     maybeAutoUpdate();
     requestAnimationFrame(() => positionIndicator(false));
+    // Patch 4 : pendant que les vagues dévoilent l'écran, ses blocs arrivent en cascade.
+    setTimeout(() => { if (!$('#app').hidden) viewIn(S.view); }, Math.max(0, 760 - performance.now()));
+    liveBgSchedule(6000); // fond vivant : première dérive quelques secondes après l'ouverture
     setTimeout(maybeNews, 700);
   }
   render();
+}
+// Offre d'épargne (patch 4) : clé locale `pf-offre-ep` = 'AAAA-MM-JJ|n' (première fois vue, nombre d'ouvertures de l'appli).
+const EP_OFFER_MAX = 8;
+function epOffer() {
+  const [d, n] = String(lsGet('pf-offre-ep') || '').split('|');
+  const first = DATE_RE.test(d || '') ? d : TODAY, count = Number(n) || 0;
+  return { show: count <= EP_OFFER_MAX, fresh: first >= addD(TODAY, -30) };
+}
+function countEpOffer() {
+  if (!S.settings || S.settings.epargne !== null || epOn() || S.readOnly) return;
+  const [d, n] = String(lsGet('pf-offre-ep') || '').split('|');
+  lsSet('pf-offre-ep', (DATE_RE.test(d || '') ? d : TODAY) + '|' + ((Number(n) || 0) + 1));
 }
 function neededYear() { return S.view === 'mois' ? pYM(S.month).y : S.year; }
 function ensureYearSub() {
@@ -1011,7 +1096,44 @@ let topScrolled = false;
 window.addEventListener('scroll', () => {
   const s = window.scrollY > 4;
   if (s !== topScrolled) { topScrolled = s; topBar.classList.toggle('scrolled', s); }
+  liveBgScroll();
 }, { passive: true });
+
+/* ----- fond vivant (patch 4) ----- */
+// De temps en temps (pas en continu), les deux reflets colorés du fond dérivent et respirent lentement, puis
+// reviennent à leur place. Seulement quand l'appli est visible et au repos : jamais pendant un défilement (mis en
+// pause, repris après), une fenêtre ouverte ou en arrière-plan, pour ménager la batterie et le flou des pilules.
+// transform / opacity sur des calques à part (jamais le dégradé). Coupé par « Effets réduits ».
+const LIVE = { t: 0, r: 0, anims: [], last: 0 };
+function liveBgSchedule(ms) { clearTimeout(LIVE.t); LIVE.t = setTimeout(liveBgRun, ms); }
+function liveBgBusy() {
+  return document.hidden || !S.ready || $('#app').hidden || Date.now() - LIVE.last < 1500 || popOpen() || layerOpen(bg) || layerOpen(pbg);
+}
+function liveBgRun() {
+  if (!motionOK()) { liveBgSchedule(20000); return; }
+  // Une dérive en cours (peut-être mise en pause par un défilement ou l'arrière-plan) : la reprendre si tout est calme.
+  const cur = LIVE.anims.filter(a => a.playState !== 'finished');
+  if (cur.length) { if (!liveBgBusy()) cur.forEach(a => { if (a.playState === 'paused') a.play(); }); liveBgSchedule(4000); return; }
+  if (liveBgBusy()) { liveBgSchedule(4000); return; }
+  const rnd = () => Math.random() * 2 - 1, dur = 7000 + Math.random() * 3000;
+  const drift = (el, d, delay) => anim(el, [
+    { transform: 'none', opacity: 1 },
+    { transform: 'translate(' + (rnd() * 4).toFixed(2) + '%,' + (rnd() * 3).toFixed(2) + '%) scale(' + (1.05 + Math.random() * 0.07).toFixed(3) + ')', opacity: 0.82, offset: 0.5 },
+    { transform: 'none', opacity: 1 },
+  ], { duration: d, delay, easing: 'ease-in-out' });
+  LIVE.anims = [drift($('.glow .b1'), dur, 0), drift($('.glow .b2'), dur * 0.9, 500)].filter(Boolean);
+  liveBgSchedule(dur + 9000 + Math.random() * 9000);
+}
+function liveBgScroll() {
+  LIVE.last = Date.now();
+  if (!LIVE.anims.length) return;
+  LIVE.anims.forEach(a => { if (a.playState === 'running') a.pause(); });
+  clearTimeout(LIVE.r);
+  LIVE.r = setTimeout(() => { if (!liveBgBusy()) LIVE.anims.forEach(a => { if (a.playState === 'paused') a.play(); }); else liveBgScroll(); }, 1600);
+}
+document.addEventListener('visibilitychange', () => {
+  LIVE.anims.forEach(a => { if (document.hidden && a.playState === 'running') a.pause(); else if (!document.hidden && a.playState === 'paused' && Date.now() - LIVE.last > 1500) a.play(); });
+});
 
 const ico = (id, cls) => '<svg class="i' + (cls ? ' ' + cls : '') + '"><use href="#i-' + id + '"/></svg>';
 function renderCtx() {
@@ -1048,7 +1170,11 @@ function rowHtml(it, rate, extraCls) {
   const tag = it.kind === 'rec' || it.kind === 'per' ? '<span class="tag">fixe</span>' : '';
   const back = isEp && it.op === 'retrait';
   const sign = isEp ? (it.op === 'solde' ? '' : back ? '+' : MINUS) : isRev ? '+' : MINUS;
-  const ic = isEp ? '<span class="row-ico ep">' + ico('epargne') + '</span>' : isRev ? '<span class="row-ico in">' + ico('in') + '</span>' : '<span class="row-ico">' + ico('out') + '</span>';
+  // Patch 4 : icône aux couleurs choisies (comme les pastilles du calendrier) : revenus, revenus sans URSSAF,
+  // dépenses, fixes et épargne ; la flèche garde le sens (rentrée ou sortie).
+  const fixe = it.kind === 'rec' || it.kind === 'per';
+  const icCls = isEp ? 'ep' : fixe ? 'fix' : isRev ? (isPro() && !it.urssaf ? 'aut' : 'in') : 'out';
+  const ic = '<span class="row-ico ' + icCls + '">' + ico(isEp ? 'epargne' : isRev ? 'in' : 'out') + '</span>';
   return '<button class="row' + (extraCls ? ' ' + extraCls : '') + '" data-act="' + ROW_ACT[it.kind] + '" data-id="' + esc(it.id) + '">' + ic +
     '<span class="row-main"><span class="row-label">' + esc(it.label) + tag + '</span>' +
     (meta.length ? '<span class="row-meta">' + esc(meta.filter(Boolean).join(' · ')) + '</span>' : '') + '</span>' +
@@ -1226,7 +1352,11 @@ function renderMois() {
     $('#hero-sub').innerHTML = ok ? heroSubHtml(d, m) + (fv ? '<span>Sur ton compte le ' + esc(dShort(m + '-' + pad(dimOf(m)))) + ' : <b' + (fv.end < 0 ? ' class="neg"' : '') + '>' + esc(eur(fv.end)) + '</b></span>' : '') + soldeLinkHtml(m) : '<span>Chargement…</span>';
   }
   $('#legend').innerHTML = cascadeHtml(d, ok, pro, on);
-  $('#ep-offer').hidden = !(ok && S.settings.epargne === null && !on && !S.readOnly);
+  // Patch 4 : l'offre d'épargne perd son « Nouveau » au bout d'un mois, puis se range après quelques ouvertures
+  // (le choix reste dans Réglages → Mon compte et mon profil).
+  const eo = epOffer();
+  $('#ep-offer').hidden = !(ok && S.settings.epargne === null && !on && !S.readOnly && eo.show);
+  $('#ep-offer-title').textContent = eo.fresh ? 'Nouveau : suis ton épargne' : 'Suis ton épargne';
   // Patch 4 : « URSSAF payée ? » et carte « Fin du mois » (objectif, épargne possible).
   if (pro) renderUrsAsk(ok); else $('#urs-ask').hidden = true;
   renderFinCard(m, d, useCompte && m === CUR ? anyView : null, ok);
@@ -1714,9 +1844,10 @@ function renderFixes() {
   $('#fix-totals').innerHTML =
     '<div class="fix-main"><span>Après les fixes, il te reste</span><strong class="' + (left < 0 ? 'neg' : '') + '">' + (ok ? eur(left) : '…') + '</strong><span>par mois' + (smooth ? ' (trimestriels et annuels comptés en moyenne)' : '') + '</span>' +
     (ok && left < 0 && pro ? '<p class="hint">Tes factures et autres revenus qui varient ne sont pas comptés ici : seulement ce qui revient tout seul.</p>' : '') + '</div>' +
-    '<div class="fix-small"><div><span><i class="sw s-dep"></i>Charges fixes</span><b>' + (ok ? eur(depM) : '…') + '</b></div>' +
+    '<div class="fix-small"><div><span><i class="sw s-fixes"></i>Charges fixes</span><b>' + (ok ? eur(depM) : '…') + '</b></div>' +
     '<div><span><i class="sw s-net"></i>Revenus fixes' + (pro && rev.some(x => x.urssaf) ? ' nets' : '') + '</span><b>' + (ok ? eur(revM) : '…') + '</b></div>' +
     (on ? '<div><span><i class="sw s-ep"></i>Épargne auto</span><b>' + (ok ? eur(epM) : '…') + '</b></div>' : '') + '</div>';
+  if (ok) rollNumber($('#fix-totals .fix-main strong'), 'fixes', left); // patch 4 : le montant défile
   const list = $('#fix-list');
   if (!ok) { list.innerHTML = '<p class="empty">Chargement…</p>'; return; }
   const row = r => {
@@ -1727,7 +1858,8 @@ function renderFixes() {
     if (r.end) meta.push('jusqu\'à ' + mShort(r.end));
     if (nx) meta.push(nx === CUR ? 'échéance ce mois-ci' : 'prochaine : ' + mLabel(nx));
     if (isRev && pro) meta.push(r.urssaf ? 'soumis URSSAF' : 'sans URSSAF');
-    const ic = isEp ? '<span class="row-ico ep">' + ico('epargne') + '</span>' : isRev ? '<span class="row-ico in">' + ico('in') + '</span>' : '<span class="row-ico">' + ico('out') + '</span>';
+    // Patch 4 : charges fixes dans la couleur des Fixes, revenus et épargne dans les leurs.
+    const ic = '<span class="row-ico ' + (isEp ? 'ep' : isRev ? (pro && !r.urssaf ? 'aut' : 'in') : 'fix') + '">' + ico(isEp ? 'epargne' : isRev ? 'in' : 'out') + '</span>';
     return '<button class="row" data-act="' + (r.kind === 'rec' ? 'edit-rec' : 'edit-per') + '" data-id="' + esc(r.id) + '">' + ic + '<span class="row-main"><span class="row-label">' + esc(r.label) + '</span><span class="row-meta">' + esc(meta.join(' · ')) + '</span></span>' +
       '<span class="row-amt' + (isEp ? ' ep' : isRev ? ' in' : '') + '">' + (isRev ? '+' : MINUS) + eur(r.amount) + '<small>' + FREQ_UNIT[r.freq] + '</small></span></button>';
   };
@@ -1768,8 +1900,9 @@ function renderAnnee() {
     '<p class="hero-sub"><span>' + (!ok ? 'Chargement…' : n === 0 ? 'L\'année ' + y + ' n\'a pas encore commencé.' : 'soit <b>' + esc(eur(yd.avg)) + '</b> par mois en moyenne, sur ' + n + ' mois') + '</span></p>' +
     '<div class="minis">' + (pro ? mini('s-brut', 'Revenus bruts', T.base) + mini('s-urssaf', 'URSSAF', T.urssaf) + (T.brut - T.base > 0.004 ? mini('s-autres', 'Sans URSSAF', r2(T.brut - T.base)) : '') + mini('s-net', 'Revenus nets', T.net) : mini('s-net', 'Revenus', T.brut)) +
     mini('s-dep', 'Dépenses', T.dep) + (on ? mini('s-ep', 'Mis de côté', T.ep) + mini('s-ep', 'Total épargné', yd.n ? r2(comptes(yd.counted[yd.n - 1].m).reduce((a, c) => a + c.solde, 0)) : 0) : '') + '</div>';
+  if (ok) rollNumber($('#kpis .big'), 'annee', Math.abs(T.reste));
   $('#y-period').textContent = !ok || n === 0 ? '' : n === 12 ? 'Année ' + y + ' complète.' : 'De janvier à ' + MONTHS[n - 1] + ' ' + y + '. Les mois suivants sont des prévisions (fixes seulement), en pâle.';
-  $('#chart-legend').innerHTML = '<span><i class="sw s-reste"></i>Reste</span><span><i class="sw" style="background:var(--neg)"></i>Manque</span><span><i class="dash"></i>Dépenses moy. ' + (ok ? esc(eur0(yd.avgDep)) : '') + '</span>';
+  $('#chart-legend').innerHTML = '<span><i class="sw s-reste"></i>Reste</span><span><i class="sw" style="background:var(--neg)"></i>Manque</span>' + (ok && yd.n ? '<span><i class="dash"></i>Reste moyen ' + esc(eur0(yd.avg)) + '</span>' : '');
   lastChartW = 0; renderChart();
   // Tableau, « Où part l'argent » et seuils (sous le graphique) : après l'animation d'arrivée sur l'écran,
   // pour que l'écran apparaisse tout de suite, même sur un vieux téléphone.
@@ -1797,7 +1930,7 @@ function renderAnneeBottom(yd, ok, pro, on) {
   const maxT = Math.max(top.length ? top[0].total : 0, others ? others.total : 0) || 1;
   const topRow = c => '<button class="top-row" data-act="top-open" data-k="' + esc(c.k) + '"><span class="l">' + esc(c.label) + (c.n ? '<small>' + c.n + ' libellés</small>' : c.rec ? '<small>fixe</small>' : '') + '</span>' +
     '<span class="a">' + eur(c.total) + '<small>' + Math.round(c.total / tot * 100) + ' %</small></span>' +
-    '<span class="bar"><i class="' + (c.rec ? '' : 'p') + '" style="width:' + Math.max(2, c.total / maxT * 100).toFixed(1) + '%"></i></span></button>';
+    '<span class="bar"><i class="' + (c.rec ? 'f' : 'p') + '" style="width:' + Math.max(2, c.total / maxT * 100).toFixed(1) + '%"></i></span></button>';
   $('#y-top').innerHTML = !ok ? '<p class="empty">Chargement…</p>' : top.length ? top.map(topRow).join('') + (others ? topRow(others) : '') : '<p class="empty">Aucune dépense sur cette période.</p>';
   if (pro) {
     const meter = (label, v, lim) => {
@@ -1822,7 +1955,9 @@ function renderChart() {
   const H = W < 520 ? 210 : 250, pl = 46, pr = 8, pt = 12, pb = 26;
   const iw = W - pl - pr, ih = H - pt - pb;
   const vals = yd.months.map(d => d.reste);
-  let hi = Math.max(50, yd.avgDep, ...vals), lo = Math.min(0, ...vals);
+  // Patch 4 : ligne pointillée = reste moyen (même grandeur que les barres), plus la moyenne des dépenses.
+  const hasAvg = yd.n > 0;
+  let hi = Math.max(50, hasAvg ? yd.avg : 0, ...vals), lo = Math.min(0, hasAvg ? yd.avg : 0, ...vals);
   const step = niceStep((hi - lo) / 4 || 100);
   hi = Math.ceil(hi / step) * step; lo = Math.floor(lo / step) * step;
   const Y = v => pt + (hi - v) / (hi - lo) * ih;
@@ -1842,8 +1977,8 @@ function renderChart() {
       (h > 0 ? '<rect class="' + (v < 0 ? 'b-neg' : 'b-pos') + '" x="' + (cx - bw / 2) + '" y="' + (v < 0 ? y0 : top) + '" width="' + bw + '" height="' + h + '" rx="' + Math.min(5, bw / 3) + '"/>' : '') +
       '<text class="ax' + (d.now ? ' cur' : '') + '" x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle">' + (W < 520 ? MI[i] : MS[i].replace('.', '')) + '</text></g>';
   });
-  if (yd.avgDep > 0) {
-    const ya = Math.round(Y(yd.avgDep)) + 0.5;
+  if (hasAvg) {
+    const ya = Math.round(Y(yd.avg)) + 0.5;
     s += '<line class="avg-line" x1="' + pl + '" x2="' + (W - pr) + '" y1="' + ya + '" y2="' + ya + '"/>';
   }
   host.innerHTML = s + '</svg>';
@@ -1900,7 +2035,7 @@ function renderReglages() {
   $$('#texte-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.t === APP.texte)));
   $('#noir-toggle').checked = APP.noir;
   $('#effets-toggle').checked = APP.effets === 'reduits';
-  $('#export-btn').textContent = 'Exporter ' + S.year + ' en CSV';
+  $('#export-btn').textContent = 'Ouvrir ' + S.year + ' dans un tableur';
   $('#admin-card').hidden = !S.isAdmin;
   $('#req-card').hidden = !S.isAdmin;
   renderAllow();
@@ -2132,7 +2267,7 @@ function openTop(k) {
   const c = YD.top.find(x => x.k === k); if (!c) return;
   const items = c.items.slice().sort((a, b) => b.m.localeCompare(a.m) || byDate(a, b));
   const rowFor = it => it.kind === 'entry' ? rowHtml(it, 0)
-    : '<button class="row" data-act="' + ROW_ACT[it.kind] + '" data-id="' + esc(it.id) + '"><span class="row-ico">' + ico('out') + '</span><span class="row-main"><span class="row-label">' + esc(it.label) + '<span class="tag">fixe</span></span><span class="row-meta">' + esc(cap(mLabel(it.m))) + '</span></span><span class="row-amt">' + MINUS + eur(it.amount) + '</span></button>';
+    : '<button class="row" data-act="' + ROW_ACT[it.kind] + '" data-id="' + esc(it.id) + '"><span class="row-ico fix">' + ico('out') + '</span><span class="row-main"><span class="row-label">' + esc(it.label) + '<span class="tag">fixe</span></span><span class="row-meta">' + esc(cap(mLabel(it.m))) + '</span></span><span class="row-amt">' + MINUS + eur(it.amount) + '</span></button>';
   openPanel(c.label, '<p class="hint">' + S.year + ' · ' + plural(items.length, 'opération') + '</p><p class="uc-amount">' + eur(c.total) + '</p>' +
     '<div>' + items.map(rowFor).join('') + '</div>');
 }
@@ -2738,6 +2873,7 @@ if (typeof __PFLOW_TEST__ !== 'undefined') window.__pfSetKeyboard = h => { KB.na
 let indX = null;
 // Surlignage de l'onglet actif : il glisse et s'étire légèrement pendant le mouvement (effet « liquide »).
 function positionIndicator(animate) {
+  positionNavIndicator(animate); // tablette et PC (patch 4)
   const bar = $('.tabbar'), ind = $('.tab-ind');
   if (!bar || !ind || !bar.offsetWidth) return;
   const b = $('.tabbar [data-view="' + S.view + '"]'); if (!b) return;
@@ -2753,29 +2889,81 @@ function positionIndicator(animate) {
   }
   indX = x;
 }
+// Patch 4 : tablette et PC, menu de gauche en pilule verticale avec le même surlignage « liquide » qui glisse.
+let navY = null;
+function positionNavIndicator(animate) {
+  const nav = $('.side .nav'), ind = $('.nav-ind');
+  if (!nav || !ind || !nav.offsetWidth) return;
+  const b = $('.side .nav [data-view="' + S.view + '"]'); if (!b) return;
+  const y = b.offsetTop, h = b.offsetHeight;
+  ind.style.height = h + 'px';
+  ind.style.transform = 'translateY(' + y + 'px)';
+  if (animate && navY != null && navY !== y) {
+    anim(ind, [
+      { transform: 'translateY(' + navY + 'px) scaleY(1)' },
+      { transform: 'translateY(' + ((navY + y) / 2) + 'px) scaleY(1.28)', offset: 0.45 },
+      { transform: 'translateY(' + y + 'px) scaleY(1)' },
+    ], { duration: 460, easing: 'cubic-bezier(.3,.8,.25,1)' });
+  }
+  navY = y;
+}
+// Patch 4 : entrer dans Réglages (ou en sortir) resserre (ou élargit) la pilule du bas, avec un léger effet
+// « liquide » : FLIP en transform seulement (le fond en scaleX, les onglets en translateX), positions lues
+// une fois avant le mouvement. Renvoie le décalage du bord gauche de la barre (pour le surlignage).
+function morphTabbar(apply) {
+  const bar = $('.tabbar'), bg = $('.tab-bg');
+  if (!bar || !bg || !bar.offsetWidth || !motionOK()) { apply(); return 0; }
+  const tabs = $$('.tabbar button[data-view]');
+  const r0 = bg.getBoundingClientRect(), t0 = tabs.map(t => t.getBoundingClientRect().left);
+  apply();
+  const r1 = bg.getBoundingClientRect();
+  if (Math.abs(r1.width - r0.width) < 1) return 0;
+  const sx = r0.width / r1.width, over = 1 + (1 - sx) * 0.1;
+  anim(bg, [{ transform: 'scaleX(' + sx + ')' }, { transform: 'scaleX(' + over + ')', offset: 0.68 }, { transform: 'none' }], { duration: 560, easing: 'cubic-bezier(.3,.85,.3,1)' });
+  tabs.forEach((t, i) => {
+    const dx = t0[i] - t.getBoundingClientRect().left;
+    if (Math.abs(dx) > 0.5) anim(t, [{ transform: 'translateX(' + dx + 'px)' }, { transform: 'none' }], { duration: 560, easing: SPRING });
+  });
+  return r0.left - r1.left;
+}
 function setView(v) {
   const from = VIEWS.indexOf(S.view), to = VIEWS.indexOf(v);
   if (S.view === v && !(v === 'reglages' && S.sub)) { window.scrollTo({ top: 0, behavior: motionOK() ? 'smooth' : 'auto' }); return; }
   S.view = v; S.sub = null; S.deferYear = v === 'annee';
   try { history.replaceState(null, '', '#' + v); } catch (e) { /* ignoré */ }
   hideBubble();
-  $('.tabbar').dataset.view = v;
+  const dx = morphTabbar(() => { $('.tabbar').dataset.view = v; });
+  if (indX != null) indX += dx; // le surlignage part de là où il était à l'écran
   positionIndicator(true); // avant le rendu : la position des onglets se lit sans recalcul de la page
   ensureYearSub(); render(); window.scrollTo(0, 0);
   slideIn($('#v-' + v), to >= from ? 1 : -1);
+  viewIn(v);
+}
+// Patch 4 : à l'arrivée sur un écran, ses blocs arrivent en cascade et les barres poussent.
+function viewIn(v) {
+  const V = '#v-' + v + ' ';
+  cascadeIn($$(v === 'reglages' ? V + '.set-list button' : V + '.hero, ' + V + '.uc-line, ' + V + '.card, ' + V + '.page-intro'));
+  if (v === 'annee') growBars($$('#chart .b-pos, #chart .b-neg'));
+  if (v === 'mois') growBars($$('#legend .cb i'), 'x');
 }
 function setSub(name, dir) {
   S.sub = name;
   render(); window.scrollTo(0, 0);
   slideIn(name ? $('#sub-' + name) : $('#set-home'), dir, 40);
+  cascadeIn(name ? $$('#sub-' + name + ' .card, #sub-' + name + ' .set-foot') : $$('#set-home .set-list button'), { dy: 10, step: 28 });
 }
 function setMonth(m, dir) {
   S.month = m; S.year = pYM(m).y; ensureYearSub(); render();
-  if (dir) { slideIn($('#v-mois .month-grid'), dir, 36); slideIn($('#ctx h1'), dir, 14); }
+  if (dir) {
+    slideIn($('#v-mois .month-grid'), dir, 36); slideIn($('#ctx h1'), dir, 14);
+    // Patch 4 : les lignes du mois arrivent en cascade, les barres du calcul repoussent.
+    cascadeIn($$('#lists .row'), { max: 8, dy: 8, step: 26 });
+    growBars($$('#legend .cb i'), 'x');
+  }
 }
 function setYear(y, dir) {
   S.year = y; S.deferYear = !!dir; ensureYearSub(); render();
-  if (dir) { slideIn($('#v-annee'), dir, 30); slideIn($('#ctx h1'), dir, 14); }
+  if (dir) { slideIn($('#v-annee'), dir, 30); slideIn($('#ctx h1'), dir, 14); growBars($$('#chart .b-pos, #chart .b-neg')); }
 }
 // Glisser à gauche / à droite sur l'écran Mois pour changer de mois.
 (function swipeMonths() {
@@ -2883,6 +3071,7 @@ document.addEventListener('click', e => {
   else if (a === 'export') exportCsv();
   // mises à jour
   else if (a === 'upd-check') checkUpdate(true);
+  else if (a === 'upd-auto-open') openUpdAuto(t);
   else if (a === 'upd-download') { if (isNative) downloadUpdate(); }
   else if (a === 'upd-install') installUpdate();
   else if (a === 'upd-reload') location.reload();
@@ -2942,11 +3131,22 @@ document.addEventListener('keydown', e => {
   else if (S.view === 'annee') setYear(S.year + d, d);
 });
 
-let toastT = null, toastUndoFn = null;
+let toastT = null, toastUndoFn = null, toastOut = null;
+// Patch 4 : le message arrive comme une goutte (petit rebond) et repart en douceur ; un message qui en remplace
+// un autre fait juste un petit rebond.
 function toast(msg, isErr) {
   const t = $('#toast'); toastUndoFn = null; t.textContent = msg; t.classList.toggle('err', !!isErr); t.classList.remove('undo');
-  if (t.hidden) { t.hidden = false; anim(t, [{ transform: 'translateX(-50%) translateY(12px)', opacity: 0 }, { transform: 'translateX(-50%)', opacity: 1 }], { duration: 260, easing: SPRING }); }
-  clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, isErr ? 5000 : 2200);
+  if (toastOut) { toastOut.cancel(); toastOut = null; }
+  if (t.hidden) { t.hidden = false; anim(t, [{ transform: 'translateX(-50%) translateY(14px) scale(.82)', opacity: 0 }, { transform: 'translateX(-50%) scale(1.03)', opacity: 1, offset: 0.6 }, { transform: 'translateX(-50%)', opacity: 1 }], { duration: 420, easing: EASE }); }
+  else anim(t, [{ transform: 'translateX(-50%) scale(.95)' }, { transform: 'translateX(-50%)' }], { duration: 320, easing: SPRING });
+  clearTimeout(toastT); toastT = setTimeout(hideToastSoft, isErr ? 5000 : 2200);
+}
+function hideToastSoft() {
+  const t = $('#toast'); toastUndoFn = null;
+  const a = anim(t, [{ transform: 'translateX(-50%)', opacity: 1 }, { transform: 'translateX(-50%) translateY(10px) scale(.94)', opacity: 0 }], { duration: 200, easing: 'ease-in', fill: 'forwards' });
+  if (!a) { t.hidden = true; return; }
+  toastOut = a;
+  a.finished.then(() => { if (toastOut === a) { t.hidden = true; a.cancel(); toastOut = null; } }, () => {});
 }
 // Message avec un bouton « Annuler » (patch 3), visible 5 secondes.
 function toastUndo(msg, fn) {
@@ -2955,7 +3155,7 @@ function toastUndo(msg, fn) {
   toastUndoFn = fn;
   t.classList.add('undo');
   t.innerHTML = '<span>' + esc(msg) + '</span><button type="button" class="toast-undo">Annuler</button>';
-  clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; toastUndoFn = null; }, 5000);
+  clearTimeout(toastT); toastT = setTimeout(hideToastSoft, 5000);
 }
 $('#toast').addEventListener('click', e => {
   if (!e.target.closest('.toast-undo') || !toastUndoFn) return;
@@ -2984,7 +3184,9 @@ if (isNative) {
 // Android : l'appli télécharge la nouvelle version en arrière-plan, puis propose de l'installer
 // (Android demande toujours une confirmation). Navigateur : il suffit de recharger la page.
 // Vérification automatique à l'ouverture, selon l'intervalle choisi (réglage propre à chaque appareil).
-const UPD_FREQ = { ouverture: 0, jour: 864e5, semaine: 7 * 864e5, jamais: Infinity };
+// Patch 4 : « une fois par mois » (30 jours) ; une valeur inconnue retombe sur « jour ».
+const UPD_FREQ = { ouverture: 0, jour: 864e5, semaine: 7 * 864e5, mois: 30 * 864e5, jamais: Infinity };
+const UPD_FREQ_LABEL = { ouverture: 'À chaque ouverture', jour: 'Une fois par jour', semaine: 'Une fois par semaine', mois: 'Une fois par mois', jamais: 'Jamais' };
 const UPD = { state: 'idle', info: null, pct: 0, msg: '', manual: false };
 const updAuto = () => { const v = lsGet('pf-maj-auto'); return v in UPD_FREQ ? v : 'jour'; };
 function maybeAutoUpdate() {
@@ -3066,14 +3268,15 @@ function renderUpdate() {
   st.textContent = t; st.hidden = !t;
   $('#upd-actions').innerHTML = act;
   $('#upd-check').disabled = UPD.state === 'checking' || UPD.state === 'downloading';
-  $$('#upd-auto [data-v]').forEach(b => b.setAttribute('aria-checked', String(b.dataset.v === updAuto())));
+  $('#upd-auto-txt').textContent = UPD_FREQ_LABEL[updAuto()];
   const pr = $('#upd-progress'); pr.hidden = UPD.state !== 'downloading'; pr.value = UPD.pct;
 }
-// Choix de la fréquence de vérification : liste dans le style de l'appli (plus de liste système).
-$('#upd-auto').addEventListener('click', e => {
-  const b = e.target.closest('[data-v]'); if (!b || !(b.dataset.v in UPD_FREQ)) return;
-  lsSet('pf-maj-auto', b.dataset.v); renderUpdate();
-});
+// Choix de la fréquence de vérification (patch 4) : une ligne qui ouvre un petit menu en verre (pilule de choix),
+// même clé `pf-maj-auto` et mêmes valeurs qu'avant (réglage propre à l'appareil, rien dans Firestore).
+function openUpdAuto(btn) {
+  openChoice({ anchor: btn, label: 'Vérification automatique', value: updAuto(), options: Object.keys(UPD_FREQ).map(v => ({ v, label: UPD_FREQ_LABEL[v] })),
+    onPick: v => { if (v in UPD_FREQ) { lsSet('pf-maj-auto', v); renderUpdate(); } } });
+}
 if (isNative) CapApp.addListener('appStateChange', st => { if (st && st.isActive && S.ready) maybeAutoUpdate(); });
 
 /* ---------- sauvegardes : fichier et Google Drive ---------- */

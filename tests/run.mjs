@@ -399,8 +399,10 @@ async function scenarioCouleurs(cfg, fx, tag) {
   await page.locator('[data-act="view"][data-view="mois"]:visible').click();
   check(await css('#legend .s-dep', 'backgroundColor') === 'rgb(194, 59, 53)', 'vue Mois : légende des dépenses à la nouvelle couleur');
   await page.locator('[data-act="view"][data-view="annee"]:visible').click();
-  await until(page, () => !!document.querySelector('#y-top .bar i:not(.p)'), null, 'vue Année : « Où part l\'argent » affiché');
-  check(await css('#y-top .bar i:not(.p)', 'backgroundColor') === 'rgb(194, 59, 53)', 'vue Année : dépenses fixes à la nouvelle couleur');
+  await until(page, () => !!document.querySelector('#y-top .bar i.p'), null, 'vue Année : « Où part l\'argent » affiché');
+  // Patch 4 : ponctuelles dans la couleur des Dépenses, fixes dans celle des Fixes (légende assortie).
+  check(await css('#y-top .bar i.p', 'backgroundColor') === 'rgb(194, 59, 53)', 'vue Année : dépenses ponctuelles à la nouvelle couleur');
+  check(await page.evaluate(() => { const i = document.querySelector('#y-top .bar i.f'), l = document.querySelector('.mini-legend .s-fixes'); return !!i && !!l && getComputedStyle(i).backgroundColor === getComputedStyle(l).backgroundColor; }), 'vue Année : charges fixes dans la couleur des Fixes, comme la légende');
 
   await reglages(page, 'apparence');
   await page.click('#colors [data-act="color-reset"][data-k="dep"]');
@@ -554,9 +556,19 @@ async function scenarioMisesAJour(cfg, fx, tag) {
   check(await o.page.locator('#update [data-act="upd-reload"]').count() === 1, 'mise à jour : bouton Recharger (navigateur)');
   await reglages(o.page, 'apropos');
   check((await o.page.locator('#upd-status').innerText()).includes('0.1.1 bêta'), 'Réglages : nouvelle version annoncée');
-  await o.page.click('#upd-auto [data-v="semaine"]');
-  check(await o.page.locator('#upd-auto [data-v="semaine"][aria-checked="true"]').count() === 1 && await o.page.locator('#upd-auto [aria-checked="true"]').count() === 1, 'Réglages : un seul intervalle coché');
-  check(await o.page.evaluate(() => localStorage.getItem('pf-maj-auto')) === 'semaine', 'Réglages : intervalle de vérification enregistré');
+  // Patch 4 : une seule ligne qui ouvre un petit menu en verre (5 choix, dont « une fois par mois »).
+  check((await o.page.locator('#upd-auto').innerText()).includes('Une fois par jour'), 'Réglages : vérification automatique « Une fois par jour » d\'office');
+  await o.page.click('#upd-auto');
+  await until(o.page, () => document.querySelectorAll('.pop [role="option"]').length === 5, null, 'Réglages : menu de la vérification automatique (5 choix)');
+  check(await o.page.locator('.pop [role="option"][data-v="jour"][aria-selected="true"]').count() === 1, 'Réglages : choix en cours coché');
+  check(await o.page.locator('select').count() === 0, 'Réglages : pas de liste du système');
+  await o.page.click('.pop [data-v="mois"]');
+  await until(o.page, () => !document.querySelector('.pop') && document.getElementById('upd-auto').textContent.includes('Une fois par mois'), null, 'Réglages : « Une fois par mois » choisi, menu refermé');
+  check(await o.page.evaluate(() => localStorage.getItem('pf-maj-auto')) === 'mois', 'Réglages : intervalle de vérification enregistré');
+  await o.page.click('#upd-auto'); await until(o.page, () => !!document.querySelector('.pop [data-v="semaine"]'), null, 'Réglages : menu rouvert');
+  await o.page.keyboard.press('Escape');
+  await until(o.page, () => !document.querySelector('.pop'), null, 'Réglages : Échap referme sans rien changer');
+  check(await o.page.evaluate(() => localStorage.getItem('pf-maj-auto')) === 'mois', 'Réglages : rien changé en refermant');
   await o.ctx.close();
   o = await open(cfg, fx.docs, { date: fx.expect._date });
   await waitApp(o.page);
