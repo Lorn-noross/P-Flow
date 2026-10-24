@@ -1001,7 +1001,10 @@ async function scenarioPatch3(cfg, fx, tag) {
   check(clean(await page.locator('#hero-label').innerText()) === 'Prévusurtoncomptele31mars', 'gros chiffre : « Prévu sur ton compte le 31 mars »');
   check(await hero(page) === eur(E.mars.compte), 'prévu le 31 = ' + eur(E.mars.compte));
   let sb = await sub();
-  check(sb.includes('Aujourd\'hui:' + eur(E.compte.aujourdhui)), 'aujourd\'hui = ' + eur(E.compte.aujourdhui) + ' (' + sb.slice(0, 120) + ')');
+  // Patch 4 (retour sur l'APK 65) : le solde noté porte sa date ; ce qui est prévu aujourd'hui vient à part s'il a changé depuis.
+  check(sb.includes('Soldedu10mars:' + eur(1250)), 'solde noté avec sa date : « Solde du 10 mars » (' + sb.slice(0, 120) + ')');
+  check(sb.includes('Prévuaujourd\'hui:' + eur(E.compte.aujourdhui)) && !sb.includes('Aujourd\'hui:'), 'prévu aujourd\'hui = ' + eur(E.compte.aujourdhui));
+  check(clean(await page.locator('#hero-sub [data-act="solde-open"]').innerText()) === 'Mettreàjourmonsolde', 'lien « Mettre à jour mon solde »');
   check(sb.includes('Pointleplusbas:' + eur(E.compte.bas) + 'le' + clean(E.compte.basLe)), 'point le plus bas = ' + eur(E.compte.bas) + ' le ' + E.compte.basLe);
   check(sb.includes('Tupeuxencoredépenser'), '« Tu peux encore dépenser » calculé sur le compte');
   check((L => L.includes('Reste'))(await page.locator('#legend').innerText()), 'le reste du mois reste dans la cascade');

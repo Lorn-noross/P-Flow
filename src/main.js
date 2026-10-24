@@ -1246,7 +1246,12 @@ function cmpPart(d, m) {
 // Sous le gros chiffre, avec un solde noté : aujourd'hui, le point le plus bas, ce qu'on peut encore dépenser.
 function soldeSubHtml(sv, d, m) {
   const parts = [], end = m + '-' + pad(dimOf(m)), left = dimOf(m) - NOW.getDate() + 1;
-  if (sv.today !== null) parts.push('Aujourd\'hui : <b' + (sv.today < 0 ? ' class="neg"' : '') + '>' + esc(eur(sv.today)) + '</b>');
+  // Patch 4 (retour sur l'APK 65) : le montant noté porte sa date (« Solde du 23 octobre »), pas « Aujourd'hui » ;
+  // s'il s'est passé quelque chose depuis, on ajoute ce qui est prévu aujourd'hui.
+  const L = sv.L, noted = r2(Number(L.montant) || 0), notedToday = L.date === TODAY;
+  const neg = v => (v < 0 ? ' class="neg"' : '');
+  parts.push((notedToday ? 'Solde d\'aujourd\'hui' : 'Solde du ' + dShort(L.date) + (L.date.slice(0, 4) !== TODAY.slice(0, 4) ? ' ' + L.date.slice(0, 4) : '')) + ' : <b' + neg(noted) + '>' + esc(eur(noted)) + '</b>');
+  if (sv.today !== null && !notedToday && r2(sv.today) !== noted) parts.push('Prévu aujourd\'hui : <b' + neg(sv.today) + '>' + esc(eur(sv.today)) + '</b>');
   if (sv.low !== null && sv.lowDate !== end && sv.low < sv.end) parts.push('Point le plus bas : <b' + (sv.low < 0 ? ' class="neg"' : '') + '>' + esc(eur(sv.low)) + '</b> le ' + esc(dShort(sv.lowDate)));
   if (sv.today !== null && sv.today < 0) parts.push('<span class="warn">Ton compte est à découvert aujourd\'hui</span>');
   else if (sv.firstNeg) parts.push('<span class="warn">Attention : ton compte passerait sous 0 le ' + esc(dShort(sv.firstNeg)) + '</span>');
@@ -1265,7 +1270,7 @@ function soldeLinkHtml(m) {
   // Patch 4 : solde trop ancien (avant octobre de l'an dernier, opérations plus chargées) : la prévision ne s'affiche
   // plus plutôt que d'être fausse ; on le dit.
   const lost = L && ready() && !soldeView(m);
-  return '<span><button type="button" class="link sm" data-act="solde-open">' + (lost ? 'Note ton solde pour voir la prévision de ton compte' : L ? 'Solde noté le ' + esc(dShort(L.date)) + ' · Mettre à jour' : 'Noter ce que tu as sur ton compte') + '</button></span>';
+  return '<span><button type="button" class="link sm" data-act="solde-open">' + (lost ? 'Note ton solde pour voir la prévision de ton compte' : L ? 'Mettre à jour mon solde' : 'Noter ce que tu as sur ton compte') + '</button></span>';
 }
 // Explication d'une ligne de la cascade (petit ⓘ, patch 3) : une phrase simple, avec les vrais chiffres du mois.
 function casInfoText(k, d, pro) {
