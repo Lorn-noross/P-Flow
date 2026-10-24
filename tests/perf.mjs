@@ -77,6 +77,9 @@ R.push(await measure('Glisser le doigt (mois suivant)', () => page.evaluate(() =
   const ev = (t, cx) => h.dispatchEvent(new PointerEvent(t, { pointerType: 'touch', pointerId: 3, isPrimary: true, clientX: cx, clientY: y, bubbles: true }));
   ev('pointerdown', x); for (let i = 1; i <= 8; i++) ev('pointermove', x - 20 * i); ev('pointerup', x - 160);
 })));
+// L'heure est figée pendant le test : après un glissement, l'appli ignore les touchers pendant 400 ms (Date.now) ;
+// on avance l'horloge de 2 s, sinon tous les touchers suivants dans l'écran Mois seraient ignorés.
+await page.clock.setFixedTime(new Date('2026-03-15T12:00:02+01:00'));
 R.push(await measure('Ouvrir la fenêtre d\'ajout', tap('.tabbar .fab')));
 R.push(await measure('Fermer la fenêtre d\'ajout', tap('#sheet-close')));
 R.push(await measure('Déplier la carte URSSAF', tap('#urssaf-line')));
@@ -89,6 +92,9 @@ R.push(await measure('Ouvrir l\'explication ⓘ', tap('#legend [data-act="cas-in
 // Patch 4 : objectif de fin de mois et paiement de l'URSSAF (fenêtres du bas).
 R.push(await measure('Ouvrir l\'objectif de fin de mois', tap('#fin-card [data-act="obj-open"]')));
 R.push(await measure('Fermer l\'objectif', tap('#panel-close')));
+// Le calendrier a avancé d'un mois : retour au mois en cours (on ne paie pas l'URSSAF d'un mois à venir), carte URSSAF dépliée.
+for (let i = 0; i < 6 && !(await page.evaluate(() => document.querySelector('#ctx h1').textContent.includes('Mars'))); i++) { await page.evaluate(() => document.querySelector('[data-act="prev-month"]').click()); await page.waitForTimeout(500); }
+if (await page.evaluate(() => document.getElementById('urssaf-card').hidden)) { await page.evaluate(() => document.getElementById('urssaf-line').click()); await page.waitForTimeout(500); }
 R.push(await measure('Ouvrir « URSSAF payée »', tap('#uc-info [data-act="up-open"]')));
 R.push(await measure('Fermer « URSSAF payée »', tap('#panel-close')));
 await page.evaluate(() => document.querySelector('.tabbar .fab').click()); await page.waitForTimeout(600);
