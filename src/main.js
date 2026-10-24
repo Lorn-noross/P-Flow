@@ -105,6 +105,8 @@ const dLabel = d => { const p = d.split('-'); return (+p[2]) + ' ' + MS[+p[1] - 
 const deMois = i => (/^[aeiouyàâéèêîôû]/i.test(MONTHS[i]) ? 'd\'' : 'de ') + MONTHS[i];
 // « d'octobre 2026 », « à partir d'avril 2026 » (élision devant avril, août, octobre).
 const deM = s => deMois(pYM(s).m - 1) + ' ' + pYM(s).y;
+// « en janvier 2026 » pour un seul mois, « de janvier à mars 2026 » sinon (avertissements des fixes).
+const plusRange = (a, b) => (a === b ? 'en ' + mLabel(a) : deM(a) + ' à ' + mLabel(b));
 const aPartir = s => 'à partir ' + deM(s);
 const norm = s => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 const lsGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
@@ -189,7 +191,8 @@ function anim(el, frames, opts) {
 const slideIn = (el, dir, dist) => anim(el, [{ transform: 'translateX(' + (dir * (dist || 28)) + 'px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 340, easing: SPRING });
 const riseIn = el => anim(el, [{ transform: 'translateY(10px) scale(.98)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 380, easing: SPRING });
 /* Patch 4 : passe d'animations (toujours transform / opacity, coupées par « Effets réduits »). */
-// Éléments qui arrivent en cascade : seulement ceux visibles à l'écran (positions lues une fois, avant le mouvement).
+// Éléments qui arrivent en cascade : seulement ceux visibles à l'écran (positions lues juste après le rendu ;
+// animate() ne change pas la mise en page, donc une seule mise en page pour toute la boucle).
 function cascadeIn(els, o) {
   if (!motionOK()) return;
   const H = window.innerHeight, max = (o && o.max) || 10, dy = (o && o.dy) || 14, step = (o && o.step) || 34;
@@ -1101,8 +1104,9 @@ window.addEventListener('scroll', () => {
 
 /* ----- fond vivant (patch 4) ----- */
 // De temps en temps (pas en continu), les deux reflets colorés du fond dérivent et respirent lentement, puis
-// reviennent à leur place. Seulement quand l'appli est visible et au repos : jamais pendant un défilement (mis en
-// pause, repris après), une fenêtre ouverte ou en arrière-plan, pour ménager la batterie et le flou des pilules.
+// reviennent à leur place. Seulement quand l'appli est visible et au repos : jamais pendant un défilement, un
+// changement d'écran ou de mois (mis en pause, repris après), une fenêtre ouverte ou en arrière-plan, pour ménager
+// la batterie et le flou des pilules.
 // transform / opacity sur des calques à part (jamais le dégradé). Coupé par « Effets réduits ».
 const LIVE = { t: 0, r: 0, anims: [], last: 0 };
 function liveBgSchedule(ms) { clearTimeout(LIVE.t); LIVE.t = setTimeout(liveBgRun, ms); }
@@ -1243,7 +1247,8 @@ function cmpPart(d, m) {
   }
   return '';
 }
-// Sous le gros chiffre, avec un solde noté : aujourd'hui, le point le plus bas, ce qu'on peut encore dépenser.
+// Sous le gros chiffre, avec un solde noté : le solde noté (avec sa date), le prévu d'aujourd'hui s'il a changé,
+// le point le plus bas, ce qu'on peut encore dépenser.
 function soldeSubHtml(sv, d, m) {
   const parts = [], end = m + '-' + pad(dimOf(m)), left = dimOf(m) - NOW.getDate() + 1;
   // Patch 4 (retour sur l'APK 65) : le montant noté porte sa date (« Solde du 23 octobre »), pas « Aujourd'hui » ;
@@ -1456,16 +1461,21 @@ function perDeadline(m) {
   return new Date(y, mm + 1, 0);
 }
 // Période à demander : échéance passée depuis moins de 2 mois, pas encore notée payée, la plus ancienne d'abord.
-// « Pas encore » la met de côté jusqu'au lendemain (clé locale `pf-urs-plus-tard` = 'AAAA-MM-JJ|période').
+// « Pas encore » la met de côté jusqu'au lendemain (clé locale `pf-urs-plus-tard` = 'AAAA-MM-JJ|période,période…' :
+// en déclaration mensuelle, deux périodes peuvent attendre en même temps ; chacune reste mise de côté pour la journée).
+function ursSnoozed() {
+  const [d, ids] = String(lsGet('pf-urs-plus-tard') || '').split('|');
+  return new Set(d === TODAY && ids ? ids.split(',') : []);
+}
 function urssafToAsk() {
   if (!isPro() || !S.settings || S.readOnly) return null;
-  const snooze = lsGet('pf-urs-plus-tard') || '', lim = addD(TODAY, -62), seen = new Set();
+  const snoozed = ursSnoozed(), lim = addD(TODAY, -62), seen = new Set();
   for (let k = 6; k >= 1; k--) {
     const x = addM(CUR, -k), id = perId(x);
     if (seen.has(id)) continue;
     seen.add(id);
     const dl = ymd(perDeadline(x));
-    if (dl > TODAY || dl < lim || !entCovered(x) || snooze === TODAY + '|' + id) continue;
+    if (dl > TODAY || dl < lim || !entCovered(x) || snoozed.has(id)) continue;
     const u = urssafPeriod(x);
     if (u.pay && u.pay.payee) continue;
     if (!u.pay && !(u.total > 0)) continue; // rien d'estimé : rien à demander
@@ -1518,7 +1528,8 @@ function delPay(t) {
 function payLater(id) {
   if (blocked() || !id) return;
   if (!paiementOf(id)) write(setDoc(doc(ucol('urssaf'), id), { payee: false, createdAt: Date.now() }, { merge: true }));
-  lsSet('pf-urs-plus-tard', TODAY + '|' + id);
+  const ids = ursSnoozed(); ids.add(id);
+  lsSet('pf-urs-plus-tard', TODAY + '|' + [...ids].join(','));
   toast('D\'accord : elle reste mise de côté, je te redemande demain');
   renderMois();
 }
@@ -1526,13 +1537,15 @@ function payLater(id) {
 /* ----- objectif de fin de mois et épargne possible (patch 4) ----- */
 // URSSAF déjà due à la fin du mois m mais pas encore retirée de ce qui est prévu sur le compte à cette date
 // (son échéance tombe après) : cet argent n'est ni à dépenser ni à mettre de côté.
-function urssafDue(m) {
+// `late` = jour où une URSSAF « pas encore payée » est comptée, le même que dans soldeMoves (aujourd'hui, ou le
+// lendemain si le solde est daté d'aujourd'hui).
+function urssafDue(m, late) {
   if (!isPro() || !S.settings) return 0;
-  const end = m + '-' + pad(dimOf(m));
+  const end = m + '-' + pad(dimOf(m)), lt = late || TODAY;
   let t = 0;
   for (let k = 0; k <= 3; k++) {
     const x = addM(m, -k), dl = ymd(perDeadline(x)), p = paiementOf(perId(x));
-    const out = p && p.payee ? p.date : p ? (dl > TODAY ? dl : TODAY) : dl; // jour où elle quitte le compte prévu
+    const out = p && p.payee ? p.date : p ? (dl > lt ? dl : lt) : dl; // jour où elle quitte le compte prévu
     if (out > end) t += monthData(x).urssaf;
   }
   return r2(t);
@@ -1543,7 +1556,8 @@ function urssafDue(m) {
 function finView(m, d, sv) {
   const obj = objectifOf(m) || 0;
   if (sv) {
-    const due = urssafDue(m), byEnd = r2(sv.end - due - obj), low = sv.low != null ? sv.low : sv.end;
+    const D0 = sv.L && sv.L.date, late = D0 && !(TODAY > D0) ? addD(D0, 1) : TODAY;
+    const due = urssafDue(m, late), byEnd = r2(sv.end - due - obj), low = sv.low != null ? sv.low : sv.end;
     return { compte: true, obj, due, byEnd, low, lowDate: sv.lowDate, end: sv.end, avail: r2(Math.min(byEnd, low)), byLow: low < byEnd };
   }
   return { compte: false, obj, due: 0, avail: r2(d.reste - obj) };
@@ -2439,13 +2453,15 @@ function sheetHints() {
     // Le calendrier choisit le jour ET le mois de départ : prévenir si le mois de départ change (patch 3).
     const ns = $('#f-start').value;
     // Patch 4 : trimestriel ou annuel, c'est tout le cycle qui se décale (pas seulement le premier mois).
-    const cyc = (f, st) => (f === 'annee' ? cycleTxt(st, f) : 'en ' + joinFr(cycleTxt(st, f).split(', ')));
+    const cyc = (f, st, en) => (f === 'annee' ? cycleTxt(st, f) : (en ? 'en ' : '') + joinFr(cycleTxt(st, f).split(', ')));
     if (YM_RE.test(ns) && YM_RE.test(o.start || '') && ns !== o.start && (F.freq === 'trimestre' || F.freq === 'annee')) {
-      const was = FREQ[o.freq] ? cyc(o.freq, o.start) : '', now = cyc(F.freq, ns);
-      hints.push('Attention : ce fixe tombera désormais ' + now + (was && was !== now ? ' (au lieu de ' + was + ')' : '') + ', ' + aPartir(ns) + '.' +
-        (ns > o.start ? ' Il ne comptera plus ' + deM(o.start) + ' à ' + mLabel(addM(ns, -1)) + '.' : ' Il comptera aussi les mois d\'avant.'));
+      // « Au lieu de » seulement si l'ancien fixe était déjà trimestriel ou annuel (un mensuel n'a pas de cycle).
+      const was = o.freq === 'trimestre' || o.freq === 'annee' ? cyc(o.freq, o.start, false) : '';
+      const now = cyc(F.freq, ns, true);
+      hints.push('Attention : ce fixe tombera désormais ' + now + (was && 'en ' + was !== now && was !== now ? ' (au lieu de ' + was + ')' : '') + ', ' + aPartir(ns) + '.' +
+        (ns > o.start ? ' Il ne comptera plus ' + plusRange(o.start, addM(ns, -1)) + '.' : ' Il comptera aussi les mois d\'avant.'));
     } else if (YM_RE.test(ns) && YM_RE.test(o.start || '') && ns !== o.start) {
-      hints.push(ns > o.start ?'Attention : le départ passe ' + deM(o.start) + ' à ' + mLabel(ns) + '. Ce fixe ne comptera plus ' + deM(o.start) + ' à ' + mLabel(addM(ns, -1)) + '. Pour garder ces mois, choisis un jour en ' + mLabel(o.start) + '.'
+      hints.push(ns > o.start ?'Attention : le départ passe ' + deM(o.start) + ' à ' + mLabel(ns) + '. Ce fixe ne comptera plus ' + plusRange(o.start, addM(ns, -1)) + '. Pour garder ' + (o.start === addM(ns, -1) ? 'ce mois' : 'ces mois') + ', choisis un jour en ' + mLabel(o.start) + '.'
         : 'Le départ passe ' + deM(o.start) + ' à ' + mLabel(ns) + ' : ce fixe comptera aussi les mois d\'avant.');
     }
     if (hist && !ended) hints.push('« Arrêter » garde les mois passés comme ils sont. « Supprimer aussi des mois passés » le retire de tous les mois depuis ' + mLabel(o.start) + '.');
@@ -2635,6 +2651,9 @@ function saveSolde() {
   const montant = SD.neg ? -a : a, date = SD.date;
   const pend = pendingOps(date);
   write(addDoc(ucol('soldes'), { montant, date, createdAt: Date.now() }), 'Solde enregistré');
+  // Patch 4 : une URSSAF « pas encore payée » l'a peut-être été depuis (le nouveau solde la contiendrait) :
+  // la question « URSSAF payée ? » revient tout de suite au lieu d'attendre le lendemain.
+  if (lsGet('pf-urs-plus-tard')) lsSet('pf-urs-plus-tard', '');
   closePanel();
   // Les opérations « pas encore passées » d'avant ce nouveau solde : reposer la question.
   if (pend.length) setTimeout(() => askPending(pend, date), 420);
@@ -2934,6 +2953,7 @@ function morphTabbar(apply) {
 function setView(v) {
   const from = VIEWS.indexOf(S.view), to = VIEWS.indexOf(v);
   if (S.view === v && !(v === 'reglages' && S.sub)) { window.scrollTo({ top: 0, behavior: motionOK() ? 'smooth' : 'auto' }); return; }
+  liveBgScroll(); // fond vivant : même pause que pendant un défilement, le temps de la transition
   S.view = v; S.sub = null; S.deferYear = v === 'annee';
   try { history.replaceState(null, '', '#' + v); } catch (e) { /* ignoré */ }
   hideBubble();
@@ -2958,6 +2978,7 @@ function setSub(name, dir) {
   cascadeIn(name ? $$('#sub-' + name + ' .card, #sub-' + name + ' .set-foot') : $$('#set-home .set-list button'), { dy: 10, step: 28 });
 }
 function setMonth(m, dir) {
+  if (dir) liveBgScroll(); // fond vivant en pause pendant le glissement
   S.month = m; S.year = pYM(m).y; ensureYearSub(); render();
   if (dir) {
     slideIn($('#v-mois .month-grid'), dir, 36); slideIn($('#ctx h1'), dir, 14);
@@ -2983,7 +3004,7 @@ function setYear(y, dir) {
     if (!on || e.pointerId !== pid) return;
     const ddx = e.clientX - x0, ddy = e.clientY - y0;
     if (lock === null) {
-      if (Math.abs(ddx) > 12 && Math.abs(ddx) > Math.abs(ddy) * 1.4) lock = 'x';
+      if (Math.abs(ddx) > 12 && Math.abs(ddx) > Math.abs(ddy) * 1.4) { lock = 'x'; liveBgScroll(); }
       else if (Math.abs(ddy) > 12) { on = false; return; }
     }
     if (lock === 'x') { dx = ddx; if (motionOK()) grid().style.transform = 'translateX(' + (dx * 0.35) + 'px)'; }

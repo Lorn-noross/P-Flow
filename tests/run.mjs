@@ -1355,6 +1355,32 @@ async function scenarioPatch4(cfg, fx, tag) {
   noErr(errors, 'après l\'échéance');
   await ctx.close();
 
+  // 6 b. Deux URSSAF en attente (février et mars) : « Pas encore » sur chacune les met de côté toutes les deux pour
+  // la journée ; un nouveau solde noté repose la question tout de suite.
+  const two = JSON.parse(JSON.stringify(fx.docs));
+  delete two[U + 'urssaf/2026-02'];
+  ({ ctx, page, errors } = await open(cfg, two, { date: '2026-05-02' }));
+  await waitApp(page);
+  await until(page, () => !document.getElementById('urs-ask').hidden && document.getElementById('urs-ask').innerText.includes('URSSAF de février payée'), null, 'deux en attente : la plus ancienne d\'abord (février)');
+  await page.click('#urs-ask [data-act="up-later"]');
+  await until(page, () => !document.getElementById('urs-ask').hidden && document.getElementById('urs-ask').innerText.includes('URSSAF de mars payée'), null, 'puis mars');
+  await page.click('#urs-ask [data-act="up-later"]');
+  await until(page, () => document.getElementById('urs-ask').hidden, null, '« Pas encore » deux fois : plus rien à demander aujourd\'hui');
+  check(await page.evaluate(() => localStorage.getItem('pf-urs-plus-tard')) === '2026-05-02|2026-02,2026-03', 'les deux périodes mises de côté pour la journée');
+  await page.click('[data-act="next-month"]'); await page.click('[data-act="prev-month"]');
+  await page.waitForTimeout(300);
+  check(await page.locator('#urs-ask').isHidden(), 'février ne revient pas le même jour');
+  await page.click('[data-act="solde-open"]');
+  await until(page, () => !document.getElementById('panel-bg').hidden && document.getElementById('panel-title').textContent.includes('compte en banque'), null, 'fenêtre « Mon compte en banque » (6 b)');
+  await page.fill('#sd-amount', '900');
+  await page.click('[data-act="sd-save"]');
+  await until(page, p => Object.entries(window.__PFLOW_DB__.dump()).some(([k, v]) => k.startsWith(p) && v.montant === 900 && v.date === '2026-05-02'), U + 'soldes/', 'nouveau solde enregistré (6 b)');
+  await page.waitForTimeout(600);
+  if (await page.locator('#panel-bg').isVisible()) { await page.click('#panel-close'); await page.waitForTimeout(400); }
+  await until(page, () => !document.getElementById('urs-ask').hidden && document.getElementById('urs-ask').innerText.includes('URSSAF de février payée'), null, 'nouveau solde : « URSSAF payée ? » reposée tout de suite');
+  noErr(errors, 'deux URSSAF en attente');
+  await ctx.close();
+
   // 7. Déclaration trimestrielle : le montant réel du trimestre est réparti selon le chiffre d'affaires de chaque mois
   const q = JSON.parse(JSON.stringify(fx.docs));
   q[ST].periodicite = 'trimestrielle';
