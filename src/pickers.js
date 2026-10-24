@@ -80,7 +80,8 @@ function openPop(anchor, html, o) {
   window.addEventListener('resize', onResize);
   if (anchor && anchor.setAttribute) anchor.setAttribute('aria-expanded', 'true');
   place(P);
-  anim(box, [{ opacity: 0, transform: 'translateY(' + (P.below ? -8 : 8) + 'px) scale(.94)' }, { opacity: 1, transform: 'none' }], { duration: 260, easing: SPRING });
+  // Patch 4 : la fenêtre se déplie depuis l'élément touché, en ressort (origine calée par place()).
+  anim(box, [{ opacity: 0, transform: 'translateY(' + (P.below ? -10 : 10) + 'px) scale(.86)' }, { opacity: 1, transform: 'none' }], { duration: 360, easing: 'cubic-bezier(.25,1.35,.4,1)' });
   return box;
 }
 

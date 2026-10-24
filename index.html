@@ -33,7 +33,7 @@
 </script>
 </head>
 <body>
-<div class="glow" aria-hidden="true"></div>
+<div class="glow" aria-hidden="true"><i class="blob b1"></i><i class="blob b2"></i></div>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-mois" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></symbol>
   <symbol id="i-fixes" viewBox="0 0 24 24"><path d="M17 3l3 3-3 3"/><path d="M4 11.5V10a4 4 0 0 1 4-4h12"/><path d="M7 21l-3-3 3-3"/><path d="M20 12.5V14a4 4 0 0 1-4 4H4"/></symbol>
@@ -64,12 +64,14 @@
   <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3.5l1.8 5.2 5.2 1.8-5.2 1.8L12 17.5l-1.8-5.2L5 10.5l5.2-1.8z"/><path d="M18.5 16v4M16.5 18h4"/></symbol>
   <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6.5h11M9 12h11M9 17.5h11M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01"/></symbol>
   <symbol id="i-group" viewBox="0 0 24 24"><path d="M12 4l8.5 4.5L12 13 3.5 8.5z"/><path d="M3.5 12.5L12 17l8.5-4.5M3.5 16.5L12 21l8.5-4.5"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><path d="M12 12h.01"/></symbol>
   <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15zM10 20.5h4"/></symbol>
   <symbol id="i-logout" viewBox="0 0 24 24"><path d="M14 4.5h3.5a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H14M10 16.5L5.5 12 10 7.5M5.5 12H15"/></symbol>
 </svg>
 
-<!-- Chargement -->
-<div class="screen" id="s-boot"><div class="spinner" role="status" aria-label="Chargement"></div></div>
+<!-- Chargement (patch 4) : une goutte tombe dans l'eau et fait des vagues, aux couleurs de la personne ;
+     quand l'appli est prête, les vagues s'élargissent et dévoilent l'écran (main.js, bootReveal). -->
+<div class="boot" id="s-boot" role="status" aria-label="Chargement"><div class="boot-water" aria-hidden="true"><i class="ring r1"></i><i class="ring r2"></i><i class="ring r3"></i><i class="wave"></i><i class="drop"></i></div></div>
 
 <!-- Connexion -->
 <div class="screen" id="s-login" hidden>
@@ -127,22 +129,8 @@
       <button class="btn primary block" id="req-send">Demander l'accès</button>
       <p class="notice" id="req-status" role="status" hidden></p>
     </div>
-    <details>
-      <summary class="link" style="cursor:pointer">Tu es l'administrateur ? Premier démarrage</summary>
-      <div class="stack" style="margin-top:12px">
-        <p class="hint">Dans la console Firebase, ouvre Firestore et crée ces deux documents (un champ <code>ok</code> = <code>true</code> suffit) :</p>
-        <ol class="steps">
-          <li>Collection <b>admins</b>, ID du document :</li>
-        </ol>
-        <p class="code" id="d-uid"></p>
-        <ol class="steps" start="2">
-          <li>Collection <b>allowlist</b>, ID du document :</li>
-        </ol>
-        <p class="code" id="d-mail"></p>
-      </div>
-    </details>
     <p class="error" id="d-error" role="alert"></p>
-    <button class="btn ghost block" id="d-retry">Réessayer</button>
+    <button class="btn ghost block" id="d-retry">Vérifier si c'est accepté</button>
     <button class="link" data-act="logout">Se déconnecter</button>
   </div>
 </div>
@@ -169,6 +157,7 @@
     <div class="brand"><span class="mark"><svg class="i"><use href="#i-wave"/></svg></span>P-Flow</div>
     <button class="btn primary side-add" data-act="add"><svg class="i"><use href="#i-plus"/></svg>Ajouter</button>
     <nav class="nav" aria-label="Sections">
+      <span class="nav-ind" aria-hidden="true"></span>
       <button data-act="view" data-view="mois"><svg class="i"><use href="#i-mois"/></svg>Mois</button>
       <button data-act="view" data-view="fixes"><svg class="i"><use href="#i-fixes"/></svg>Fixes</button>
       <button data-act="view" data-view="annee"><svg class="i"><use href="#i-annee"/></svg>Année</button>
@@ -225,14 +214,18 @@
               <button data-act="add-type" data-type="epargne" class="ep-only"><span class="qi"><svg class="i"><use href="#i-epargne"/></svg></span>Épargne</button>
             </div>
           </article>
+          <!-- Patch 4 : « URSSAF payée ? » (rempli par renderUrsAsk) -->
+          <article class="card offer pro-only" id="urs-ask" hidden></article>
           <article class="card offer" id="ep-offer" hidden>
             <div class="offer-ico"><svg class="i"><use href="#i-epargne"/></svg></div>
             <div class="stack-s">
-              <p><b>Nouveau : suis ton épargne</b></p>
+              <p><b id="ep-offer-title">Nouveau : suis ton épargne</b></p>
               <p class="hint">Livret A, PEL… Note ce que tu mets de côté : le reste du mois en tient compte.</p>
               <div class="btn-row"><button class="btn primary sm" data-act="ep-offer" data-v="1">Activer</button><button class="btn ghost sm" data-act="ep-offer" data-v="0">Non merci</button></div>
             </div>
           </article>
+          <!-- Patch 4 : objectif de fin de mois et épargne possible (rempli par renderFinCard) -->
+          <article class="card fin-card" id="fin-card" hidden></article>
           <article class="card">
             <dl class="cascade" id="legend"></dl>
           </article>
@@ -265,7 +258,7 @@
       <div class="two">
         <article class="card"><h3>Détail par mois</h3><div class="tbl-wrap" id="y-table"></div></article>
         <div class="stack">
-          <article class="card"><div class="card-head"><h3>Où part l'argent</h3><div class="mini-legend"><span><i class="sw s-dep"></i>fixes</span><span><i class="sw s-dep2"></i>ponctuelles</span></div></div><div class="top-list" id="y-top"></div></article>
+          <article class="card"><div class="card-head"><h3>Où part l'argent</h3><div class="mini-legend"><span><i class="sw s-fixes"></i>fixes</span><span><i class="sw s-dep"></i>ponctuelles</span></div></div><div class="top-list" id="y-top"></div></article>
           <article class="card pro-only"><h3>Seuils de la micro-entreprise</h3><div class="meters" id="y-meters"></div>
             <p class="hint" style="margin-top:12px">Calculé sur les revenus marqués « soumis à l'URSSAF ». Franchise de TVA (prestations de services) : au-delà de 37 500 € sur l'année, la TVA s'applique au 1er janvier suivant ; au-delà de 41 250 €, dès le dépassement.</p>
           </article>
@@ -276,8 +269,8 @@
     <!-- RÉGLAGES -->
     <section class="view" id="v-reglages" hidden>
       <div class="set-home" id="set-home">
-        <nav class="card set-list" aria-label="Réglages">
-          <button data-act="sub" data-sub="compte"><span class="si"><svg class="i"><use href="#i-user"/></svg></span><span class="sl"><b>Mon compte</b><small id="sh-compte"></small></span><svg class="i chev"><use href="#i-right"/></svg></button>
+        <nav class="set-list" aria-label="Réglages">
+          <button data-act="sub" data-sub="compte"><span class="si"><svg class="i"><use href="#i-user"/></svg></span><span class="sl"><b>Mon compte et mon profil</b><small id="sh-compte"></small></span><svg class="i chev"><use href="#i-right"/></svg></button>
           <button data-act="sub" data-sub="pro" class="pro-only"><span class="si"><svg class="i"><use href="#i-pro"/></svg></span><span class="sl"><b>Auto-entrepreneur</b><small id="sh-pro"></small></span><svg class="i chev"><use href="#i-right"/></svg></button>
           <button data-act="sub" data-sub="apparence"><span class="si"><svg class="i"><use href="#i-palette"/></svg></span><span class="sl"><b>Apparence</b><small id="sh-apparence"></small></span><svg class="i chev"><use href="#i-right"/></svg></button>
           <button data-act="sub" data-sub="donnees"><span class="si"><svg class="i"><use href="#i-data"/></svg></span><span class="sl"><b>Mes données</b><small id="sh-donnees"></small></span><svg class="i chev"><use href="#i-right"/></svg></button>
@@ -291,7 +284,6 @@
         <article class="card stack">
           <h3>Compte</h3>
           <div class="meta-line"><span>Connecté avec</span><b id="acc-email"></b></div>
-          <div><button class="btn ghost" data-act="logout"><svg class="i"><use href="#i-logout"/></svg>Se déconnecter</button></div>
         </article>
         <article class="card stack">
           <h3>Profil</h3>
@@ -311,6 +303,8 @@
           <p class="hint">Revoir les étapes du premier démarrage : profil, revenus et charges fixes, épargne, apparence, sauvegarde. Rien de ce que tu as déjà noté n'est supprimé.</p>
           <div><button class="btn ghost" data-act="redo-setup">Refaire la configuration</button></div>
         </article>
+        <!-- Patch 4 : « Se déconnecter » tout en bas. -->
+        <div class="set-foot"><button class="btn ghost block" data-act="logout"><svg class="i"><use href="#i-logout"/></svg>Se déconnecter</button></div>
       </div>
 
       <div class="set-sub" id="sub-pro" hidden>
@@ -370,8 +364,8 @@
           <div class="stack" id="drive-list" hidden></div>
           <p class="h3">Fichier</p>
           <div class="btn-row">
-            <button class="btn ghost" data-act="backup-export">Exporter mes données</button>
-            <label class="btn ghost">Importer une sauvegarde<input type="file" id="import-file" accept=".json,application/json" hidden></label>
+            <button class="btn ghost" data-act="backup-export">Enregistrer une copie</button>
+            <label class="btn ghost">Remettre une copie<input type="file" id="import-file" accept=".json,application/json" hidden></label>
           </div>
           <p class="notice" id="backup-status" role="status" hidden></p>
           <div class="notice stack" id="restore-panel" hidden></div>
@@ -423,21 +417,15 @@
           <p class="hint" id="upd-status" role="status" hidden></p>
           <progress id="upd-progress" max="100" value="0" hidden></progress>
           <div class="btn-row"><button class="btn ghost" data-act="upd-check" id="upd-check">Vérifier les mises à jour</button><span id="upd-actions"></span></div>
-          <div class="field">
-            <span class="field-label" id="upd-auto-label">Vérification automatique</span>
-            <div class="opt-list" id="upd-auto" role="radiogroup" aria-labelledby="upd-auto-label">
-              <button type="button" role="radio" data-act="upd-auto" data-v="ouverture"><span>À chaque ouverture de l'appli</span><i class="radio"></i></button>
-              <button type="button" role="radio" data-act="upd-auto" data-v="jour"><span>Une fois par jour</span><i class="radio"></i></button>
-              <button type="button" role="radio" data-act="upd-auto" data-v="semaine"><span>Une fois par semaine</span><i class="radio"></i></button>
-              <button type="button" role="radio" data-act="upd-auto" data-v="jamais"><span>Jamais</span><i class="radio"></i></button>
-            </div>
-          </div>
+          <!-- Patch 4 : une seule ligne ; le choix s'ouvre dans un petit menu en verre (pilule de choix). -->
+          <button type="button" class="input pick upd-pick" id="upd-auto" data-act="upd-auto-open" aria-haspopup="listbox" aria-expanded="false"><span class="upd-v"><span class="upd-l">Vérification automatique</span><b id="upd-auto-txt"></b></span><svg class="i"><use href="#i-down"/></svg></button>
         </article>
       </div>
     </section>
   </main>
 
   <nav class="tabbar" aria-label="Sections">
+    <span class="tab-bg" aria-hidden="true"></span>
     <span class="tab-ind" aria-hidden="true"></span>
     <button data-act="view" data-view="mois"><svg class="i"><use href="#i-mois"/></svg><span>Mois</span></button>
     <button data-act="view" data-view="fixes"><svg class="i"><use href="#i-fixes"/></svg><span>Fixes</span></button>

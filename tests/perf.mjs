@@ -25,8 +25,9 @@ const server = createServer((req, res) => {
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const URL_APP = 'http://127.0.0.1:' + server.address().port + '/';
 const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH, args: (process.env.CHROME_ARGS || '--no-sandbox').split(' ') } : {});
-// Jeu de données le plus récent (patch 3 : avec un solde du compte, donc le calcul « Prévu sur ton compte »).
-const fx = JSON.parse(readFileSync(join(ROOT, 'tests/fixtures/v0.1.3-beta.json'), 'utf8'));
+// Jeu de données le plus récent (patch 3 : avec un solde du compte, donc le calcul « Prévu sur ton compte » ;
+// patch 4 : URSSAF payée et objectif de fin de mois, donc la carte « Fin du mois »).
+const fx = JSON.parse(readFileSync(join(ROOT, 'tests/fixtures/v0.1.4-beta.json'), 'utf8'));
 const notes = (await import('../vite.config.js')).latestNotes().version;
 
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: 'fr-FR', timezoneId: 'Europe/Paris', colorScheme: 'dark' });
@@ -76,6 +77,9 @@ R.push(await measure('Glisser le doigt (mois suivant)', () => page.evaluate(() =
   const ev = (t, cx) => h.dispatchEvent(new PointerEvent(t, { pointerType: 'touch', pointerId: 3, isPrimary: true, clientX: cx, clientY: y, bubbles: true }));
   ev('pointerdown', x); for (let i = 1; i <= 8; i++) ev('pointermove', x - 20 * i); ev('pointerup', x - 160);
 })));
+// L'heure est figée pendant le test : après un glissement, l'appli ignore les touchers pendant 400 ms (Date.now) ;
+// on avance l'horloge de 2 s, sinon tous les touchers suivants dans l'écran Mois seraient ignorés.
+await page.clock.setFixedTime(new Date('2026-03-15T12:00:02+01:00'));
 R.push(await measure('Ouvrir la fenêtre d\'ajout', tap('.tabbar .fab')));
 R.push(await measure('Fermer la fenêtre d\'ajout', tap('#sheet-close')));
 R.push(await measure('Déplier la carte URSSAF', tap('#urssaf-line')));
@@ -85,6 +89,14 @@ R.push(await measure('Toucher un jour (bulle)', tap('.pop .cal-d[data-d="20"]'))
 R.push(await measure('Calendrier : mois suivant', tap('.pop [data-mc="next"]')));
 R.push(await measure('Fermer le calendrier', () => page.keyboard.press('Escape')));
 R.push(await measure('Ouvrir l\'explication ⓘ', tap('#legend [data-act="cas-info"][data-k="urssaf"]')));
+// Patch 4 : objectif de fin de mois et paiement de l'URSSAF (fenêtres du bas).
+R.push(await measure('Ouvrir l\'objectif de fin de mois', tap('#fin-card [data-act="obj-open"]')));
+R.push(await measure('Fermer l\'objectif', tap('#panel-close')));
+// Le calendrier a avancé d'un mois : retour au mois en cours (on ne paie pas l'URSSAF d'un mois à venir), carte URSSAF dépliée.
+for (let i = 0; i < 6 && !(await page.evaluate(() => document.querySelector('#ctx h1').textContent.includes('Mars'))); i++) { await page.evaluate(() => document.querySelector('[data-act="prev-month"]').click()); await page.waitForTimeout(500); }
+if (await page.evaluate(() => document.getElementById('urssaf-card').hidden)) { await page.evaluate(() => document.getElementById('urssaf-line').click()); await page.waitForTimeout(500); }
+R.push(await measure('Ouvrir « URSSAF payée »', tap('#uc-info [data-act="up-open"]')));
+R.push(await measure('Fermer « URSSAF payée »', tap('#panel-close')));
 await page.evaluate(() => document.querySelector('.tabbar .fab').click()); await page.waitForTimeout(600);
 R.push(await measure('Ouvrir le calendrier de la date', tap('#f-when')));
 R.push(await measure('Calendrier de la date : mois suivant', tap('.pop [data-c="next"]')));
@@ -94,6 +106,13 @@ const scrollTo = y => () => page.evaluate(y => { const y0 = scrollY, t0 = perfor
   const step = t => { const p = Math.min(1, (t - t0) / 600); scrollTo(0, y0 + (y - y0) * p); if (p < 1) requestAnimationFrame(step); }; requestAnimationFrame(step); }, y);
 R.push(await measure('Défiler sous les pilules (bas)', scrollTo(900), 800));
 R.push(await measure('Défiler sous les pilules (haut)', scrollTo(0), 800));
+// Patch 4 : fond vivant (les reflets dérivent sous les pilules floutées). Pire cas : on le lance à la main et on fait
+// défiler en même temps (l'appli, elle, le met en pause pendant un défilement).
+const drift = () => page.evaluate(() => ['.glow .b1', '.glow .b2'].forEach((s, i) => document.querySelector(s).animate([{ transform: 'none', opacity: 1 }, { transform: 'translate(3%,2%) scale(1.08)', opacity: .82, offset: .5 }, { transform: 'none', opacity: 1 }], { duration: 3000, delay: i * 200, easing: 'ease-in-out' })));
+R.push(await measure('Fond vivant, au repos', drift, 1500));
+await page.waitForTimeout(1800);
+R.push(await measure('Fond vivant + défilement (pire cas)', async () => { await drift(); await scrollTo(900)(); }, 1200));
+await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(400);
 
 await browser.close(); server.close();
 const bad = R.filter(r => r.slow > 2);

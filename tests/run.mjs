@@ -199,7 +199,8 @@ async function scenarioDonnees(cfg, fx, tag) {
   await page.locator('[data-act="view"][data-view="annee"]:visible').click();
   await until(page, () => !document.getElementById('v-annee').hidden && !document.getElementById('kpis').innerText.includes('…'), null, 'vue Année affichée');
   const K = clean(await page.locator('#kpis').innerText());
-  const baseY = r2(E.annee2026.urssaf / rate);
+  // Patch 4 : avec une URSSAF payée (montant réel ≠ estimation), le jeu donne directement le chiffre d'affaires.
+  const baseY = E.annee2026.base != null ? E.annee2026.base : r2(E.annee2026.urssaf / rate);
   check(K.includes('Revenusbruts' + eur(baseY)) && (E.annee2026.brut > baseY ? K.includes('SansURSSAF' + eur(r2(E.annee2026.brut - baseY))) : !K.includes('SansURSSAF')), 'année : revenus bruts (soumis à l\'URSSAF) ' + eur(baseY) + ' + sans URSSAF');
   for (const k of ['urssaf', 'net', 'dep', 'ep']) if (E.annee2026[k] != null) check(K.includes(eur(E.annee2026[k])), 'total année ' + k + ' = ' + eur(E.annee2026[k]));
   check(K.includes(eur(Math.abs(E.annee2026.reste))) && K.includes(E.annee2026.reste < 0 ? 'manque' : 'Reste'), 'reste de l\'année = ' + eur(E.annee2026.reste));
@@ -221,8 +222,9 @@ async function scenarioDonnees(cfg, fx, tag) {
   await openFixedRev(page);
   await page.locator('#lists .row', { hasText: 'Aide' }).click();
   await until(page, () => !document.getElementById('sheet-bg').hidden, null, 'fenêtre du fixe ouverte');
-  check(await page.locator('#f-hint:visible').count() === 1, 'avertissement « nouveau montant à partir de… » affiché');
   await page.fill('#f-amount', '120');
+  // Patch 4 : la phrase ne s'affiche qu'après un vrai changement (patch 3) : on la vérifie après la saisie.
+  await until(page, () => document.getElementById('f-hint').textContent.includes('Ce changement compte'), null, 'avertissement « Ce changement compte à partir de… » affiché');
   await page.click('#f-save');
   await until(page, () => window.__PFLOW_DB__.dump()['users/uid-test/recurring/r3'].end === '2026-02', null, 'ancien montant du fixe arrêté en février');
   db = await dump(page);
@@ -397,8 +399,10 @@ async function scenarioCouleurs(cfg, fx, tag) {
   await page.locator('[data-act="view"][data-view="mois"]:visible').click();
   check(await css('#legend .s-dep', 'backgroundColor') === 'rgb(194, 59, 53)', 'vue Mois : légende des dépenses à la nouvelle couleur');
   await page.locator('[data-act="view"][data-view="annee"]:visible').click();
-  await until(page, () => !!document.querySelector('#y-top .bar i:not(.p)'), null, 'vue Année : « Où part l\'argent » affiché');
-  check(await css('#y-top .bar i:not(.p)', 'backgroundColor') === 'rgb(194, 59, 53)', 'vue Année : dépenses fixes à la nouvelle couleur');
+  await until(page, () => !!document.querySelector('#y-top .bar i.p'), null, 'vue Année : « Où part l\'argent » affiché');
+  // Patch 4 : ponctuelles dans la couleur des Dépenses, fixes dans celle des Fixes (légende assortie).
+  check(await css('#y-top .bar i.p', 'backgroundColor') === 'rgb(194, 59, 53)', 'vue Année : dépenses ponctuelles à la nouvelle couleur');
+  check(await page.evaluate(() => { const i = document.querySelector('#y-top .bar i.f'), l = document.querySelector('.mini-legend .s-fixes'); return !!i && !!l && getComputedStyle(i).backgroundColor === getComputedStyle(l).backgroundColor; }), 'vue Année : charges fixes dans la couleur des Fixes, comme la légende');
 
   await reglages(page, 'apparence');
   await page.click('#colors [data-act="color-reset"][data-k="dep"]');
@@ -457,7 +461,9 @@ async function scenarioSauvegardes(cfg, fx, tag) {
   const file = join(OUT, tag.normalize('NFD').replace(/[\u0300-\u036f]/g, '') + '-sauvegarde.json');
   await dl.saveAs(file);
   const bk = JSON.parse(readFileSync(file, 'utf8'));
-  check(bk.app === 'P-Flow' && bk.format === 3 && bk.dataVersion === 1 && bk.entries.length === NB.entries && bk.recurring.length === NB.recurring, 'export : toutes les opérations et tous les fixes');
+  check(bk.app === 'P-Flow' && bk.format === 4 && bk.dataVersion === 1 && bk.entries.length === NB.entries && bk.recurring.length === NB.recurring, 'export : toutes les opérations et tous les fixes');
+  // Patch 4 : format 4, avec les paiements de l'URSSAF (liste vide s'il n'y en a pas).
+  check(Array.isArray(bk.urssaf) && bk.urssaf.length === (NB.urssaf || 0), 'export : paiements de l\'URSSAF (' + (NB.urssaf || 0) + ')');
   check(bk.periodiques.length === (NB.periodiques || 0) && bk.epargne.length === (NB.epargne || 0), 'export : fixes non mensuels et épargne (' + bk.periodiques.length + ', ' + bk.epargne.length + ')');
   check(bk.entries.find(e => e.id === 'e2').champFutur === 'à conserver' && bk.settings.pro === true, 'export : champs et réglages complets');
   check(['jours', 'soldes', 'pointages'].every(c => Array.isArray(bk[c]) && bk[c].length === (NB[c] || 0)), 'export : jours des fixes, soldes du compte et pointages (patch 3)');
@@ -550,9 +556,19 @@ async function scenarioMisesAJour(cfg, fx, tag) {
   check(await o.page.locator('#update [data-act="upd-reload"]').count() === 1, 'mise à jour : bouton Recharger (navigateur)');
   await reglages(o.page, 'apropos');
   check((await o.page.locator('#upd-status').innerText()).includes('0.1.1 bêta'), 'Réglages : nouvelle version annoncée');
-  await o.page.click('#upd-auto [data-v="semaine"]');
-  check(await o.page.locator('#upd-auto [data-v="semaine"][aria-checked="true"]').count() === 1 && await o.page.locator('#upd-auto [aria-checked="true"]').count() === 1, 'Réglages : un seul intervalle coché');
-  check(await o.page.evaluate(() => localStorage.getItem('pf-maj-auto')) === 'semaine', 'Réglages : intervalle de vérification enregistré');
+  // Patch 4 : une seule ligne qui ouvre un petit menu en verre (5 choix, dont « une fois par mois »).
+  check((await o.page.locator('#upd-auto').innerText()).includes('Une fois par jour'), 'Réglages : vérification automatique « Une fois par jour » d\'office');
+  await o.page.click('#upd-auto');
+  await until(o.page, () => document.querySelectorAll('.pop [role="option"]').length === 5, null, 'Réglages : menu de la vérification automatique (5 choix)');
+  check(await o.page.locator('.pop [role="option"][data-v="jour"][aria-selected="true"]').count() === 1, 'Réglages : choix en cours coché');
+  check(await o.page.locator('select').count() === 0, 'Réglages : pas de liste du système');
+  await o.page.click('.pop [data-v="mois"]');
+  await until(o.page, () => !document.querySelector('.pop') && document.getElementById('upd-auto').textContent.includes('Une fois par mois'), null, 'Réglages : « Une fois par mois » choisi, menu refermé');
+  check(await o.page.evaluate(() => localStorage.getItem('pf-maj-auto')) === 'mois', 'Réglages : intervalle de vérification enregistré');
+  await o.page.click('#upd-auto'); await until(o.page, () => !!document.querySelector('.pop [data-v="semaine"]'), null, 'Réglages : menu rouvert');
+  await o.page.keyboard.press('Escape');
+  await until(o.page, () => !document.querySelector('.pop'), null, 'Réglages : Échap referme sans rien changer');
+  check(await o.page.evaluate(() => localStorage.getItem('pf-maj-auto')) === 'mois', 'Réglages : rien changé en refermant');
   await o.ctx.close();
   o = await open(cfg, fx.docs, { date: fx.expect._date });
   await waitApp(o.page);
@@ -689,8 +705,9 @@ async function scenarioEpargne(cfg, fx, tag) {
   await openFixedRev(page);
   await page.locator('#lists .row', { hasText: 'Prime' }).click();
   await until(page, () => !document.getElementById('sheet-bg').hidden, null, 'fenêtre du fixe trimestriel');
-  check(await page.locator('#f-hint:visible').count() === 1, 'avertissement « nouveau montant à partir de… » (trimestriel)');
-  await page.fill('#f-amount', '350'); await page.click('#f-save');
+  await page.fill('#f-amount', '350');
+  await until(page, () => document.getElementById('f-hint').textContent.includes('Ce changement compte'), null, 'avertissement « Ce changement compte à partir de… » (trimestriel)');
+  await page.click('#f-save');
   await until(page, k => (window.__PFLOW_DB__.dump()[k] || {}).end === '2026-02', PER + 'p4', 'ancien trimestriel arrêté en février');
   db = await dump(page);
   const nP = Object.entries(db).filter(([k, v]) => k.startsWith(PER) && v.label === 'Prime' && k !== PER + 'p4');
@@ -984,7 +1001,10 @@ async function scenarioPatch3(cfg, fx, tag) {
   check(clean(await page.locator('#hero-label').innerText()) === 'Prévusurtoncomptele31mars', 'gros chiffre : « Prévu sur ton compte le 31 mars »');
   check(await hero(page) === eur(E.mars.compte), 'prévu le 31 = ' + eur(E.mars.compte));
   let sb = await sub();
-  check(sb.includes('Aujourd\'hui:' + eur(E.compte.aujourdhui)), 'aujourd\'hui = ' + eur(E.compte.aujourdhui) + ' (' + sb.slice(0, 120) + ')');
+  // Patch 4 (retour sur l'APK 65) : le solde noté porte sa date ; ce qui est prévu aujourd'hui vient à part s'il a changé depuis.
+  check(sb.includes('Soldedu10mars:' + eur(1250)), 'solde noté avec sa date : « Solde du 10 mars » (' + sb.slice(0, 120) + ')');
+  check(sb.includes('Prévuaujourd\'hui:' + eur(E.compte.aujourdhui)) && !sb.includes('Aujourd\'hui:'), 'prévu aujourd\'hui = ' + eur(E.compte.aujourdhui));
+  check(clean(await page.locator('#hero-sub [data-act="solde-open"]').innerText()) === 'Mettreàjourmonsolde', 'lien « Mettre à jour mon solde »');
   check(sb.includes('Pointleplusbas:' + eur(E.compte.bas) + 'le' + clean(E.compte.basLe)), 'point le plus bas = ' + eur(E.compte.bas) + ' le ' + E.compte.basLe);
   check(sb.includes('Tupeuxencoredépenser'), '« Tu peux encore dépenser » calculé sur le compte');
   check((L => L.includes('Reste'))(await page.locator('#legend').innerText()), 'le reste du mois reste dans la cascade');
@@ -1080,7 +1100,7 @@ async function scenarioPatch3(cfg, fx, tag) {
   await page.locator('#fix-list .row', { hasText: 'Loyer' }).click(); await sheetOpen();
   check(await page.locator('#f-stop.lead:visible').count() === 1, '« Arrêter après… » en bouton principal');
   check((await page.locator('#f-delete').innerText()).includes('mois passés'), '« Supprimer aussi des mois passés »');
-  check(await page.locator('#f-hint:visible').count() === 0 || !(await page.locator('#f-hint').innerText()).includes('nouveau montant'), 'pas de phrase « nouveau montant » sans changement');
+  check(await page.locator('#f-hint:visible').count() === 0 || !(await page.locator('#f-hint').innerText()).includes('Ce changement compte'), 'pas de phrase « Ce changement compte… » sans changement');
   await page.click('#sheet-close'); await sheetClosed();
 
   // 8a. Couleurs : Fixes, Épargne et Autres revenus réglables ; une couleur déjà prise est bloquée
@@ -1093,7 +1113,8 @@ async function scenarioPatch3(cfg, fx, tag) {
   const gris = page.locator('#colors [data-act="color-set"][data-k="fixes"][data-c="#6a7d90"]');
   check(await gris.isDisabled() && (await gris.getAttribute('aria-label')).includes('Dépenses'), 'gris déjà pris par « Dépenses » : bloqué pour Fixes');
   const w8 = await page.evaluate(() => window.__PFLOW_DB__.writes());
-  await page.evaluate(() => document.querySelector('#colors [data-act="color-set"][data-k="fixes"][data-c="#6a7d90"]').click());
+  // Patch 4 : le bouton est réactivé à la main pour vérifier que l'appli refuse elle-même (un clic sur un bouton désactivé ne fait rien).
+  await page.evaluate(() => { const b = document.querySelector('#colors [data-act="color-set"][data-k="fixes"][data-c="#6a7d90"]'); b.disabled = false; b.click(); });
   await page.waitForTimeout(300);
   check(await page.evaluate(() => window.__PFLOW_DB__.writes()) === w8, 'couleur prise : rien n\'est enregistré');
   await page.click('#colors [data-act="color-set"][data-k="fixes"][data-c="#d9488f"]');
@@ -1189,6 +1210,192 @@ async function scenarioPatch3(cfg, fx, tag) {
   await ctx.close();
 }
 
+// ---------- patch 4 : URSSAF payée, objectif de fin de mois, épargne possible (jeu 0.1.4) ----------
+const EUR0T = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+const eur0 = n => clean(EUR0T.format(Math.round(n)));
+async function scenarioPatch4(cfg, fx, tag) {
+  const E = fx.expect, P = E.patch4, U = 'users/uid-test/', ST = U + 'meta/settings';
+  let { ctx, page, errors } = await open(cfg, fx.docs, { date: E._date });
+  await waitApp(page);
+  const fin = () => page.locator('#fin-card').innerText().then(clean);
+  const panelOpen = t => until(page, x => !document.getElementById('panel-bg').hidden && document.getElementById('panel-title').textContent.includes(x), t, 'fenêtre « ' + t + ' »');
+  const cas = async () => Object.fromEntries((await legend(page)).map(([k, v]) => [k.replace(/\s*\(.*\)/, ''), clean(v)]));
+  const urssafNote = () => page.locator('#legend > div', { hasText: 'URSSAF' }).first().locator('small').innerText().catch(() => '');
+  const urssafIs = (v, label) => until(page, x => { const r = Array.from(document.querySelectorAll('#legend > div')).find(d => d.textContent.includes('URSSAF')); return !!r && r.querySelector('dd').textContent.replace(/[\s  ]/g, '') === x; }, eur(v), label);
+
+  // 1. Février : l'URSSAF payée (110 €) remplace l'estimation (106 €) dans la cascade, avec la mention « montant réel »
+  await page.click('[data-act="prev-month"]');
+  await until(page, () => document.querySelector('#ctx h1').textContent.includes('Février'), null, 'février affiché');
+  let L = await cas();
+  check(L['URSSAF'] === eur(P.fevrierReel), 'février : URSSAF = montant réel payé ' + eur(P.fevrierReel) + ' (' + L['URSSAF'] + ')');
+  check((await urssafNote()) === 'montant réel', 'février : mention « montant réel »');
+  await page.click('#legend [data-act="cas-info"][data-k="urssaf"]');
+  await until(page, v => { const p = document.querySelector('#legend .cexp'); return !!p && p.textContent.includes('réellement payé') && p.textContent.replace(/[\s  ]/g, '').includes(v); }, eur(P.fevrierEstime), 'ⓘ URSSAF : montant payé, estimation de ' + eur(P.fevrierEstime));
+  await page.click('[data-act="urssaf-toggle"]');
+  await until(page, () => document.getElementById('urssaf-line').textContent.includes('payée le 12'), null, 'ligne URSSAF de février : « payée le 12 mars »');
+  check(clean(await page.locator('#uc-info').innerText()).includes('estimation:' + eur(P.fevrierEstime)), 'carte URSSAF : montant réel et estimation');
+  // Modifier le paiement : la date, la création et un champ ajouté par une version plus récente sont gardés
+  await page.click('#uc-info [data-act="up-open"]');
+  await panelOpen('URSSAF de février');
+  check(await page.inputValue('#up-amount') === '110', 'montant payé pré-rempli (110)');
+  await page.fill('#up-amount', '115'); await page.click('[data-act="up-save"]');
+  await until(page, k => (window.__PFLOW_DB__.dump()[k] || {}).montant === 115, U + 'urssaf/2026-02', 'paiement modifié (115 €)');
+  let db = await dump(page);
+  const pf = db[U + 'urssaf/2026-02'];
+  check(pf.champFutur === 'paiement à conserver' && pf.date === '2026-03-12' && pf.createdAt === fx.docs[U + 'urssaf/2026-02'].createdAt, 'paiement modifié : date, création et champ inconnu gardés');
+  // Retirer le paiement (confirmation en deux temps) puis « Annuler » : remis à l'identique
+  await page.click('#uc-info [data-act="up-open"]'); await panelOpen('URSSAF de février');
+  await page.click('[data-act="up-del"]');
+  check(await page.locator('[data-act="up-del"].armed').count() === 1, 'retirer le paiement : confirmation demandée');
+  await page.click('[data-act="up-del"]');
+  await until(page, k => !(k in window.__PFLOW_DB__.dump()), U + 'urssaf/2026-02', 'paiement retiré');
+  await urssafIs(P.fevrierEstime, 'sans paiement : l\'estimation revient (' + eur(P.fevrierEstime) + ')');
+  await page.click('#toast .toast-undo');
+  await until(page, k => (window.__PFLOW_DB__.dump()[k] || {}).champFutur === 'paiement à conserver', U + 'urssaf/2026-02', '« Annuler » : paiement remis à l\'identique');
+  await urssafIs(115, 'paiement remis : 115 € dans la cascade');
+  await page.click('[data-act="urssaf-toggle"]');
+  await page.click('[data-act="next-month"]');
+  await until(page, () => document.querySelector('#ctx h1').textContent.includes('Mars'), null, 'retour en mars');
+
+  // 2. Mars : prévu le 31 avec l'URSSAF de février payée 115 € le 12 ; carte « Fin du mois »
+  const end = r2(E.mars.compte - 5), possible = P.epargnePossible - 5; // paiement de février passé de 110 à 115 €
+  await waitHero(page, end, 'prévu le 31 mars = ' + eur(end));
+  let f = await fin();
+  check(f.includes('Objectifdefindemois') && f.includes(eur(P.objectif)) && f.includes('touslesmois'), 'objectif de fin de mois : ' + eur(P.objectif) + ', tous les mois (' + f.slice(0, 120) + ')');
+  check(f.includes('Tupeuxmettredecôté~' + eur0(possible)), 'épargne possible = ' + eur0(possible) + ' (prévu − objectif − URSSAF de mars due) (' + f.slice(0, 200) + ')');
+  check(f.includes('URSSAFàpayer' + eur(P.dueMars)), 'URSSAF de mars mise à part (' + eur(P.dueMars) + ')');
+  const left = 17; // du 15 au 31 mars
+  check(clean(await page.locator('#hero-sub').innerText()).includes('Tupeuxencoredépenser~' + eur0(possible / left)), '« Tu peux encore dépenser » sans l\'URSSAF due ni l\'objectif (~' + eur0(possible / left) + ' par jour)');
+  await page.screenshot({ path: join(OUT, tag + '-fin-du-mois.png'), fullPage: true });
+
+  // 3. Objectif pour mars seulement, puis retiré : les autres mois et les autres réglages ne bougent pas
+  const before = (await dump(page))[ST];
+  await page.click('#fin-card [data-act="obj-open"]'); await panelOpen('Objectif de fin de mois');
+  check(await page.inputValue('#obj-amount') === '300', 'objectif pré-rempli (300)');
+  check(await page.locator('[data-act="obj-scope"][data-v="tous"][aria-pressed="true"]').count() === 1, '« Tous les mois » choisi d\'office');
+  await page.click('[data-act="obj-scope"][data-v="mois"]');
+  check((await page.locator('#obj-scope-hint').innerText()).includes('mars 2026'), 'explication : seulement mars 2026');
+  await page.fill('#obj-amount', '200'); await page.click('[data-act="obj-save"]');
+  await until(page, k => ((window.__PFLOW_DB__.dump()[k] || {}).objectifs || {})['2026-03'] === 200, ST, 'objectif de mars seulement enregistré (200 €)');
+  db = await dump(page);
+  check(db[ST].objectif === 300 && db[ST].objectifs['2026-04'] === 500, 'objectif de tous les mois et celui d\'avril inchangés');
+  for (const k of Object.keys(before)) if (k !== 'objectifs') check(JSON.stringify(db[ST][k]) === JSON.stringify(before[k]), 'réglage « ' + k + ' » intact');
+  await until(page, () => document.getElementById('fin-card').innerText.includes('seulement en mars'), null, 'carte : « seulement en mars »');
+  f = await fin();
+  check(f.includes('Tupeuxmettredecôté~' + eur0(possible + 100)), 'épargne possible avec 200 € d\'objectif = ' + eur0(possible + 100));
+  await page.click('#fin-card [data-act="obj-open"]'); await panelOpen('Objectif de fin de mois');
+  check(await page.locator('[data-act="obj-scope"][data-v="mois"][aria-pressed="true"]').count() === 1, 'mois réglé à part : « Seulement mars » choisi');
+  await page.click('[data-act="obj-del"]');
+  check(await page.locator('[data-act="obj-del"].armed').count() === 1, 'retirer l\'objectif : confirmation demandée');
+  await page.click('[data-act="obj-del"]');
+  await until(page, k => ((window.__PFLOW_DB__.dump()[k] || {}).objectifs || {})['2026-03'] === null, ST, 'objectif de mars retiré (mars reprend celui de tous les mois)');
+  await until(page, () => document.getElementById('fin-card').innerText.includes('tous les mois'), null, 'carte : retour à l\'objectif de tous les mois');
+  // Avril : son propre objectif, pas d'épargne proposée pour un mois à venir
+  await page.click('[data-act="next-month"]');
+  await until(page, () => document.getElementById('fin-card').innerText.includes('seulement en avril'), null, 'avril : objectif réglé à part');
+  f = await fin();
+  check(f.includes(eur(P.objectifAvril)) && !f.includes('mettredecôté'), 'avril : ' + eur(P.objectifAvril) + ', pas d\'épargne proposée pour un mois à venir');
+  await page.click('[data-act="prev-month"]');
+  await until(page, () => document.querySelector('#ctx h1').textContent.includes('Mars'), null, 'retour en mars');
+
+  // 4. « Mettre de côté » : dépôt d'épargne pré-rempli avec le montant proposé
+  await until(page, () => !!document.querySelector('#fin-card [data-act="ep-suggest"]'), null, 'bouton « Mettre de côté »');
+  await page.click('#fin-card [data-act="ep-suggest"]');
+  await until(page, () => !document.getElementById('sheet-bg').hidden, null, 'fenêtre d\'épargne ouverte');
+  check(await page.inputValue('#f-amount') === String(possible), 'montant pré-rempli (' + possible + ')');
+  check(await page.locator('#type-seg [data-type="epargne"][aria-pressed="true"]').count() === 1, 'type « Épargne » choisi');
+  await page.click('#f-accounts [data-acc="Livret A"]'); await page.click('#f-save');
+  await until(page, n => Object.values(window.__PFLOW_DB__.dump()).some(v => v.op === 'depot' && v.amount === n && v.date === '2026-03-15'), possible, 'dépôt d\'épargne enregistré');
+  await until(page, () => document.getElementById('fin-card').innerText.includes('Rien à mettre de côté'), null, 'après le dépôt : plus rien à mettre de côté');
+  await waitHero(page, r2(end - possible), 'prévu le 31 après le dépôt');
+  check(await page.locator('select, input[type="date"], input[type="month"], input[type="color"], datalist').count() === 0, 'aucune fenêtre native dans la page');
+  noErr(errors, 'mars');
+  await ctx.close();
+
+  // 5. Payer l'URSSAF de mars avant l'échéance : montant réel dans la cascade, retiré du compte le jour du paiement
+  ({ ctx, page, errors } = await open(cfg, fx.docs, { date: E._date }));
+  await waitApp(page);
+  await page.click('[data-act="urssaf-toggle"]');
+  await page.click('#uc-info [data-act="up-open"]'); await panelOpen('URSSAF de mars');
+  check(await page.inputValue('#up-amount') === '212', 'montant pré-rempli avec l\'estimation (212)');
+  check((await page.locator('#up-date-txt').innerText()).includes('Aujourd'), 'date du paiement : aujourd\'hui (échéance pas encore passée)');
+  await page.fill('#up-amount', '220'); await page.click('[data-act="up-save"]');
+  await until(page, k => { const d = window.__PFLOW_DB__.dump()[k]; return !!d && d.payee === true && d.montant === 220 && d.date === '2026-03-15'; }, U + 'urssaf/2026-03', 'paiement de mars enregistré (220 € le 15 mars)');
+  await urssafIs(220, 'cascade de mars : URSSAF = 220 € (réel)');
+  await waitReste(page, r2(E.mars.reste - 8), 'reste de mars avec l\'URSSAF réelle');
+  await waitHero(page, r2(E.mars.compte - 220), 'prévu le 31 : URSSAF de mars retirée le 15');
+  // Plus d'URSSAF due à la fin du mois : seulement l'objectif. Bas du mois : 1 220 − 220 − 50 − 180 = 770 le 20.
+  f = await fin();
+  const p2 = Math.floor(Math.min(E.mars.compte - 220 - P.objectif, 770));
+  check(f.includes('Tupeuxmettredecôté~' + eur0(p2)) && !f.includes('URSSAFàpayer'), 'épargne possible une fois l\'URSSAF payée = ' + eur0(p2) + ' (' + f.slice(0, 200) + ')');
+  await page.click('#ctx .mtitle');
+  await until(page, () => !!document.querySelector('.pop .cal-d[data-d="15"] .cdot.d-urs'), null, 'calendrier : URSSAF le jour du paiement (15)');
+  await page.keyboard.press('Escape');
+  noErr(errors, 'paiement de mars');
+  await ctx.close();
+
+  // 6. Après l'échéance : « URSSAF de mars payée ? » (Pas encore, puis Oui à la date de l'échéance)
+  ({ ctx, page, errors } = await open(cfg, fx.docs, { date: '2026-05-02' }));
+  await waitApp(page);
+  await until(page, () => !document.getElementById('urs-ask').hidden && document.getElementById('urs-ask').innerText.includes('URSSAF de mars payée'), null, '« URSSAF de mars payée ? » proposée après l\'échéance');
+  check(clean(await page.locator('#urs-ask').innerText()).includes('Estimation:' + eur(P.dueMars)), 'question : estimation ' + eur(P.dueMars));
+  await page.screenshot({ path: join(OUT, tag + '-urssaf-payee.png'), fullPage: true });
+  await page.click('#urs-ask [data-act="up-later"]');
+  await until(page, k => (window.__PFLOW_DB__.dump()[k] || {}).payee === false, U + 'urssaf/2026-03', '« Pas encore » rangé à part (urssaf/2026-03)');
+  await until(page, () => document.getElementById('urs-ask').hidden, null, '« Pas encore » : question mise de côté jusqu\'à demain');
+  check(await page.evaluate(() => localStorage.getItem('pf-urs-plus-tard')) === '2026-05-02|2026-03', 'rappel demain (propre à l\'appareil)');
+  await page.evaluate(() => localStorage.removeItem('pf-urs-plus-tard'));
+  await page.click('[data-act="next-month"]'); await page.click('[data-act="prev-month"]');
+  await until(page, () => !document.getElementById('urs-ask').hidden, null, 'le lendemain : question reposée');
+  await page.click('#urs-ask [data-act="up-open"]'); await panelOpen('URSSAF de mars');
+  check(clean(await page.locator('#up-date-txt').innerText()).includes('30avril'), 'date proposée : l\'échéance (30 avril)');
+  await page.click('[data-act="up-save"]');
+  await until(page, k => { const d = window.__PFLOW_DB__.dump()[k]; return !!d && d.payee === true && d.montant === 212 && d.date === '2026-04-30'; }, U + 'urssaf/2026-03', '« Oui » : payée le 30 avril, 212 €');
+  await until(page, () => document.getElementById('urs-ask').hidden, null, 'question retirée une fois payée');
+  noErr(errors, 'après l\'échéance');
+  await ctx.close();
+
+  // 6 b. Deux URSSAF en attente (février et mars) : « Pas encore » sur chacune les met de côté toutes les deux pour
+  // la journée ; un nouveau solde noté repose la question tout de suite.
+  const two = JSON.parse(JSON.stringify(fx.docs));
+  delete two[U + 'urssaf/2026-02'];
+  ({ ctx, page, errors } = await open(cfg, two, { date: '2026-05-02' }));
+  await waitApp(page);
+  await until(page, () => !document.getElementById('urs-ask').hidden && document.getElementById('urs-ask').innerText.includes('URSSAF de février payée'), null, 'deux en attente : la plus ancienne d\'abord (février)');
+  await page.click('#urs-ask [data-act="up-later"]');
+  await until(page, () => !document.getElementById('urs-ask').hidden && document.getElementById('urs-ask').innerText.includes('URSSAF de mars payée'), null, 'puis mars');
+  await page.click('#urs-ask [data-act="up-later"]');
+  await until(page, () => document.getElementById('urs-ask').hidden, null, '« Pas encore » deux fois : plus rien à demander aujourd\'hui');
+  check(await page.evaluate(() => localStorage.getItem('pf-urs-plus-tard')) === '2026-05-02|2026-02,2026-03', 'les deux périodes mises de côté pour la journée');
+  await page.click('[data-act="next-month"]'); await page.click('[data-act="prev-month"]');
+  await page.waitForTimeout(300);
+  check(await page.locator('#urs-ask').isHidden(), 'février ne revient pas le même jour');
+  await page.click('[data-act="solde-open"]');
+  await until(page, () => !document.getElementById('panel-bg').hidden && document.getElementById('panel-title').textContent.includes('compte en banque'), null, 'fenêtre « Mon compte en banque » (6 b)');
+  await page.fill('#sd-amount', '900');
+  await page.click('[data-act="sd-save"]');
+  await until(page, p => Object.entries(window.__PFLOW_DB__.dump()).some(([k, v]) => k.startsWith(p) && v.montant === 900 && v.date === '2026-05-02'), U + 'soldes/', 'nouveau solde enregistré (6 b)');
+  await page.waitForTimeout(600);
+  if (await page.locator('#panel-bg').isVisible()) { await page.click('#panel-close'); await page.waitForTimeout(400); }
+  await until(page, () => !document.getElementById('urs-ask').hidden && document.getElementById('urs-ask').innerText.includes('URSSAF de février payée'), null, 'nouveau solde : « URSSAF payée ? » reposée tout de suite');
+  noErr(errors, 'deux URSSAF en attente');
+  await ctx.close();
+
+  // 7. Déclaration trimestrielle : le montant réel du trimestre est réparti selon le chiffre d'affaires de chaque mois
+  const q = JSON.parse(JSON.stringify(fx.docs));
+  q[ST].periodicite = 'trimestrielle';
+  delete q[U + 'urssaf/2026-02'];
+  q[U + 'urssaf/2026-T1'] = { payee: true, date: '2026-04-20', montant: 300, createdAt: 1776643200000 };
+  ({ ctx, page, errors } = await open(cfg, q, { date: E._date }));
+  await waitApp(page);
+  await urssafIs(200, 'trimestriel : mars = 200 € (1 000 sur 1 500 facturés)');
+  check((await urssafNote()) === 'part du montant réel', 'trimestriel : mention « part du montant réel »');
+  await page.click('[data-act="prev-month"]');
+  await urssafIs(100, 'trimestriel : février = 100 € (500 sur 1 500 facturés)');
+  noErr(errors, 'trimestriel');
+  await ctx.close();
+}
+
 // ---------- lancement ----------
 // Un scénario qui plante compte comme un échec, et les suivants continuent.
 async function run(fn, name) {
@@ -1219,7 +1426,9 @@ for (const file of fixtures) {
     if (fx.expect.epargne) await go('Epargne', () => scenarioEpargne(cfg, fx, tag));
     if (oldFormat) await go('OffreEpargne', () => scenarioOffreEpargne(cfg, fx, tag));
     if (cfg.name === 'téléphone clair') await go('RefaireConfig', () => scenarioRefaireConfig(cfg, fx, tag));
-    if (last && cfg.name !== 'tablette clair') await go('Patch3', () => scenarioPatch3(cfg, fx, tag));
+    // Patch 3 : scénario écrit pour le jeu 0.1.3 (montants précis) ; patch 4 : jeu 0.1.4.
+    if (file === 'v0.1.3-beta.json' && cfg.name !== 'tablette clair') await go('Patch3', () => scenarioPatch3(cfg, fx, tag));
+    if (file === 'v0.1.4-beta.json' && cfg.name !== 'tablette clair') await go('Patch4', () => scenarioPatch4(cfg, fx, tag));
     if (last) {
       await go('Demandes', () => scenarioDemandes(cfg, fx, tag));
       await go('Nouveautes', () => scenarioNouveautes(cfg, fx, tag));

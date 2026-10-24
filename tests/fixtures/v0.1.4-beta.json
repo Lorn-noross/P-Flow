@@ -1,0 +1,292 @@
+{
+ "_info": "Données FICTIVES au format de la version 0.1.4-beta (patch 4 : collection urssaf = paiements réels de l'URSSAF ; réglages objectif et objectifs = objectif de fin de mois). Ne jamais modifier ni supprimer ce fichier. Les champs « champFutur » simulent un champ ajouté par une version plus récente : ils doivent survivre à toute modification. Reprend le jeu 0.1.3, plus une facture de 500 € le 3 février (URSSAF estimée 106 €, payée 110 € le 12 mars : le montant réel remplace l'estimation) et un objectif de 300 € pour tous les mois (500 € pour avril seulement). Compte courant : 1 250 € noté le 10 mars ; ensuite +30 et −110 (URSSAF de février) le 12, +50 (Remboursement, « pas encore passé », compté le 15), −50 le 18, −180 le 20, +100 le 25 : 1 220 € le 15, point le plus bas 990 € le 20, 1 090 € prévus le 31 mars. Épargne possible le 15 mars : 1 090 − 300 (objectif) − 212 (URSSAF de mars, payée fin avril) = 578 € (le point le plus bas, 990 €, ne limite pas).",
+ "docs": {
+  "users/uid-test/meta/settings": {
+   "pro": true,
+   "taux": {
+    "2026": 21.2
+   },
+   "periodicite": "mensuelle",
+   "createdAt": 1767225600000,
+   "couleurs": {
+    "brut": null,
+    "urssaf": "#e0662e",
+    "net": null,
+    "dep": "#6a7d90",
+    "reste": "#16845a"
+   },
+   "sauvegarde": {
+    "drive": false,
+    "frequence": "mensuelle",
+    "derniere": 0
+   },
+   "epargne": true,
+   "objectif": 300,
+   "objectifs": {
+    "2026-04": 500
+   }
+  },
+  "users/uid-test/entries/e1": {
+   "type": "revenu",
+   "label": "Facture client A",
+   "amount": 1000,
+   "urssaf": true,
+   "date": "2026-03-05",
+   "month": "2026-03",
+   "createdAt": 1772668800000
+  },
+  "users/uid-test/entries/e2": {
+   "type": "depense",
+   "label": "Courses",
+   "amount": 85.4,
+   "urssaf": false,
+   "date": "2026-03-07",
+   "month": "2026-03",
+   "createdAt": 1772841600000,
+   "champFutur": "à conserver"
+  },
+  "users/uid-test/entries/e3": {
+   "type": "revenu",
+   "label": "Remboursement",
+   "amount": 50,
+   "urssaf": false,
+   "date": "2026-03-10",
+   "month": "2026-03",
+   "createdAt": 1773100800000
+  },
+  "users/uid-test/entries/e4": {
+   "type": "depense",
+   "label": "Essence",
+   "amount": 60,
+   "urssaf": false,
+   "date": "2026-02-12",
+   "month": "2026-02",
+   "createdAt": 1770854400000
+  },
+  "users/uid-test/entries/e5": {
+   "type": "revenu",
+   "label": "Chantier B",
+   "amount": 500,
+   "urssaf": true,
+   "date": "2026-02-03",
+   "month": "2026-02",
+   "createdAt": 1770076800000
+  },
+  "users/uid-test/recurring/r1": {
+   "type": "depense",
+   "label": "Loyer",
+   "amount": 500,
+   "urssaf": false,
+   "start": "2025-09",
+   "end": null,
+   "createdAt": 1756684800000
+  },
+  "users/uid-test/recurring/r2": {
+   "type": "depense",
+   "label": "Abonnement",
+   "amount": 20,
+   "urssaf": false,
+   "start": "2026-01",
+   "end": "2026-02",
+   "createdAt": 1767225600000
+  },
+  "users/uid-test/recurring/r3": {
+   "type": "revenu",
+   "label": "Aide",
+   "amount": 100,
+   "urssaf": false,
+   "start": "2026-01",
+   "end": null,
+   "createdAt": 1767225600000,
+   "champFutur": "fixe à conserver"
+  },
+  "users/uid-test/periodiques/p1": {
+   "type": "depense",
+   "label": "Assurance auto",
+   "amount": 240,
+   "urssaf": false,
+   "freq": "trimestre",
+   "start": "2026-01",
+   "end": null,
+   "createdAt": 1767225600000
+  },
+  "users/uid-test/periodiques/p2": {
+   "type": "depense",
+   "label": "Assurance habitation",
+   "amount": 180,
+   "urssaf": false,
+   "freq": "annee",
+   "start": "2025-03",
+   "end": null,
+   "createdAt": 1740787200000
+  },
+  "users/uid-test/periodiques/p3": {
+   "type": "epargne",
+   "label": "Livret A",
+   "amount": 50,
+   "urssaf": false,
+   "freq": "mois",
+   "start": "2026-02",
+   "end": null,
+   "createdAt": 1769904000000
+  },
+  "users/uid-test/periodiques/p4": {
+   "type": "revenu",
+   "label": "Prime",
+   "amount": 300,
+   "urssaf": false,
+   "freq": "trimestre",
+   "start": "2025-12",
+   "end": null,
+   "createdAt": 1764547200000,
+   "champFutur": "périodique à conserver"
+  },
+  "users/uid-test/epargne/ep1": {
+   "op": "solde",
+   "label": "Livret A",
+   "amount": 1000,
+   "date": "2026-01-10",
+   "month": "2026-01",
+   "createdAt": 1768003200000
+  },
+  "users/uid-test/epargne/ep2": {
+   "op": "depot",
+   "label": "Livret A",
+   "amount": 150,
+   "date": "2026-03-08",
+   "month": "2026-03",
+   "createdAt": 1772928000000,
+   "champFutur": "épargne à conserver"
+  },
+  "users/uid-test/epargne/ep3": {
+   "op": "retrait",
+   "label": "Livret A",
+   "amount": 30,
+   "date": "2026-03-12",
+   "month": "2026-03",
+   "createdAt": 1773273600000
+  },
+  "users/uid-test/epargne/ep4": {
+   "op": "solde",
+   "label": "PEL",
+   "amount": 5000,
+   "date": "2026-02-01",
+   "month": "2026-02",
+   "createdAt": 1769904000000
+  },
+  "users/uid-test/epargne/ep5": {
+   "op": "solde",
+   "label": "LDDS",
+   "amount": 300,
+   "date": "2026-03-02",
+   "month": "2026-03",
+   "createdAt": 1772409600000
+  },
+  "users/uid-test/epargne/ep6": {
+   "op": "depot",
+   "label": "LDDS",
+   "amount": 40,
+   "date": "2026-03-02",
+   "month": "2026-03",
+   "createdAt": 1772409600001
+  },
+  "users/uid-test/jours/r1": {
+   "jour": 5,
+   "createdAt": 1756684800000
+  },
+  "users/uid-test/jours/r3": {
+   "jour": 25,
+   "createdAt": 1767225600000,
+   "champFutur": "jour à conserver"
+  },
+  "users/uid-test/jours/p2": {
+   "jour": 20,
+   "createdAt": 1740787200000
+  },
+  "users/uid-test/jours/p3": {
+   "jour": 18,
+   "createdAt": 1769904000000
+  },
+  "users/uid-test/soldes/s1": {
+   "montant": 800,
+   "date": "2026-03-01",
+   "createdAt": 1772355600000
+  },
+  "users/uid-test/soldes/s2": {
+   "montant": 1250,
+   "date": "2026-03-10",
+   "createdAt": 1773165600000,
+   "champFutur": "solde à conserver"
+  },
+  "users/uid-test/pointages/e3": {
+   "passee": false,
+   "createdAt": 1773216000000
+  },
+  "users/uid-test/urssaf/2026-02": {
+   "payee": true,
+   "date": "2026-03-12",
+   "montant": 110,
+   "createdAt": 1773302400000,
+   "champFutur": "paiement à conserver"
+  }
+ },
+ "expect": {
+  "_date": "2026-03-15",
+  "chargesFixes": 2,
+  "mars": {
+   "reste": 262.6,
+   "brut": 1450,
+   "urssaf": 212,
+   "net": 1238,
+   "dep": 765.4,
+   "ep": 210,
+   "compte": 1090
+  },
+  "annee2026": {
+   "brut": 2150,
+   "base": 1500,
+   "urssaf": 322,
+   "net": 1828,
+   "dep": 2105.4,
+   "ep": 260,
+   "reste": -537.4
+  },
+  "apresModif": 228,
+  "apresModifCompte": 1060,
+  "epargne": {
+   "total": 6560,
+   "Livret A": 1220,
+   "PEL": 5000,
+   "LDDS": 340
+  },
+  "fixesParMois": {
+   "reste": -445,
+   "charges": 595,
+   "revenus": 200,
+   "epargne": 50
+  },
+  "nb": {
+   "entries": 5,
+   "recurring": 3,
+   "periodiques": 4,
+   "epargne": 6,
+   "jours": 4,
+   "soldes": 2,
+   "pointages": 1,
+   "urssaf": 1
+  },
+  "compte": {
+   "aujourdhui": 1220,
+   "bas": 990,
+   "basLe": "20 mars"
+  },
+  "patch4": {
+   "objectif": 300,
+   "objectifAvril": 500,
+   "dueMars": 212,
+   "epargnePossible": 578,
+   "fevrierEstime": 106,
+   "fevrierReel": 110
+  }
+ }
+}
