@@ -1469,14 +1469,17 @@ async function scenarioPatch5(cfg, fx, tag) {
   noErr(errors, 'patch 5');
   await ctx.close();
 
-  // 5. Sans objectif ni épargne suivie (comme les parents) : seulement « Fixer un objectif de fin de mois »
+  // 5. Sans objectif ni épargne suivie (comme les parents) : « Tu peux encore dépenser ~X € par jour » (gardé à la
+  // demande du propriétaire), puis « Fixer un objectif » ; ni « Disponible » ni « Mettre de côté »
   const par = JSON.parse(JSON.stringify(fx.docs));
   delete par[ST].objectif; delete par[ST].objectifs; par[ST].epargne = false;
   ({ ctx, page, errors } = await open(cfg, par, { date: E._date }));
   await waitApp(page);
   await until(page, () => !document.getElementById('fin-card').hidden, null, 'carte Fin du mois affichée');
   const f = clean(await page.locator('#fin-card').innerText());
-  check(f === 'Findumois' + 'Fixerunobjectifdefindemois' + 'Combienveux-tugardersurtoncompteàlafindumois?' || (f.includes('Fixerunobjectif') && !f.includes('Disponible') && !f.includes('mettredecôté')), 'sans objectif ni épargne : seulement « Fixer un objectif » (' + f + ')');
+  check(/Tupeuxencoredépenser~[\d ]+€parjourjusqu'au31mars/.test(f) && f.includes('Fixerunobjectif') && !f.includes('Disponible') && !f.includes('Mettredecôté'), 'sans objectif ni épargne : « ~X € par jour » et « Fixer un objectif » (' + f + ')');
+  await page.click('#fin-card [data-act="info"][data-k="fin"]');
+  await until(page, () => { const p = document.querySelector('#fin-card .cexp'); return !!p && p.textContent.includes('Prévu le 31'); }, null, 'ⓘ : calcul du montant par jour');
   noErr(errors, 'sans objectif ni épargne');
   await ctx.close();
 }

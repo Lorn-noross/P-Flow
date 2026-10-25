@@ -1610,14 +1610,15 @@ function finView(m, d, sv) {
 }
 // Patch 5 : un seul montant disponible, « Disponible d'ici le 31 : X € », puis « Soit ~Y € par jour » et
 // « Mettre de côté » (avant, le même argent était annoncé deux fois : à dépenser ET à mettre de côté). Le calcul
-// détaillé passe dans un ⓘ. Sans objectif ni épargne suivie, seulement la ligne de l'objectif. Calcul inchangé.
+// détaillé passe dans un ⓘ. Sans objectif ni épargne suivie (point 9), pas de « Disponible » ni de « Mettre de
+// côté », mais « Tu peux encore dépenser ~X € par jour » reste (retour du propriétaire sur l'APK 78). Calcul inchangé.
 function renderFinCard(m, d, sv, ok) {
   const el = $('#fin-card');
   el.hidden = !(ok && m >= CUR && S.settings);
   if (el.hidden) return;
   const own = S.settings.objectifs[m] != null, obj = objectifOf(m), mo = MONTHS[pYM(m).m - 1];
   let h = '<div class="ep-head"><h3>Fin du mois</h3></div>';
-  if (m === CUR && (epOn() || obj != null)) {
+  if (m === CUR) {
     const f = finView(m, d, sv), can = Math.floor(f.avail), pro = isPro(), dim = dimOf(m), left = dim - NOW.getDate() + 1;
     const parts = [];
     if (f.compte) {
@@ -1631,7 +1632,10 @@ function renderFinCard(m, d, sv, ok) {
     const how = parts.join(' − ') + (f.compte && f.byLow && can > 0 ? '. Limité par ton point le plus bas (' + eur(f.low) + ' le ' + dShort(f.lowDate) + ').' : '.');
     const info = infoBtn('fin', 'Fin du mois'), bubble = infoBubble('fin', how);
     const dispo = v => '<p>Disponible d\'ici le ' + dim + ' : <b>' + esc(eur0(v)) + '</b>' + info + '</p>';
-    if (can > 0) {
+    if (!epOn() && obj == null) {
+      // Sans objectif ni épargne suivie : seulement ce qu'on peut encore dépenser par jour (comme avant le patch 5).
+      if (f.avail > 0) h += '<div class="fin-ep"><p>Tu peux encore dépenser <b>~' + esc(eur0(f.avail / left)) + '</b> ' + (left > 1 ? 'par jour jusqu\'au ' + esc(dShort(m + '-' + pad(dim))) : 'aujourd\'hui') + info + '</p>' + bubble + '</div>';
+    } else if (can > 0) {
       const apart = f.obj && pro ? 'Ton objectif et l\'URSSAF sont déjà mis à part.' : f.obj ? 'Ton objectif est déjà mis à part.' : pro ? 'L\'URSSAF est déjà mise à part.' : '';
       const sub = [left > 1 ? 'Soit ~' + eur0(f.avail / left) + ' par jour.' : '', apart].filter(Boolean).join(' ');
       h += '<div class="fin-ep">' + dispo(can) + bubble + (sub ? '<p class="ep-month">' + esc(sub) + '</p>' : '') +
