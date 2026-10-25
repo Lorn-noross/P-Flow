@@ -162,11 +162,13 @@ Décidé le 25/10/2026 : le patch 5 est consacré au check-up complet de la 0.1.
 24. Seuils de la micro-entreprise : une ligne « Au-delà de 37 500 €, la TVA s'applique l'année suivante. » ; le détail (41 250 €) dans un ⓘ. Chiffres 2026 vérifiés (LégiFiscal, 27/02/2026 : TVA 37 500 / 41 250 €, plafond 83 600 €).
 27. Premier démarrage : retirer l'étape « L'apparence » (6 étapes au lieu de 7) ; tout reste dans Réglages → Apparence.
 
-**À trancher avec le propriétaire** (marqués « À discuter » dans le document ; discussion prévue le 25/10/2026, la décision sera notée ici) :
-5. Interrupteur « Sur mon compte / Reste du mois » au-dessus du gros chiffre : le garder tel quel, ou le rendre discret (toucher le titre du gros chiffre ouvre un petit menu, comme la vérification des mises à jour).
-11. Couleur des revenus : chaque type dans sa couleur partout (icône, montant, pastille, bouton ; le vert seulement pour le Reste), ou garder les « + » en vert et harmoniser seulement les icônes, les pastilles et le bouton « Revenu ».
-26. Simulateur « Simuler une facture » : garder seulement « Si je facture X € → URSSAF, il me reste… » ; « Net voulu par mois » et « Taux horaire » déplacés dans Réglages → Auto-entrepreneur, ou retirés.
-28. Tablette en portrait (~800 px) : écran Mois sur deux colonnes dès 700 px (à vérifier sur la tablette du père).
+**Points « À discuter », tranchés par le propriétaire le 25/10/2026** (étape 2) :
+11. **Option 1 choisie** (maquette comparée à « + en vert ») : chaque type dans sa couleur partout — icône, montant, pastille du calendrier, bouton rapide : factures (soumis à l'URSSAF) en `--c-brut`, autres revenus en `--c-autres`, dépenses en `--c-dep`, fixes en `--c-fixes`, épargne en `--c-ep`, URSSAF en `--c-urssaf`. Le vert (`--c-reste`) seulement pour le Reste (et le gros chiffre positif). Aujourd'hui `.row-amt.in` et le bouton « Revenu » utilisent `--pos`. À faire avec le point 12 (bleu des revenus bruts plus soutenu, sinon les montants seraient trop pâles).
+26. **Simplifier et déplacer** : dans le bloc URSSAF, le simulateur garde seulement « Ce que je facture (brut) → URSSAF X €, il te reste Y € » ; « Net voulu par mois » et « Taux horaire » (avec leur calcul, `calc()`) vont dans Réglages → Auto-entrepreneur, dans une carte « Calculer mon tarif » ; plus de message « Indique le net que tu veux te verser » qui ressemble à un résultat.
+28. **Oui, après vérification** : écran Mois sur deux colonnes dès 700 px (au lieu de 900 px) pour une tablette en portrait, seulement après avoir vérifié la largeur réelle de la tablette du père (modèle demandé au propriétaire) ; si elle fait moins de 700 px en portrait, rien ne change pour elle.
+
+**Encore à trancher** :
+5. Interrupteur « Sur mon compte / Reste du mois » au-dessus du gros chiffre : le garder tel quel, le rendre discret (toucher le titre du gros chiffre ouvre un petit menu `openChoice`, comme la vérification des mises à jour) ou le retirer. Maquettes des trois versions envoyées au propriétaire le 25/10/2026.
 
 ### Patch 6 (0.1.6 bêta) : « Import et petits plus »
 Ancien patch 5, reporté le 25/10/2026 (pas urgent : l'historique du propriétaire est déjà importé, voir « Hors patch », et ses parents repartent de zéro).
