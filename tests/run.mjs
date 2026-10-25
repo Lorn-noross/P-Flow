@@ -74,6 +74,8 @@ const CONFIGS = [
   { name: 'tablette clair', viewport: { width: 800, height: 1280 }, isMobile: true, hasTouch: true, colorScheme: 'light' },
   { name: 'PC clair', viewport: { width: 1280, height: 800 }, colorScheme: 'light' },
   { name: 'PC sombre', viewport: { width: 1280, height: 800 }, colorScheme: 'dark' },
+  // Patch 5 (point 30) : grand écran (trois colonnes, Année sur une page)
+  { name: 'grand écran sombre', viewport: { width: 1920, height: 1080 }, colorScheme: 'dark', only: /^Patch5/ },
 ];
 
 // ---------- faux Internet ----------
@@ -1178,12 +1180,12 @@ async function scenarioPatch3(cfg, fx, tag) {
 
   // 10b. Interrupteur du gros chiffre : « Reste du mois » sans compter le solde, puis retour
   await until(page, () => !document.getElementById('hero-mode').hidden, null, 'interrupteur « Sur mon compte / Reste du mois » affiché');
-  await page.click('[data-act="hero-mode"][data-v="reste"]');
+  await page.click('#hero-mode [data-act="hero-mode"][data-v="reste"]');
   await until(page, () => document.getElementById('hero-label').textContent === 'Reste du mois', null, 'interrupteur : « Reste du mois »');
   await until(page, () => { const r = document.querySelector('#legend .tot'), c = t => t.replace(/[\s\u00a0\u202f]/g, '').replace(/−/g, '-');
     return c(document.getElementById('hero-amount').textContent) === (r.querySelector('dt').textContent.includes('manque') ? '-' : '') + c(r.querySelector('dd').textContent); }, null, 'le gros chiffre redevient le reste du mois');
   check(await page.evaluate(() => localStorage.getItem('pf-vue-compte')) === '0', 'choix gardé sur cet appareil');
-  await page.click('[data-act="hero-mode"][data-v="compte"]');
+  await page.click('#hero-mode [data-act="hero-mode"][data-v="compte"]');
   await until(page, () => document.getElementById('hero-label').textContent.includes('Prévu sur ton compte'), null, 'interrupteur : retour à « Prévu sur ton compte »');
 
   // 11. Année : total épargné par mois ; choix de l'année ; mois à venir en prévision
@@ -1200,9 +1202,9 @@ async function scenarioPatch3(cfg, fx, tag) {
   await page.click('[data-act="next-month"]');
   // Patch 5 : le gros chiffre suit l'interrupteur aussi pour un mois à venir.
   await until(page, () => document.getElementById('hero-label').textContent.replace(/\s/g, ' ') === 'Prévu sur ton compte le 30 avril' && document.getElementById('hero-amount').classList.contains('fut'), null, 'mois à venir : « Prévu sur ton compte le 30 avril », en gris');
-  await page.click('[data-act="hero-mode"][data-v="reste"]');
+  await page.click('#hero-mode [data-act="hero-mode"][data-v="reste"]');
   await until(page, () => document.getElementById('hero-label').textContent.includes('Prévu pour avril') && document.getElementById('hero-amount').classList.contains('fut'), null, 'mois à venir, « Reste du mois » : « Prévu pour avril », en gris');
-  await page.click('[data-act="hero-mode"][data-v="compte"]');
+  await page.click('#hero-mode [data-act="hero-mode"][data-v="compte"]');
   check(await natives() === 0, 'aucune fenêtre native dans la page');
   await page.screenshot({ path: join(OUT, tag + '-avril.png'), fullPage: true });
 
@@ -1484,6 +1486,67 @@ async function scenarioPatch5(cfg, fx, tag) {
   await ctx.close();
 }
 
+// ---------- patch 5, étape 2 : écran Année « Sur mon compte / Reste de l'année » (jeu 0.1.4 + un solde en janvier) ----------
+async function scenarioPatch5Annee(cfg, fx, tag) {
+  const E = fx.expect, U = 'users/uid-test/';
+  const docs = JSON.parse(JSON.stringify(fx.docs));
+  docs[U + 'soldes/test-janvier'] = { montant: 1800, date: '2026-01-05', createdAt: 1767600000000 };
+  const { ctx, page, errors } = await open(cfg, docs, { date: E._date });
+  await waitApp(page);
+  await page.locator('[data-act="view"][data-view="annee"]:visible').click();
+  await until(page, () => !document.getElementById('v-annee').hidden && !!document.querySelector('#v-annee table'), null, 'écran Année');
+  // 1. Interrupteur affiché, « Sur mon compte » d'office (même réglage que l'écran Mois)
+  check(await page.locator('#kpis [data-act="hero-mode"][data-v="compte"][aria-pressed="true"]').count() === 1, 'Année : interrupteur, « Sur mon compte » choisi');
+  check(clean(await page.locator('#kpis .eyebrow').innerText()) === 'Prévusurtoncomptele31décembre', 'gros chiffre : « Prévu sur ton compte le 31 décembre »');
+  check(clean(await page.locator('#kpis .hero-sub').innerText()).endsWith('depuistonsoldedu5janvier'), 'évolution depuis le premier solde de l\'année (' + clean(await page.locator('#kpis .hero-sub').innerText()) + ')');
+  const col = await page.$$eval('#y-table tbody tr', trs => trs.map(tr => tr.lastElementChild.textContent.replace(/[\s  ]/g, '')));
+  check(col.length === 12 && col.every(v => v !== '—'), 'colonne « Compte » remplie de janvier à décembre (' + col.join(' ') + ')');
+  check(col[2] === clean(new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(Math.round(E.mars.compte))), 'mars : même solde que l\'écran Mois (' + col[2] + ')');
+  check(clean(await page.locator('#y-table thead th:last-child').innerText()) === 'Comptefindumois', 'en-tête « Compte · fin du mois »');
+  check(clean(await page.locator('#chart-title').textContent()) === 'Surtoncompteàlafindechaquemois', 'titre du graphique');
+  // 2. Mêmes mots que l'écran Mois (point 23) : « Autres revenus », une seule case « Épargne »
+  const minis = clean(await page.locator('#kpis .minis').innerText());
+  check(minis.includes('Autresrevenus') && !minis.includes('SansURSSAF') && !minis.includes('Totalépargné') && !minis.includes('Misdecôté') && minis.includes('cetteannée'), 'cases : mêmes mots que l\'écran Mois (' + minis + ')');
+  // 3. Seuils : une ligne, le détail dans un ⓘ (point 24)
+  if (await page.locator('#y-meters-note').isVisible()) {
+    check(clean(await page.locator('#y-meters-note').innerText()) === 'Au-delàde37500€,laTVAs\'appliquel\'annéesuivante.', 'seuils : une seule ligne');
+    await page.click('#y-meters-note [data-act="info"]');
+    await until(page, () => { const p = document.querySelector('#y-meters-note .cexp'); return !!p && p.textContent.includes('41 250'); }, null, 'ⓘ des seuils : le détail (41 250 €)');
+  }
+  await page.waitForFunction(() => document.getElementById('s-boot').hidden, null, { timeout: 5000 }).catch(() => {});
+  await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(700);
+  await page.screenshot({ path: join(OUT, tag + '-p5-annee-compte.png') });
+  // 4. Bulle d'un mois : solde à la fin du mois et évolution sur le mois
+  await page.click('#chart .bar-g[data-i="1"]');
+  await until(page, () => { const b = document.getElementById('bubble'); return !b.hidden && b.textContent.includes('Sur ton compte') && b.textContent.includes('Sur le mois'); }, null, 'bulle : solde fin février et évolution du mois');
+  await page.screenshot({ path: join(OUT, tag + '-p5-annee-bulle.png') });
+  await page.click('#kpis .eyebrow');
+  await until(page, () => document.getElementById('bubble').hidden, null, 'bulle refermée en touchant à côté');
+  // 5. « Reste de l'année » : comme avant ; le choix suit dans l'écran Mois
+  await page.click('#kpis [data-act="hero-mode"][data-v="reste"]');
+  await until(page, () => /l'année$/.test(document.querySelector('#kpis .eyebrow').textContent) && document.querySelector('#y-table thead th:last-child').textContent === 'Reste', null, '« Reste de l\'année » : gros chiffre et colonne Reste');
+  check(await page.evaluate(() => localStorage.getItem('pf-vue-compte')) === '0', 'choix gardé sur l\'appareil (pf-vue-compte)');
+  await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(500);
+  await page.screenshot({ path: join(OUT, tag + '-p5-annee-reste.png') });
+  await page.locator('[data-act="view"][data-view="mois"]:visible').click();
+  await until(page, () => document.getElementById('hero-label').textContent === 'Reste du mois', null, 'écran Mois : même choix (« Reste du mois »)');
+  await page.click('#hero-mode [data-act="hero-mode"][data-v="compte"]');
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: join(OUT, tag + '-p5-mois-large.png') });
+  // 6. Sans aucun solde : pas d'interrupteur dans l'Année
+  noErr(errors, 'Année, sur mon compte');
+  await ctx.close();
+  const none = JSON.parse(JSON.stringify(fx.docs));
+  for (const k of Object.keys(none)) if (k.startsWith(U + 'soldes/')) delete none[k];
+  const o = await open(cfg, none, { date: E._date });
+  await waitApp(o.page);
+  await o.page.locator('[data-act="view"][data-view="annee"]:visible').click();
+  await until(o.page, () => !document.getElementById('v-annee').hidden && !!document.querySelector('#v-annee table'), null, 'écran Année (sans solde)');
+  check(await o.page.locator('#kpis .hero-mode').count() === 0 && /l'année$/.test(await o.page.locator('#kpis .eyebrow').textContent()), 'sans solde noté : pas d\'interrupteur, le reste de l\'année');
+  noErr(o.errors, 'Année sans solde');
+  await o.ctx.close();
+}
+
 // ---------- lancement ----------
 // Un scénario qui plante compte comme un échec, et les suivants continuent.
 async function run(fn, name) {
@@ -1494,7 +1557,8 @@ const onlyFx = process.env.FX ? new RegExp(process.env.FX) : null; // ex. FX=0.1
 const onlyCfg = process.env.CFG ? new RegExp(process.env.CFG) : null; // ex. CFG=PC
 const only = process.env.ONLY ? new RegExp(process.env.ONLY) : null; // ex. ONLY=Epargne pour un seul scénario
 let current = '';
-const go = async (name, fn) => { if (!only || only.test(name)) { current = name; await run(fn, name); } };
+let curCfg = null; // une configuration peut se limiter à certains scénarios (`only`)
+const go = async (name, fn) => { if ((!only || only.test(name)) && !(curCfg && curCfg.only && !curCfg.only.test(name))) { current = name; await run(fn, name); } };
 for (const file of fixtures) {
   const fx = JSON.parse(readFileSync(join(ROOT, 'tests/fixtures', file), 'utf8'));
   if (onlyFx && !onlyFx.test(file)) continue;
@@ -1503,6 +1567,8 @@ for (const file of fixtures) {
   for (const cfg of CONFIGS.filter(c => !onlyCfg || onlyCfg.test(c.name))) {
     const tag = file.replace('.json', '') + '-' + cfg.name.replace(/\s+/g, '-');
     const before = failures;
+    curCfg = cfg;
+    if (cfg.only && file !== fixtures[fixtures.length - 1]) continue;
     console.log('▶ ' + file + ' · ' + cfg.name);
     await go('Donnees', () => scenarioDonnees(cfg, fx, tag));
     await go('LectureSeule', () => scenarioLectureSeule(cfg, fx, tag));
@@ -1518,6 +1584,7 @@ for (const file of fixtures) {
     if (file === 'v0.1.3-beta.json' && cfg.name !== 'tablette clair') await go('Patch3', () => scenarioPatch3(cfg, fx, tag));
     if (file === 'v0.1.4-beta.json' && cfg.name !== 'tablette clair') await go('Patch4', () => scenarioPatch4(cfg, fx, tag));
     if (file === 'v0.1.4-beta.json') await go('Patch5', () => scenarioPatch5(cfg, fx, tag));
+    if (file === 'v0.1.4-beta.json') await go('Patch5Annee', () => scenarioPatch5Annee(cfg, fx, tag));
     if (last) {
       await go('Demandes', () => scenarioDemandes(cfg, fx, tag));
       await go('Nouveautes', () => scenarioNouveautes(cfg, fx, tag));
@@ -1527,6 +1594,7 @@ for (const file of fixtures) {
     console.log(failures === before ? '   ✓ ok' : '   ✗ ' + (failures - before) + ' échec(s)');
   }
 }
+curCfg = null;
 for (const cfg of CONFIGS.filter(c => c.name === 'téléphone clair' || c.name === 'PC clair')) {
   const before = failures;
   console.log('▶ nouveau compte · ' + cfg.name);

@@ -123,7 +123,7 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
 
 /* ---------- squelette ---------- */
 .side{display:none}
-.main{min-width:0;max-width:1180px;margin-inline:auto;
+.main{min-width:0;margin-inline:auto;container:main/inline-size;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
   padding-block:0 calc(var(--bar-h) + var(--bar-gap) + 40px + env(safe-area-inset-bottom,0px))}
 /* Barre du haut transparente : le fond monte jusqu'en haut de l'écran (sous la barre d'état sur Android 15+),
@@ -243,9 +243,25 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
 /* ---------- mois ---------- */
 .month-grid{display:grid;gap:14px;will-change:auto}
 .col{display:grid;gap:14px;min-width:0;align-content:start}
-@media (min-width:1040px){
-  .month-grid{grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:22px;align-items:start}
-  .month-grid>.col:first-child{position:sticky;top:calc(96px + var(--sat))}
+/* Patch 5 (points 28 et 30) : la mise en page suit la place réelle de la zone de contenu (requête de conteneur sur
+   .main), pas l'appareil ni l'écran : une colonne en dessous de ~680 px (téléphone, petite tablette), deux dès ~680 px
+   (tablette en portrait, petite fenêtre de PC), trois au-delà de ~1300 px (grand écran). Même code pour l'APK et le web. */
+.col-ab{display:grid;gap:14px;min-width:0;align-content:start}
+@container main (min-width:680px){
+  .month-grid{grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:20px;align-items:start}
+  .month-grid>.col-ab{position:sticky;top:calc(96px + var(--sat))}
+}
+@container main (min-width:1300px){
+  .month-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.15fr);gap:22px;max-width:2000px;margin-inline:auto;width:100%}
+  .month-grid>.col-ab{display:contents}
+  .month-grid>.col-ab>.col{position:sticky;top:calc(96px + var(--sat))}
+}
+/* Navigateurs sans requêtes de conteneur (très vieux WebView) : ancienne règle sur la largeur de l'écran. */
+@supports not (container-type:inline-size){
+  @media (min-width:1040px){
+    .month-grid{grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:22px;align-items:start}
+    .month-grid>.col-ab{position:sticky;top:calc(96px + var(--sat))}
+  }
 }
 #v-mois{touch-action:pan-y pinch-zoom}
 .hero{display:grid;justify-items:center;text-align:center;padding:14px 4px 6px}
@@ -384,6 +400,8 @@ td .prev-l{display:block;font-size:calc(11*var(--u));color:var(--accent);font-we
 .mini span{font-size:calc(12*var(--u));color:var(--muted);display:flex;align-items:center;gap:6px}
 .mini span .sw{width:8px;height:8px}
 .mini b{font-family:var(--f-data);font-weight:500;font-size:calc(14*var(--u));font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mini small{font-size:calc(11.5*var(--u));color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meters-note{margin-top:12px}
 .period{font-size:calc(13*var(--u));color:var(--muted)}
 .chart-card{display:grid;gap:12px}
 .chart-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
@@ -411,7 +429,23 @@ td .prev-l{display:block;font-size:calc(11*var(--u));color:var(--accent);font-we
 .bubble .l span:last-child{font-family:var(--f-data);font-variant-numeric:tabular-nums}
 .bubble .link{color:var(--accent);text-decoration:none;justify-self:start;margin-top:4px}
 .two{display:grid;gap:14px}
-@media (min-width:1040px){.two{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start}}
+@container main (min-width:760px){.two{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start}}
+@supports not (container-type:inline-size){@media (min-width:1040px){.two{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start}}}
+/* Patch 5 (point 30) : grand écran, l'Année tient sur une page : gros chiffre et cases sur une ligne ; dessous, le
+   graphique (deux tiers) avec « Où part l'argent » et les seuils en dessous, et le tableau des 12 mois à droite. */
+@container main (min-width:1100px){
+  #v-annee{grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:auto auto 1fr;gap:18px;align-items:start;max-width:2000px;margin-inline:auto;width:100%}
+  #v-annee>.year-hero{grid-column:1/-1}
+  #v-annee>.chart-card{grid-column:1/3;grid-row:2}
+  #v-annee .two,#v-annee .two>.stack{display:contents}
+  #v-annee .two>.card{grid-column:3;grid-row:2/4}
+  #v-annee .two>.stack>.card{grid-row:3}
+  body:not(.pro) #v-annee .two>.stack>.card{grid-column:1/3}
+  .year-hero{grid-template-columns:minmax(280px,auto) minmax(0,1fr);column-gap:36px;justify-items:start;text-align:left;align-items:center;padding-top:6px}
+  .year-hero>*{grid-column:1}
+  .year-hero>.minis{grid-column:2;grid-row:1/span 4;margin-top:0;grid-template-columns:repeat(auto-fit,minmax(118px,1fr))}
+  #kpis .hero-mode{margin:0 0 6px}
+}
 .tbl-wrap{overflow-x:auto;margin-top:8px}
 table{width:100%;border-collapse:collapse}
 caption{caption-side:bottom;text-align:left;font-size:calc(12*var(--u));color:var(--muted);padding-top:8px}

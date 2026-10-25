@@ -1285,7 +1285,7 @@ function toggleInfo(k) {
   const again = infoOpen(k);
   closeInfo(true);
   if (!again) S.info = { k, t0: 0, dur: 0 };
-  renderMois();
+  render(); // armInfo() est appelé à la fin du rendu de l'écran (Mois, Année)
 }
 // Après chaque rendu : démarre le compte à rebours d'une bulle qui vient de s'ouvrir, ou reprend sa ligne là où
 // elle en était ; ferme si la bulle n'est plus à l'écran.
@@ -1791,6 +1791,43 @@ function soldeView(m) {
   return out;
 }
 
+// Patch 5 (point 31) : solde du compte à la fin du mois m, à partir du dernier solde noté avant cette date (mêmes
+// mouvements que soldeView : opérations, fixes, épargne, URSSAF). null avant le premier solde noté, ou quand les
+// opérations nécessaires ne sont pas chargées : on n'invente rien.
+function soldeAvant(T) {
+  let best = null;
+  for (const x of S.soldes) {
+    if (!DATE_RE.test(x.date || '') || x.date > T || !isFinite(Number(x.montant))) continue;
+    if (!best || x.date > best.date || (x.date === best.date && (Number(x.createdAt) || 0) > (Number(best.createdAt) || 0))) best = x;
+  }
+  return best;
+}
+function compteFin(m) {
+  const T = m + '-' + pad(dimOf(m)), L = soldeAvant(T);
+  if (!L || !entCovered(soldeFrom(L.date.slice(0, 7))) || !entCovered(m)) return null;
+  const ev = soldeMoves(L, T);
+  let b = Number(L.montant) || 0;
+  for (const k in ev) b += ev[k];
+  return r2(b);
+}
+// Les 12 fins de mois de l'année y, et le point de départ de l'évolution : la fin de décembre d'avant si on la
+// connaît, sinon le premier solde noté dans l'année.
+function compteAnnee(y) {
+  const v = [];
+  for (let i = 1; i <= 12; i++) v.push(compteFin(ym(y, i)));
+  let start = null;
+  const prev = compteFin(ym(y - 1, 12));
+  if (prev != null) start = { v: prev, txt: 'depuis le 1er janvier' };
+  else {
+    const first = S.soldes.filter(x => DATE_RE.test(x.date || '') && x.date.slice(0, 4) === String(y) && isFinite(Number(x.montant)))
+      .sort((a, b) => a.date.localeCompare(b.date) || (Number(a.createdAt) || 0) - (Number(b.createdAt) || 0))[0];
+    if (first) start = { v: r2(Number(first.montant)), txt: 'depuis ton solde du ' + dShort(first.date) };
+  }
+  let last = -1;
+  v.forEach((x, i) => { if (x != null) last = i; });
+  return { v, start, last, any: last >= 0 };
+}
+
 /* ----- calendrier du mois (patch 3) ----- */
 // Ouvert en touchant le nom du mois : pastilles par type d'opération, un jour touché = résumé de ses opérations
 // (fixes compris, à leur jour) et « + » à cette date ; le nom du mois = les 12 mois pour sauter directement.
@@ -1965,20 +2002,47 @@ function yearData(y) {
   }
   return { months, counted, n, T, avg: n ? r2(T.reste / n) : 0, avgDep: n ? r2(T.dep / n) : 0, top: Array.from(map.values()).sort((a, b) => b.total - a.total) };
 }
-let lastChartW = 0, YD = null;
+let lastChartW = 0, YD = null, YC = null, yCpt = false;
 function renderAnnee() {
   const y = S.year, ok = ready(), yd = yearData(y), T = yd.T, pro = isPro(), on = epOn();
   YD = yd;
+  // Patch 5 (point 31) : interrupteur « Sur mon compte / Reste de l'année », même réglage que l'écran Mois
+  // (propre à l'appareil), affiché dès qu'une fin de mois de l'année est connue grâce à un solde noté.
+  YC = ok ? compteAnnee(y) : null;
+  yCpt = !!(YC && YC.any) && lsGet('pf-vue-compte') !== '0';
   const n = yd.n, neg = T.reste < 0;
-  const mini = (sw, label, v) => '<div class="mini"><span><i class="sw ' + sw + '"></i>' + label + '</span><b>' + (ok ? eur(v) : '…') + '</b></div>';
-  $('#kpis').innerHTML = '<p class="eyebrow">' + (neg ? 'Il manque sur l\'année' : 'Reste de l\'année') + '</p>' +
-    '<p class="big ' + (ok ? (neg ? 'neg' : 'pos') : '') + '">' + (ok ? eur(Math.abs(T.reste)) : '…') + '</p>' +
-    '<p class="hero-sub"><span>' + (!ok ? 'Chargement…' : n === 0 ? 'L\'année ' + y + ' n\'a pas encore commencé.' : 'soit <b>' + esc(eur(yd.avg)) + '</b> par mois en moyenne, sur ' + n + ' mois') + '</span></p>' +
-    '<div class="minis">' + (pro ? mini('s-brut', 'Revenus bruts', T.base) + mini('s-urssaf', 'URSSAF', T.urssaf) + (T.brut - T.base > 0.004 ? mini('s-autres', 'Sans URSSAF', r2(T.brut - T.base)) : '') + mini('s-net', 'Revenus nets', T.net) : mini('s-net', 'Revenus', T.brut)) +
-    mini('s-dep', 'Dépenses', T.dep) + (on ? mini('s-ep', 'Mis de côté', T.ep) + mini('s-ep', 'Total épargné', yd.n ? r2(comptes(yd.counted[yd.n - 1].m).reduce((a, c) => a + c.solde, 0)) : 0) : '') + '</div>';
-  if (ok) rollNumber($('#kpis .big'), 'annee', Math.abs(T.reste));
-  $('#y-period').textContent = !ok || n === 0 ? '' : n === 12 ? 'Année ' + y + ' complète.' : 'De janvier à ' + MONTHS[n - 1] + ' ' + y + '. Les mois suivants sont des prévisions (fixes seulement), en pâle.';
-  $('#chart-legend').innerHTML = '<span><i class="sw s-reste"></i>Reste</span><span><i class="sw" style="background:var(--neg)"></i>Manque</span>' + (ok && yd.n ? '<span><i class="dash"></i>Reste moyen ' + esc(eur0(yd.avg)) + '</span>' : '');
+  // Patch 5 (point 23) : mêmes mots que l'écran Mois ; « Mis de côté » et « Total épargné » réunis en une case.
+  const mini = (sw, label, v, sub) => '<div class="mini"><span><i class="sw ' + sw + '"></i>' + label + '</span><b>' + (ok ? eur(v) : '…') + '</b>' + (sub && ok ? '<small>' + esc(sub) + '</small>' : '') + '</div>';
+  const epTot = yd.n ? r2(comptes(yd.counted[yd.n - 1].m).reduce((a, c) => a + c.solde, 0)) : 0;
+  const epSub = Math.abs(T.ep) >= 0.5 ? (T.ep > 0 ? '+' : MINUS) + eur0(Math.abs(T.ep)) + ' cette année' : '';
+  const minis = '<div class="minis">' + (pro ? mini('s-brut', 'Revenus bruts', T.base) + mini('s-urssaf', 'URSSAF', T.urssaf) + (T.brut - T.base > 0.004 ? mini('s-autres', 'Autres revenus', r2(T.brut - T.base)) : '') + mini('s-net', 'Revenus nets', T.net) : mini('s-net', 'Revenus', T.brut)) +
+    mini('s-dep', 'Dépenses', T.dep) + (on ? mini('s-ep', 'Épargne', epTot, epSub) : '') + '</div>';
+  const seg = YC && YC.any ? '<div class="seg hero-mode" role="group" aria-label="Gros chiffre : ton compte ou le reste de l\'année">' +
+    '<button type="button" data-act="hero-mode" data-v="compte" aria-pressed="' + yCpt + '">Sur mon compte</button>' +
+    '<button type="button" data-act="hero-mode" data-v="reste" aria-pressed="' + !yCpt + '">Reste de l\'année</button></div>' : '';
+  if (yCpt) {
+    // Dernière fin de mois connue (décembre en général : prévision pour les mois à venir) et évolution depuis le
+    // début de l'année (ou depuis le premier solde noté dans l'année).
+    const i = YC.last, mi = ym(y, i + 1), v = YC.v[i], diff = YC.start ? r2(v - YC.start.v) : null;
+    $('#kpis').innerHTML = seg + '<p class="eyebrow">' + (mi >= CUR ? 'Prévu sur ton compte le ' : 'Sur ton compte le ') + esc(dShort(mi + '-' + pad(dimOf(mi)))) + '</p>' +
+      '<p class="big ' + (v < 0 ? 'neg' : 'pos') + '">' + eur(v) + '</p>' +
+      '<p class="hero-sub"><span>' + (diff == null ? 'Calculé à partir des soldes que tu as notés.' : '<b' + (diff < 0 ? ' class="neg"' : '') + '>' + (diff > 0 ? '+' : diff < 0 ? MINUS : '') + esc(eur(Math.abs(diff))) + '</b> ' + esc(YC.start.txt)) + '</span></p>' + minis;
+    rollNumber($('#kpis .big'), 'annee-cpt', v);
+  } else {
+    $('#kpis').innerHTML = seg + '<p class="eyebrow">' + (neg ? 'Il manque sur l\'année' : 'Reste de l\'année') + '</p>' +
+      '<p class="big ' + (ok ? (neg ? 'neg' : 'pos') : '') + '">' + (ok ? eur(Math.abs(T.reste)) : '…') + '</p>' +
+      '<p class="hero-sub"><span>' + (!ok ? 'Chargement…' : n === 0 ? 'L\'année ' + y + ' n\'a pas encore commencé.' : 'soit <b>' + esc(eur(yd.avg)) + '</b> par mois en moyenne, sur ' + n + ' mois') + '</span></p>' + minis;
+    if (ok) rollNumber($('#kpis .big'), 'annee', Math.abs(T.reste));
+  }
+  $('#chart-title').textContent = yCpt ? 'Sur ton compte à la fin de chaque mois' : 'Reste de chaque mois';
+  if (yCpt) {
+    const f = YC.v.findIndex(x => x != null);
+    $('#y-period').textContent = 'Calculé à partir des soldes que tu as notés' + (f > 0 ? ' (rien avant ' + (/^[aeiouyàâéèêîôû]/i.test(MONTHS[f]) ? 'd\'' : '') + MONTHS[f] + ')' : '') + '. Les mois à venir sont des prévisions, en pâle.';
+    $('#chart-legend').innerHTML = '<span><i class="sw s-reste"></i>Sur ton compte</span><span><i class="sw" style="background:var(--neg)"></i>À découvert</span>';
+  } else {
+    $('#y-period').textContent = !ok || n === 0 ? '' : n === 12 ? 'Année ' + y + ' complète.' : 'De janvier à ' + MONTHS[n - 1] + ' ' + y + '. Les mois suivants sont des prévisions (fixes seulement), en pâle.';
+    $('#chart-legend').innerHTML = '<span><i class="sw s-reste"></i>Reste</span><span><i class="sw" style="background:var(--neg)"></i>Manque</span>' + (ok && yd.n ? '<span><i class="dash"></i>Reste moyen ' + esc(eur0(yd.avg)) + '</span>' : '');
+  }
   lastChartW = 0; renderChart();
   // Tableau, « Où part l'argent » et seuils (sous le graphique) : après l'animation d'arrivée sur l'écran,
   // pour que l'écran apparaisse tout de suite, même sur un vieux téléphone.
@@ -1995,11 +2059,19 @@ function renderAnneeBottom(yd, ok, pro, on) {
   const epCell = d => '<td>' + n0(epTot(d.m)) + (d.ep ? '<small class="ep-mv">' + (d.ep > 0 ? '+' : MINUS) + NUM0.format(Math.abs(Math.round(d.ep))) + '</small>' : '') + '</td>';
   for (const d of yd.months) {
     const cls = ['go', d.fut ? 'fut' : '', d.now ? 'now' : ''].join(' ');
+    // Patch 5 (point 31) : en « Sur mon compte », la dernière colonne = solde à la fin du mois (« — » avant le premier solde noté).
+    const cv = yCpt ? YC.v[pYM(d.m).m - 1] : null;
+    const last = yCpt ? '<td class="' + (cv == null || d.fut ? '' : cv < 0 ? 'neg' : 'pos') + '">' + (cv == null ? '—' : n0(cv)) + '</td>'
+      : '<td class="' + (d.fut ? '' : (d.reste < 0 ? 'neg' : 'pos')) + '">' + n0(d.reste) + '</td>';
     rows += '<tr class="' + cls + '" data-act="goto-month" data-month="' + d.m + '"><td><button class="cell-btn" data-act="goto-month" data-month="' + d.m + '" aria-label="' + cap(MONTHS[pYM(d.m).m - 1]) + '"><span class="m-l">' + cap(MONTHS[pYM(d.m).m - 1]) + '</span><span class="m-s">' + cap(MS[pYM(d.m).m - 1]) + '</span></button>' + (d.fut ? '<small class="prev-l">prévision</small>' : '') + '</td>' +
-      '<td>' + n0(d.net) + '</td><td>' + n0(d.dep) + '</td>' + (on ? epCell(d) : '') + '<td class="' + (d.fut ? '' : (d.reste < 0 ? 'neg' : 'pos')) + '">' + n0(d.reste) + '</td></tr>';
+      '<td>' + n0(d.net) + '</td><td>' + n0(d.dep) + '</td>' + (on ? epCell(d) : '') + last + '</tr>';
   }
-  $('#y-table').innerHTML = ok ? '<table><caption>Montants en euros, arrondis</caption><thead><tr><th>Mois</th><th>' + (pro ? 'Nets' : 'Revenus') + '</th><th>Dépenses</th>' + (on ? '<th>Épargne<small>total</small></th>' : '') + '<th>Reste</th></tr></thead><tbody>' + rows + '</tbody>' +
-    '<tfoot><tr><td>Total</td><td>' + n0(T.net) + '</td><td>' + n0(T.dep) + '</td>' + (on ? '<td>' + (T.ep < -0.5 ? MINUS : '+') + NUM0.format(Math.abs(Math.round(T.ep))) + '<small class="ep-mv yr">sur l\'année</small></td>' : '') + '<td class="' + (T.reste < 0 ? 'neg' : 'pos') + '">' + n0(T.reste) + '</td></tr></tfoot></table>' : '<p class="empty">Chargement…</p>';
+  // Total de la colonne « Compte » : l'évolution depuis le début de l'année (ou le premier solde noté).
+  const cDiff = yCpt && YC.start ? r2(YC.v[YC.last] - YC.start.v) : null;
+  const lastFoot = yCpt ? '<td class="' + (cDiff == null ? '' : cDiff < 0 ? 'neg' : 'pos') + '">' + (cDiff == null ? '—' : (cDiff > 0 ? '+' : '') + n0(cDiff) + '<small class="ep-mv yr">évolution</small>') + '</td>'
+    : '<td class="' + (T.reste < 0 ? 'neg' : 'pos') + '">' + n0(T.reste) + '</td>';
+  $('#y-table').innerHTML = ok ? '<table><caption>Montants en euros, arrondis</caption><thead><tr><th>Mois</th><th>' + (pro ? 'Nets' : 'Revenus') + '</th><th>Dépenses</th>' + (on ? '<th>Épargne<small>total</small></th>' : '') + (yCpt ? '<th>Compte<small>fin du mois</small></th>' : '<th>Reste</th>') + '</tr></thead><tbody>' + rows + '</tbody>' +
+    '<tfoot><tr><td>Total</td><td>' + n0(T.net) + '</td><td>' + n0(T.dep) + '</td>' + (on ? '<td>' + (T.ep < -0.5 ? MINUS : '+') + NUM0.format(Math.abs(Math.round(T.ep))) + '<small class="ep-mv yr">sur l\'année</small></td>' : '') + lastFoot + '</tr></tfoot></table>' : '<p class="empty">Chargement…</p>';
   // Où part l'argent : 6 premiers libellés + « Autres », en % du total des dépenses.
   const TOPN = 6, top = yd.top.slice(0, TOPN), rest = yd.top.slice(TOPN), tot = T.dep || 1;
   const others = rest.length ? { k: '__autres', label: 'Autres', total: rest.reduce((a, c) => a + c.total, 0), n: rest.length } : null;
@@ -2014,7 +2086,11 @@ function renderAnneeBottom(yd, ok, pro, on) {
       return '<div class="meter ' + cls + '"><div class="meter-top"><b>' + label + '</b><span>' + eur(v) + ' / ' + eur(lim) + '</span></div><div class="bar"><i style="width:' + Math.min(100, Math.max(p * 100, v > 0 ? 1.5 : 0)).toFixed(1) + '%"></i></div></div>';
     };
     $('#y-meters').innerHTML = meter('Franchise de TVA', T.base, 37500) + meter('Plafond micro-entreprise', T.base, +y >= 2026 ? 83600 : 77700);
+    // Patch 5 (point 24) : une ligne ; le détail dans un ⓘ (chiffres 2026 vérifiés).
+    $('#y-meters-note').innerHTML = 'Au-delà de 37 500 €, la TVA s\'applique l\'année suivante.' + infoBtn('tva', 'Franchise de TVA') +
+      infoBubble('tva', 'Calculé sur les revenus marqués « soumis à l\'URSSAF ». Franchise de TVA (prestations de services) : au-delà de 37 500 € sur l\'année, la TVA s\'applique au 1er janvier suivant ; au-delà de 41 250 €, dès le dépassement.');
   }
+  armInfo();
 }
 function niceStep(x) { const p = Math.pow(10, Math.floor(Math.log10(x))); const n = x / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p; }
 function axLabel(v) { const a = Math.abs(v), s = v < 0 ? MINUS : ''; return s + (a >= 1000 ? NUM.format(a / 1000) + ' k€' : NUM.format(a) + ' €'); }
@@ -2030,15 +2106,17 @@ function renderChart() {
   const yd = YD && YD.months[0].m === ym(S.year, 1) ? YD : yearData(S.year);
   const H = W < 520 ? 210 : 250, pl = 46, pr = 8, pt = 12, pb = 26;
   const iw = W - pl - pr, ih = H - pt - pb;
-  const vals = yd.months.map(d => d.reste);
+  // Patch 5 (point 31) : en « Sur mon compte », barres = solde à la fin de chaque mois (aucune avant le premier solde noté).
+  const cpt = yCpt && YC ? YC : null;
+  const vals = cpt ? cpt.v : yd.months.map(d => d.reste), known = vals.filter(v => v != null);
   // Patch 4 : ligne pointillée = reste moyen (même grandeur que les barres), plus la moyenne des dépenses.
-  const hasAvg = yd.n > 0;
-  let hi = Math.max(50, hasAvg ? yd.avg : 0, ...vals), lo = Math.min(0, hasAvg ? yd.avg : 0, ...vals);
+  const hasAvg = !cpt && yd.n > 0;
+  let hi = Math.max(50, hasAvg ? yd.avg : 0, ...known), lo = Math.min(0, hasAvg ? yd.avg : 0, ...known);
   const step = niceStep((hi - lo) / 4 || 100);
   hi = Math.ceil(hi / step) * step; lo = Math.floor(lo / step) * step;
   const Y = v => pt + (hi - v) / (hi - lo) * ih;
   const gw = iw / 12, bw = Math.max(6, Math.min(26, gw * 0.56));
-  let s = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Reste de chaque mois en ' + S.year + '">';
+  let s = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + (cpt ? 'Solde de ton compte à la fin de chaque mois en ' : 'Reste de chaque mois en ') + S.year + '">';
   for (let v = lo; v <= hi + 0.001; v += step) {
     const yy = Math.round(Y(v)) + 0.5;
     s += '<line class="' + (Math.abs(v) < 1e-9 ? 'gl0' : 'gl') + '" x1="' + pl + '" x2="' + (W - pr) + '" y1="' + yy + '" y2="' + yy + '"/>';
@@ -2046,9 +2124,9 @@ function renderChart() {
   }
   const y0 = Y(0);
   yd.months.forEach((d, i) => {
-    const x0 = pl + i * gw, cx = x0 + gw / 2, v = d.reste;
-    const top = Y(Math.max(0, v)), h = Math.max(v === 0 ? 0 : 1.5, Math.abs(Y(v) - y0));
-    s += '<g class="bar-g' + (d.fut ? ' fut' : '') + '" data-act="bar" data-i="' + i + '"><title>' + esc(cap(mLabel(d.m)) + (d.fut ? ' (prévision)' : '') + ' : reste ' + eur(v)) + '</title>' +
+    const x0 = pl + i * gw, cx = x0 + gw / 2, v = vals[i] == null ? 0 : vals[i];
+    const top = Y(Math.max(0, v)), h = vals[i] == null ? 0 : Math.max(v === 0 ? 0 : 1.5, Math.abs(Y(v) - y0));
+    s += '<g class="bar-g' + (d.fut ? ' fut' : '') + '" data-act="bar" data-i="' + i + '"><title>' + esc(cap(mLabel(d.m)) + (d.fut ? ' (prévision)' : '') + (cpt ? (vals[i] == null ? ' : solde pas encore noté' : ' : sur ton compte ' + eur(v)) : ' : reste ' + eur(v))) + '</title>' +
       '<rect class="b-hit" x="' + (x0 + 1) + '" y="' + pt + '" width="' + (gw - 2) + '" height="' + (ih + pb - 2) + '" rx="8"/>' +
       (h > 0 ? '<rect class="' + (v < 0 ? 'b-neg' : 'b-pos') + '" x="' + (cx - bw / 2) + '" y="' + (v < 0 ? y0 : top) + '" width="' + bw + '" height="' + h + '" rx="' + Math.min(5, bw / 3) + '"/>' : '') +
       '<text class="ax' + (d.now ? ' cur' : '') + '" x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle">' + (W < 520 ? MI[i] : MS[i].replace('.', '')) + '</text></g>';
@@ -2070,12 +2148,24 @@ function showBubble(i) {
   hideBubble(); S.bubble = i;
   const g = $('#chart .bar-g[data-i="' + i + '"]'); if (g) g.classList.add('sel');
   const l = (k, v) => '<div class="l"><span>' + k + '</span><span>' + eur(v) + '</span></div>';
-  b.innerHTML = '<b>' + esc(cap(mLabel(d.m))) + (d.fut ? ' · prévision' : '') + '</b>' + l(isPro() ? 'Revenus nets' : 'Revenus', d.net) + l('Dépenses', d.dep) + (on ? l('Mis de côté', d.ep) + l('Total épargné', r2(comptes(d.m).reduce((a, c) => a + c.solde, 0))) : '') + l(d.reste < 0 ? 'Il manque' : 'Reste', Math.abs(d.reste)) +
+  // Patch 5 : « Repris » quand l'épargne du mois est négative (point 20), mêmes mots que l'écran Mois (point 23) ;
+  // en « Sur mon compte », le solde à la fin du mois et son évolution sur le mois (point 31).
+  const ep = on ? l(d.ep < 0 ? 'Repris' : 'Mis de côté', Math.abs(d.ep)) + l('Épargne', r2(comptes(d.m).reduce((a, c) => a + c.solde, 0))) : '';
+  let body;
+  if (yCpt) {
+    const v = YC.v[i], pv = i > 0 ? YC.v[i - 1] : YC.start && YC.start.txt === 'depuis le 1er janvier' ? YC.start.v : null;
+    const dv = v != null && pv != null ? r2(v - pv) : null;
+    body = (v == null ? '<div class="l"><span>Pas encore de solde noté</span></div>' : l('Sur ton compte', v) +
+      (dv == null ? '' : '<div class="l"><span>Sur le mois</span><span>' + (dv > 0 ? '+' : dv < 0 ? MINUS : '') + eur(Math.abs(dv)) + '</span></div>')) +
+      l(isPro() ? 'Revenus nets' : 'Revenus', d.net) + l('Dépenses', d.dep);
+  } else body = l(isPro() ? 'Revenus nets' : 'Revenus', d.net) + l('Dépenses', d.dep) + ep + l(d.reste < 0 ? 'Il manque' : 'Reste', Math.abs(d.reste));
+  b.innerHTML = '<b>' + esc(cap(mLabel(d.m))) + (d.fut ? ' · prévision' : '') + '</b>' + body +
     '<button class="link" data-act="goto-month" data-month="' + d.m + '">Voir le mois</button>';
   b.hidden = false;
   const wrap = $('.chart-wrap'), bw = b.offsetWidth, bh = b.offsetHeight, W = wrap.clientWidth;
   const cx = chartGeo.pl + i * chartGeo.gw + chartGeo.gw / 2;
-  const x = Math.max(0, Math.min(W - bw, cx - bw / 2)), y = Math.max(-8, chartGeo.Y(Math.max(0, d.reste)) - bh - 10);
+  const bv = yCpt ? (YC.v[i] || 0) : d.reste;
+  const x = Math.max(0, Math.min(W - bw, cx - bw / 2)), y = Math.max(-8, chartGeo.Y(Math.max(0, bv)) - bh - 10);
   b.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(y) + 'px)';
   anim(b, [{ opacity: 0, transform: b.style.transform + ' translateY(6px) scale(.96)' }, { opacity: 1, transform: b.style.transform }], { duration: 220, easing: SPRING });
 }
@@ -3095,7 +3185,7 @@ document.addEventListener('click', e => {
   else if (a === 'prev-year') setYear(S.year - 1, -1);
   else if (a === 'next-year') setYear(S.year + 1, 1);
   else if (a === 'year-pick') openYearPick(t);
-  else if (a === 'hero-mode') { lsSet('pf-vue-compte', t.dataset.v === 'reste' ? '0' : '1'); renderMois(); }
+  else if (a === 'hero-mode') { lsSet('pf-vue-compte', t.dataset.v === 'reste' ? '0' : '1'); render(); } // patch 5 : même choix en Mois et en Année
   else if (a === 'add') openSheet({ mode: 'new', rec: S.view === 'fixes' });
   else if (a === 'add-type') openSheet({ mode: 'new', type: t.dataset.type });
   else if (a === 'month-cal') { if (CAL.open && popOpen()) closePop(); else openMonthCal(t); }
