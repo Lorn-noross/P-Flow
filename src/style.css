@@ -267,14 +267,21 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
 .quick [data-type="depense"] .qi{color:var(--c-dep)} .quick [data-type="revenu"] .qi{color:var(--pos)} .quick [data-type="epargne"] .qi{color:var(--c-ep)}
 body:not(.ep-on) .ep-only{display:none!important}
 
-.uc-line{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:11px 14px;border-radius:var(--r-s);background:var(--card);border:1px solid var(--card-line);box-shadow:var(--card-hi);font-size:calc(13.5*var(--u))}
-.uc-line .sw{width:10px;height:10px}
-.uc-line b{font-family:var(--f-data);font-weight:500;font-variant-numeric:tabular-nums}
-.uc-line .t{flex:1;min-width:0;display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline}
-.uc-line .t span{color:var(--muted)}
-.uc-line.late{background:var(--neg-soft);border-color:transparent}
+/* Patch 5 : un seul bloc URSSAF (carte sous les boutons d'ajout) : la ligne du mois, la question « payée ? »,
+   le détail dépliable. Mêmes éléments que l'offre d'épargne (.offer-ico) et les cartes. */
+.uc-block{display:grid;gap:12px}
+.uc-block.late{background:var(--neg-soft);border-color:transparent}
+.uc-line{display:flex;align-items:center;gap:14px;width:100%;text-align:left;font-size:calc(14*var(--u))}
+.uc-line .t{flex:1;min-width:0;display:grid;gap:2px}
+.uc-line .t1{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.uc-line .ut{font-weight:650;min-width:0}
+.uc-line .ua{font-family:var(--f-data);font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.uc-line .t2{color:var(--muted);font-size:calc(13*var(--u))}
 .uc-line .chev{width:18px;height:18px;color:var(--muted);transition:transform .25s var(--ease)}
 .uc-line[aria-expanded="true"] .chev{transform:rotate(180deg)}
+.uc-ask{display:grid;gap:8px;padding-left:58px}
+.uc-ask b{font-weight:650}
+.uc-block .uc{border-top:1px solid var(--line);padding-top:14px}
 .uc{display:grid;gap:12px}
 .uc-amount{font-family:var(--f-display);font-weight:700;font-size:calc(26*var(--u));letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .uc-due{font-size:calc(13.5*var(--u));padding:9px 13px;border-radius:12px;background:var(--surface-2)}
@@ -290,10 +297,18 @@ body:not(.ep-on) .ep-only{display:none!important}
 .cascade .tot dt{color:var(--ink);font-weight:650}
 .cascade .cl{min-width:0;display:flex;flex-direction:column;gap:1px}
 .cascade .cl small{font-size:calc(11.5*var(--u));color:var(--muted);font-weight:450}
-.cascade .cinfo{flex:none;display:grid;place-items:center;width:30px;height:30px;margin:-8px -6px -8px -4px;border-radius:50%;color:var(--muted);opacity:.75}
-.cascade .cinfo svg.i{width:15px;height:15px}
-.cascade .cinfo[aria-expanded="true"]{color:var(--accent);opacity:1}
-.cascade .cexp{grid-column:1/-1;margin:2px 0 0;padding:9px 12px;border-radius:12px;background:var(--surface-2);border:1px solid var(--glass-line);color:var(--ink);font-size:calc(13*var(--u));line-height:1.45}
+/* Patch 5 : petit ⓘ, pastille ronde à la couleur d'accentuation (zone de toucher de 40 px sans agrandir la ligne) ;
+   ouverte = pastille pleine. La bulle (.cexp) se ferme seule : la fine ligne du bas se vide (main.js, armInfo). */
+.cinfo{flex:none;position:relative;z-index:1;display:inline-grid;place-items:center;width:22px;height:22px;margin:-3px 0;vertical-align:middle;border-radius:50%;
+  background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent);transition:background-color .2s,color .2s}
+.cinfo::before{content:"";position:absolute;inset:-9px;border-radius:50%}
+.cinfo svg.i{width:15px;height:15px;stroke-width:3}
+.cinfo[aria-expanded="true"]{background:var(--accent);color:var(--accent-ink)}
+p .cinfo{margin-left:6px}
+.cexp{position:relative;overflow:hidden;margin:2px 0 0;padding:9px 12px 12px;border-radius:12px;background:var(--surface-2);border:1px solid var(--glass-line);color:var(--ink);font-size:calc(13*var(--u));line-height:1.45;cursor:pointer}
+.cexp-t{position:absolute;left:12px;right:12px;bottom:5px;height:2px;border-radius:1px;background:var(--accent);opacity:.75;transform-origin:left center}
+.cascade .cexp{grid-column:1/-1}
+.cascade .cmp .up{color:var(--neg)} .cascade .cmp .down{color:var(--pos)}
 .cascade .tot dd{font-weight:600}
 .cascade .cb{grid-column:1/-1;position:relative;height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden}
 .cascade .cb i{position:absolute;top:0;bottom:0;border-radius:3px;min-width:2px}
@@ -311,6 +326,7 @@ body:not(.ep-on) .ep-only{display:none!important}
 .fin-ep .neg,.fin-ep .neg b{color:var(--neg)}
 .offer-ico.urs{background:color-mix(in srgb,var(--c-urssaf) 16%,transparent);color:var(--c-urssaf)}
 .ep-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.ep-head .eh-l{display:flex;align-items:center;gap:8px;min-width:0}
 .ep-total{font-family:var(--f-display);font-size:calc(24*var(--u));font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .ep-month{font-size:calc(13*var(--u));color:var(--muted)}
 .ep-when{text-transform:none;letter-spacing:0;font-weight:500}
@@ -649,9 +665,6 @@ body:not(.native) .native-only{display:none!important}
 .acc-chips button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);border-color:transparent}
 .amount-wrap.small input{font-size:calc(24*var(--u))}
 .amount-wrap.small span{font-size:calc(18*var(--u))}
-.ep-explain{font-size:calc(12.5*var(--u));color:var(--muted);margin:2px 0 6px;line-height:1.45}
-.group-note{margin:0 8px 6px;font-size:calc(13*var(--u));color:var(--muted)}
-.group-note b{color:var(--ink);font-family:var(--f-data);font-weight:500}
 td small.ep-mv{display:block;font-size:calc(10.5*var(--u));color:var(--muted)}
 th small{display:block;font-size:calc(10*var(--u));font-weight:500;text-transform:none;letter-spacing:0}
 /* ---------- Patch 3 : sélecteurs maison (calendrier, liste de choix, teinte) ---------- */

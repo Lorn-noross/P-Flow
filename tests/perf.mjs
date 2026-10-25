@@ -88,7 +88,7 @@ R.push(await measure('Ouvrir le calendrier du mois', tap('#ctx .mtitle')));
 R.push(await measure('Toucher un jour (bulle)', tap('.pop .cal-d[data-d="20"]')));
 R.push(await measure('Calendrier : mois suivant', tap('.pop [data-mc="next"]')));
 R.push(await measure('Fermer le calendrier', () => page.keyboard.press('Escape')));
-R.push(await measure('Ouvrir l\'explication ⓘ', tap('#legend [data-act="cas-info"][data-k="urssaf"]')));
+R.push(await measure('Ouvrir l\'explication ⓘ', tap('#legend [data-act="info"][data-k="urssaf"]')));
 // Patch 4 : objectif de fin de mois et paiement de l'URSSAF (fenêtres du bas).
 R.push(await measure('Ouvrir l\'objectif de fin de mois', tap('#fin-card [data-act="obj-open"]')));
 R.push(await measure('Fermer l\'objectif', tap('#panel-close')));
