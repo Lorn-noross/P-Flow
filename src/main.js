@@ -825,7 +825,7 @@ const OB = { step: 0, redo: false, pro: false, rate: '', period: 'mensuelle', re
 function openOnboarding(redo) {
   if (!redo && !$('#s-onboard').hidden && !OB.redo) return; // déjà ouvert : ne pas recommencer
   Object.assign(OB, { step: 0, redo, rev: [], dep: [], comptes: [], solde: '', soldeNeg: false, drive: false, driveMsg: '', busy: false,
-    pro: redo ? isPro() : false, rate: redo && isPro() ? amountStr(rateFor(NOW.getFullYear())) : '',
+    pro: redo ? isPro() : false, rate: redo && isPro() ? NUM.format(rateFor(NOW.getFullYear())) : '',
     period: redo ? S.settings.periodicite : 'mensuelle', ep: redo ? (S.settings.epargne === null ? null : epOn()) : null,
     accent: redo ? S.settings.accent : 'bleu' });
   $('#o-error').textContent = '';
@@ -948,7 +948,7 @@ function obSkip() {
   const id = OB_STEPS[OB.step];
   if (id === 'profil') {
     // Nouveau compte : particulier par défaut. « Refaire la configuration » : on garde le profil actuel.
-    if (OB.redo) { OB.pro = isPro(); OB.rate = isPro() ? amountStr(rateFor(NOW.getFullYear())) : ''; OB.period = S.settings.periodicite; }
+    if (OB.redo) { OB.pro = isPro(); OB.rate = isPro() ? NUM.format(rateFor(NOW.getFullYear())) : ''; OB.period = S.settings.periodicite; }
     else { OB.pro = false; OB.rate = ''; OB.period = 'mensuelle'; }
   }
   else if (id === 'revenus') OB.rev = [];
