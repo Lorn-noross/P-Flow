@@ -2019,7 +2019,11 @@ function renderAnnee() {
   // Patch 5 (point 31) : interrupteur « Sur mon compte / Reste de l'année », même réglage que l'écran Mois
   // (propre à l'appareil), affiché dès qu'une fin de mois de l'année est connue grâce à un solde noté.
   YC = ok ? compteAnnee(y) : null;
+  const was = yCpt;
   yCpt = !!(YC && YC.any) && lsGet('pf-vue-compte') !== '0';
+  // Retour sur l'APK 79 : basculer doit être aussi doux que dans l'écran Mois (même rebond du bouton, montant qui
+  // défile, barres qui repoussent, tableau en fondu), pas un écran qui change d'un coup.
+  const switched = ok && was !== yCpt && YC && YC.any && S.view === 'annee' && !S.deferYear;
   const n = yd.n, neg = T.reste < 0;
   // Patch 5 (point 23) : mêmes mots que l'écran Mois ; « Mis de côté » et « Total épargné » réunis en une case.
   const mini = (sw, label, v, sub) => '<div class="mini"><span><i class="sw ' + sw + '"></i>' + label + '</span><b>' + (ok ? eur(v) : '…') + '</b>' + (sub && ok ? '<small>' + esc(sub) + '</small>' : '') + '</div>';
@@ -2027,21 +2031,31 @@ function renderAnnee() {
   const epSub = Math.abs(T.ep) >= 0.5 ? (T.ep > 0 ? '+' : MINUS) + eur0(Math.abs(T.ep)) + ' cette année' : '';
   const minis = '<div class="minis">' + (pro ? mini('s-brut', 'Revenus bruts', T.base) + mini('s-urssaf', 'URSSAF', T.urssaf) + (T.brut - T.base > 0.004 ? mini('s-autres', 'Autres revenus', r2(T.brut - T.base)) : '') + mini('s-net', 'Revenus nets', T.net) : mini('s-net', 'Revenus', T.brut)) +
     mini('s-dep', 'Dépenses', T.dep) + (on ? mini('s-ep', 'Épargne', epTot, epSub) : '') + '</div>';
-  const seg = YC && YC.any ? '<div class="seg hero-mode" role="group" aria-label="Gros chiffre : ton compte ou le reste de l\'année">' +
-    '<button type="button" data-act="hero-mode" data-v="compte" aria-pressed="' + yCpt + '">Sur mon compte</button>' +
-    '<button type="button" data-act="hero-mode" data-v="reste" aria-pressed="' + !yCpt + '">Reste de l\'année</button></div>' : '';
+  // L'interrupteur reste le même élément d'un rendu à l'autre (comme dans l'écran Mois) : seul son état change, ce
+  // qui garde la transition du bouton et son petit rebond. Le reste du haut de l'écran est redessiné après lui.
+  const k = $('#kpis');
+  let seg = $('#y-mode', k);
+  if (YC && YC.any) {
+    if (!seg) {
+      k.insertAdjacentHTML('afterbegin', '<div class="seg hero-mode" id="y-mode" role="group" aria-label="Gros chiffre : ton compte ou le reste de l\'année">' +
+        '<button type="button" data-act="hero-mode" data-v="compte">Sur mon compte</button><button type="button" data-act="hero-mode" data-v="reste">Reste de l\'année</button></div>');
+      seg = $('#y-mode', k);
+    }
+    $$('button', seg).forEach(b => b.setAttribute('aria-pressed', String((b.dataset.v === 'compte') === yCpt)));
+  } else if (seg) { seg.remove(); seg = null; }
+  const put = html => { while (seg ? seg.nextSibling : k.firstChild) (seg ? seg.nextSibling : k.firstChild).remove(); k.insertAdjacentHTML('beforeend', html); };
   if (yCpt) {
     // Dernière fin de mois connue (décembre en général : prévision pour les mois à venir) et évolution depuis le
     // début de l'année (ou depuis le premier solde noté dans l'année).
     const i = YC.last, mi = ym(y, i + 1), v = YC.v[i], diff = YC.start ? r2(v - YC.start.v) : null;
-    $('#kpis').innerHTML = seg + '<p class="eyebrow">' + (mi >= CUR ? 'Prévu sur ton compte le ' : 'Sur ton compte le ') + esc(dShort(mi + '-' + pad(dimOf(mi)))) + '</p>' +
+    put('<p class="eyebrow">' + (mi >= CUR ? 'Prévu sur ton compte le ' : 'Sur ton compte le ') + esc(dShort(mi + '-' + pad(dimOf(mi)))) + '</p>' +
       '<p class="big ' + (v < 0 ? 'neg' : 'pos') + '">' + eur(v) + '</p>' +
-      '<p class="hero-sub"><span>' + (diff == null ? 'Calculé à partir des soldes que tu as notés.' : '<b' + (diff < 0 ? ' class="neg"' : '') + '>' + (diff > 0 ? '+' : diff < 0 ? MINUS : '') + esc(eur(Math.abs(diff))) + '</b> ' + esc(YC.start.txt)) + '</span></p>' + minis;
-    rollNumber($('#kpis .big'), 'annee-cpt', v);
+      '<p class="hero-sub"><span>' + (diff == null ? 'Calculé à partir des soldes que tu as notés.' : '<b' + (diff < 0 ? ' class="neg"' : '') + '>' + (diff > 0 ? '+' : diff < 0 ? MINUS : '') + esc(eur(Math.abs(diff))) + '</b> ' + esc(YC.start.txt)) + '</span></p>' + minis);
+    rollNumber($('#kpis .big'), 'annee', v); // même clé dans les deux vues : le montant défile de l'un à l'autre
   } else {
-    $('#kpis').innerHTML = seg + '<p class="eyebrow">' + (neg ? 'Il manque sur l\'année' : 'Reste de l\'année') + '</p>' +
+    put('<p class="eyebrow">' + (neg ? 'Il manque sur l\'année' : 'Reste de l\'année') + '</p>' +
       '<p class="big ' + (ok ? (neg ? 'neg' : 'pos') : '') + '">' + (ok ? eur(Math.abs(T.reste)) : '…') + '</p>' +
-      '<p class="hero-sub"><span>' + (!ok ? 'Chargement…' : n === 0 ? 'L\'année ' + y + ' n\'a pas encore commencé.' : 'soit <b>' + esc(eur(yd.avg)) + '</b> par mois en moyenne, sur ' + n + ' mois') + '</span></p>' + minis;
+      '<p class="hero-sub"><span>' + (!ok ? 'Chargement…' : n === 0 ? 'L\'année ' + y + ' n\'a pas encore commencé.' : 'soit <b>' + esc(eur(yd.avg)) + '</b> par mois en moyenne, sur ' + n + ' mois') + '</span></p>' + minis);
     if (ok) rollNumber($('#kpis .big'), 'annee', Math.abs(T.reste));
   }
   $('#chart-title').textContent = yCpt ? 'Sur ton compte à la fin de chaque mois' : 'Reste de chaque mois';
@@ -2054,11 +2068,13 @@ function renderAnnee() {
     $('#chart-legend').innerHTML = '<span><i class="sw s-reste"></i>Reste</span><span><i class="sw" style="background:var(--neg)"></i>Manque</span>' + (ok && yd.n ? '<span><i class="dash"></i>Reste moyen ' + esc(eur0(yd.avg)) + '</span>' : '');
   }
   lastChartW = 0; renderChart();
+  if (switched) growBars($$('#chart .b-pos, #chart .b-neg'));
   // Tableau, « Où part l'argent » et seuils (sous le graphique) : après l'animation d'arrivée sur l'écran,
   // pour que l'écran apparaisse tout de suite, même sur un vieux téléphone.
   clearTimeout(yearLater);
   if (S.deferYear && motionOK()) { S.deferYear = false; const key = y; yearLater = setTimeout(() => { if (S.view === 'annee' && S.year === key) renderAnneeBottom(yd, ok, pro, on); }, 360); }
   else { S.deferYear = false; renderAnneeBottom(yd, ok, pro, on); }
+  if (switched) anim($('#y-table'), [{ opacity: 0.25 }, { opacity: 1 }], { duration: 320, easing: EASE });
 }
 let yearLater = 0;
 function renderAnneeBottom(yd, ok, pro, on) {

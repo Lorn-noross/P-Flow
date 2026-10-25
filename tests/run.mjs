@@ -1529,8 +1529,11 @@ async function scenarioPatch5Annee(cfg, fx, tag) {
   await page.click('#kpis .eyebrow');
   await until(page, () => document.getElementById('bubble').hidden, null, 'bulle refermée en touchant à côté');
   // 5. « Reste de l'année » : comme avant ; le choix suit dans l'écran Mois
+  await page.evaluate(() => { window.__seg = document.getElementById('y-mode'); });
   await page.click('#kpis [data-act="hero-mode"][data-v="reste"]');
   await until(page, () => /l'année$/.test(document.querySelector('#kpis .eyebrow').textContent) && document.querySelector('#y-table thead th:last-child').textContent === 'Reste', null, '« Reste de l\'année » : gros chiffre et colonne Reste');
+  // Retour sur l'APK 79 : l'interrupteur reste le même élément (transition et rebond du bouton, comme dans l'écran Mois)
+  check(await page.evaluate(() => window.__seg === document.getElementById('y-mode') && window.__seg.isConnected), 'Année : l\'interrupteur n\'est pas redessiné (bascule douce)');
   check(await page.evaluate(() => localStorage.getItem('pf-vue-compte')) === '0', 'choix gardé sur l\'appareil (pf-vue-compte)');
   await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(500);
   await page.screenshot({ path: join(OUT, tag + '-p5-annee-reste.png') });
