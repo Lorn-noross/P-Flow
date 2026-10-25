@@ -17,7 +17,7 @@
   --urssaf:#C2810C; --dep:#6A7D90; --pos:#13865A; --neg:#C8372F; --neg-soft:#FCE9E7; --pos-soft:#DFF3E8; --ep:#7A5AF8;
   --scrim:rgba(8,12,20,.42); --shadow:0 10px 30px rgba(20,35,70,.14); --shadow-bar:0 10px 34px rgba(20,35,70,.18);
   /* couleurs des montants : personnalisables (Réglages → Apparence → Couleurs), sinon celles-ci */
-  --c-brut:#8FA6E6; --c-autres:#0E8C97; --c-fixes:#C9622A; --c-urssaf:var(--urssaf); --c-net:var(--accent); --c-dep:var(--dep); --c-reste:var(--pos); --c-ep:var(--ep);
+  --c-brut:#3D8EEA; --c-autres:#0E8C97; --c-fixes:#C9622A; --c-urssaf:var(--urssaf); --c-net:#2A5BD7; --c-dep:var(--dep); --c-reste:var(--pos); --c-ep:var(--ep);
   /* verre liquide des fenêtres maison (calendriers, listes de choix, teinte) : translucide + flou, reflet clair */
   --pop-glass:rgba(255,255,255,.80); --pop-fill:rgba(15,23,34,.05); --pop-rim:inset 0 1px 0 rgba(255,255,255,.85),inset 0 0 0 1px rgba(255,255,255,.35);
   /* Patch 4 : une seule police, Figtree (chiffres tabulaires pour les montants) ; les trois rôles restent nommés. */
@@ -40,7 +40,7 @@
   --glass:rgba(22,29,39,.72); --glass-solid:#161D26; --glass-line:rgba(255,255,255,.07);
   --quick:rgba(255,255,255,.08); --quick-ink:var(--ink);
   --urssaf:#E4A940; --dep:#8799AC; --pos:#4DC48B; --neg:#F2766B; --neg-soft:#3A1E1E; --pos-soft:#13301F; --ep:#A58BFF;
-  --scrim:rgba(0,0,0,.55); --shadow:0 10px 30px rgba(0,0,0,.45); --shadow-bar:0 12px 34px rgba(0,0,0,.55); --c-brut:#4E66A8; --c-autres:#31B9C4; --c-fixes:#F08C4B;
+  --scrim:rgba(0,0,0,.55); --shadow:0 10px 30px rgba(0,0,0,.45); --shadow-bar:0 12px 34px rgba(0,0,0,.55); --c-brut:#3F95E8; --c-autres:#31B9C4; --c-fixes:#F08C4B; --c-net:#7DA3FF;
   --shadow-pill:0 6px 20px rgba(0,0,0,.40);
   --pop-glass:rgba(24,31,42,.80); --pop-fill:rgba(255,255,255,.06); --pop-rim:inset 0 1px 0 rgba(255,255,255,.16),inset 0 0 0 1px rgba(255,255,255,.05);
   color-scheme:dark;
@@ -54,7 +54,7 @@
     --glass:rgba(22,29,39,.72); --glass-solid:#161D26; --glass-line:rgba(255,255,255,.07);
     --quick:rgba(255,255,255,.08);
     --urssaf:#E4A940; --dep:#8799AC; --pos:#4DC48B; --neg:#F2766B; --neg-soft:#3A1E1E; --pos-soft:#13301F; --ep:#A58BFF;
-    --scrim:rgba(0,0,0,.55); --shadow:0 10px 30px rgba(0,0,0,.45); --shadow-bar:0 12px 34px rgba(0,0,0,.55); --c-brut:#4E66A8; --c-autres:#31B9C4; --c-fixes:#F08C4B;
+    --scrim:rgba(0,0,0,.55); --shadow:0 10px 30px rgba(0,0,0,.45); --shadow-bar:0 12px 34px rgba(0,0,0,.55); --c-brut:#3F95E8; --c-autres:#31B9C4; --c-fixes:#F08C4B; --c-net:#7DA3FF;
     --shadow-pill:0 6px 20px rgba(0,0,0,.40);
     color-scheme:dark;
   }
@@ -280,7 +280,7 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
 .quick .qi{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;background:var(--quick);border:1px solid var(--glass-line);box-shadow:0 2px 10px rgba(20,35,70,.06);
   transition:transform .18s cubic-bezier(.3,1.5,.5,1)}
 .quick .qi svg.i{width:22px;height:22px}
-.quick [data-type="depense"] .qi{color:var(--c-dep)} .quick [data-type="revenu"] .qi{color:var(--pos)} .quick [data-type="epargne"] .qi{color:var(--c-ep)}
+.quick [data-type="depense"] .qi{color:var(--c-dep)} .quick [data-type="revenu"] .qi{color:var(--c-net)} .pro .quick [data-type="revenu"] .qi{color:var(--c-brut)} .quick [data-type="epargne"] .qi{color:var(--c-ep)}
 body:not(.ep-on) .ep-only{display:none!important}
 
 /* Patch 5 : un seul bloc URSSAF (carte sous les boutons d'ajout) : la ligne du mois, la question « payée ? »,
@@ -373,7 +373,8 @@ p .cinfo{margin-left:6px}
 .row-meta{font-size:calc(12.5*var(--u));color:var(--muted)}
 .row-amt{font-family:var(--f-data);font-size:calc(14*var(--u));white-space:nowrap;font-variant-numeric:tabular-nums;text-align:right}
 .row-amt small{display:block;font-family:var(--f-body);font-size:calc(11*var(--u));color:var(--muted)}
-.row-amt.in{color:var(--pos)} .row-amt.ep{color:var(--c-ep)}
+/* Patch 5 (point 11) : montants des revenus dans la couleur de leur type (le vert est réservé au Reste). */
+.row-amt.in{color:var(--c-net)} .pro .row-amt.in{color:var(--c-brut)} .row-amt.aut{color:var(--c-autres)} .row-amt.ep{color:var(--c-ep)}
 .row.child{padding-left:24px}
 .row.child .row-ico{display:none}
 .tag{font-size:calc(11*var(--u));font-weight:650;padding:1px 7px;border-radius:999px;background:var(--surface-2);color:var(--muted);margin-left:6px;vertical-align:1px;white-space:nowrap}
@@ -447,6 +448,20 @@ td .prev-l{display:block;font-size:calc(11*var(--u));color:var(--accent);font-we
   #kpis .hero-mode{margin:0 0 6px}
 }
 .tbl-wrap{overflow-x:auto;margin-top:8px}
+/* Patch 5 (point 30) : Fixes, deux blocs (téléphone : l'un sous l'autre, séparés comme deux groupes ; grand écran :
+   charges | revenus, épargne, à venir et terminés). Réglages : la liste à gauche, la page choisie à droite. */
+.fx-c2>.group:first-child{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}
+#v-fixes{max-width:1500px;width:100%;margin-inline:auto}
+@container main (min-width:1000px){
+  #fix-list{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:32px;align-items:start}
+  .fx-c2>.group:first-child{margin-top:0;border-top:0;padding-top:0}
+  #v-reglages{grid-template-columns:minmax(300px,380px) minmax(0,760px);column-gap:28px;align-items:start;justify-content:center}
+  #v-reglages>.set-home{grid-column:1;grid-row:1;position:sticky;top:calc(96px + var(--sat))}
+  #v-reglages>.set-sub{grid-column:2;grid-row:1;max-width:none}
+  /* page choisie : comme l'onglet choisi du menu (.nav), fond d'accent léger */
+  .set-list button[aria-current="page"]{background:var(--accent-soft)}
+  .set-list button[aria-current="page"] b{color:var(--accent)}
+}
 table{width:100%;border-collapse:collapse}
 caption{caption-side:bottom;text-align:left;font-size:calc(12*var(--u));color:var(--muted);padding-top:8px}
 .m-s{display:none}
@@ -537,7 +552,7 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
 .seg{display:grid;grid-template-columns:1fr 1fr;background:var(--surface-2);border-radius:999px;padding:4px;gap:4px}
 .seg button{min-height:40px;border-radius:999px;font-weight:620;color:var(--muted);padding:0 6px;line-height:1.15;transition:background-color .2s,color .2s}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 4px rgba(0,0,0,.14)}
-.seg button[aria-pressed="true"].rev{color:var(--pos)}
+.seg button[aria-pressed="true"].rev{color:var(--c-net)} .pro .seg button[aria-pressed="true"].rev{color:var(--c-brut)}
 :root[data-scheme="dark"] .seg button[aria-pressed="true"]{background:var(--surface-3);box-shadow:none}
 .seg button[aria-pressed="true"].ep{color:var(--c-ep)}
 .seg.seg3{grid-template-columns:repeat(3,1fr)}
@@ -758,8 +773,8 @@ th small{display:block;font-size:calc(10*var(--u));font-weight:500;text-transfor
 .pop-mcal{padding:10px 10px 12px}
 .mcal .cal-d{aspect-ratio:auto;min-height:44px;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;line-height:1}
 .mcal .cal-d .dots{display:flex;gap:2px;height:5px}
-.cdot{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--muted)}
-.cdot.d-in{background:var(--c-net)} .pro .cdot.d-in{background:var(--c-brut)} .cdot.d-out{background:var(--c-dep)} .cdot.d-fix{background:var(--c-fixes)} .cdot.d-ep{background:var(--c-ep)} .cdot.d-urs{background:var(--c-urssaf)}
+.cdot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--muted)}
+.cdot.d-in{background:var(--c-net)} .pro .cdot.d-in{background:var(--c-brut)} .cdot.d-aut{background:var(--c-autres)} .cdot.d-out{background:var(--c-dep)} .cdot.d-fix{background:var(--c-fixes)} .cdot.d-ep{background:var(--c-ep)} .cdot.d-urs{background:var(--c-urssaf)}
 .mcal .cal-d.sel{background:var(--accent-soft);color:var(--accent);box-shadow:inset 0 0 0 1.5px var(--accent)}
 .mcal .cal-d.today:not(.sel){box-shadow:inset 0 0 0 1.5px var(--line);color:var(--accent)}
 .cal-legend{display:flex;flex-wrap:wrap;gap:4px 12px;justify-content:center;margin:8px 0 2px;font-size:calc(11.5*var(--u));color:var(--muted)}

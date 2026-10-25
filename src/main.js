@@ -42,8 +42,9 @@ const r2 = n => { const v = Math.round((Number(n) || 0) * 100) / 100; return Obj
 const EUR = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' });
 const EUR0 = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 const NUM = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
-const eur = n => EUR.format(r2(n));
-const eur0 = n => EUR0.format(Math.round(n) || 0);
+// Patch 5 (point 15) : signe moins typographique « − » partout (Intl écrit « - »).
+const eur = n => EUR.format(r2(n)).replace('-', '\u2212');
+const eur0 = n => EUR0.format(Math.round(n) || 0).replace('-', '\u2212');
 const NUM0 = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
 const n0 = n => (n < -0.5 ? MINUS : '') + NUM0.format(Math.abs(Math.round(n)) || 0);
 const pctf = n => NUM.format(n) + ' %';
@@ -123,7 +124,9 @@ function parseAmount(s) {
   if (!/^(\d+\.?\d*|\.\d+)$/.test(s)) return NaN;
   return r2(parseFloat(s));
 }
-const amountStr = v => NUM.format(v).replace(/[\s\u00a0\u202f]/g, '');
+// Patch 5 (point 15) : montant pré-rempli avec deux décimales s'il en a (« 190,80 », pas « 190,8 ») ; entier tel quel.
+const NUM2 = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const amountStr = v => (Number.isInteger(r2(v)) ? NUM : NUM2).format(v).replace(/[\s\u00a0\u202f]/g, '');
 
 if (isNative) document.body.classList.add('native');
 
@@ -811,7 +814,8 @@ const plain = o => { const c = Object.assign({}, o); delete c.id; delete c.kind;
 // 7 étapes (patch 3 : « Ton compte en banque »), toutes facultatives (« Passer »). Écrit exactement les mêmes documents qu'un ajout manuel.
 // Nouveau compte (meta/settings absent) : tout est écrit à la fin. « Refaire la configuration » (Réglages) :
 // rien n'est supprimé, on ajoute seulement ce qui est saisi, et les réglages sont fusionnés.
-const OB_STEPS = ['profil', 'revenus', 'charges', 'compte', 'epargne', 'apparence', 'sauvegarde'];
+// Patch 5 (point 27) : plus d'étape « L'apparence » (6 étapes) ; tout reste dans Réglages → Apparence.
+const OB_STEPS = ['profil', 'revenus', 'charges', 'compte', 'epargne', 'sauvegarde'];
 const OB_QUICK = {
   rev: ['Salaire', 'Aides (CAF…)', 'Pension', 'Loyer perçu'],
   dep: ['Loyer', 'Électricité', 'Internet', 'Téléphone', 'Assurance', 'Crédit', 'Abonnements'],
@@ -890,12 +894,6 @@ function obRender(dir) {
         '<div class="chips">' + OB_QUICK.ep.map(l => '<button type="button" data-ob="add" data-k="ep" data-l="' + esc(l) + '">' + esc(l) + '</button>').join('') +
         '<button type="button" class="add" data-ob="add" data-k="ep" data-l="">+ Autre compte</button></div>' +
         '<div class="ob-rows">' + OB.comptes.map((r, i) => obRowHtml('ep', r, i)).join('') + '</div>' : '');
-  } else if (id === 'apparence') {
-    h = '<h2>L\'apparence</h2><p>Réglée pour cet appareil. Tu la retrouves dans Réglages → Apparence.</p>' +
-      '<p class="h3">Couleur d\'accentuation</p><div class="palette accents">' + accentDots(OB.accent, 'data-ob="accent"') + '</div>' +
-      '<p class="h3">Thème</p><div class="seg seg3">' + [['auto', 'Automatique'], ['clair', 'Clair'], ['sombre', 'Sombre']].map(([k, l]) => '<button type="button" data-ob="theme" data-t="' + k + '" aria-pressed="' + (APP.theme === k) + '">' + l + '</button>').join('') + '</div>' +
-      '<label class="check"><span>Noir absolu<small>En mode sombre, fond noir avec de légers reflets (écrans OLED).</small></span><input type="checkbox" data-ob="noir"' + (APP.noir ? ' checked' : '') + '></label>' +
-      '<p class="h3">Taille du texte</p><div class="seg">' + [['normal', 'Normale'], ['grand', 'Grande']].map(([k, l]) => '<button type="button" data-ob="texte" data-t="' + k + '" aria-pressed="' + (APP.texte === k) + '">' + l + '</button>').join('') + '</div>';
   } else {
     h = '<h2>Sauvegarde</h2><p>Tes données sont déjà enregistrées dans ton compte. Tu peux en plus garder une copie automatique dans ton Google Drive (dossier « P-Flow Sauvegardes ») : P-Flow ne voit que les fichiers qu\'il crée.</p>' +
       (OB.drive ? '<p class="notice ok">Google Drive connecté : ' + (isNative ? 'une première copie sera faite à l\'ouverture de l\'appli.' : 'à l\'ouverture de l\'appli, un bandeau te proposera la première copie (un seul toucher).') + '</p>'
@@ -1035,10 +1033,7 @@ $('#s-onboard').addEventListener('click', e => {
     const redraw = () => { obRender(0); const nb = $('#ob-step .ob-row[data-kind="' + k + '"][data-i="' + row.dataset.i + '"] [data-ob="' + a + '"]'); if (nb) nb.focus({ preventScroll: true }); };
     if (a === 'freq') openChoice({ anchor: b, label: 'Fréquence', value: r.freq, options: Object.keys(FREQ).map(f => ({ v: f, label: FREQ_WORD[f] })), onPick: v => { r.freq = v; redraw(); } });
     else openCalendar({ anchor: b, mode: 'date', label: 'Départ du fixe', note: 'Le jour où il passe sur ton compte', value: (YM_RE.test(r.start || '') ? r.start : CUR) + '-' + pad(r.jour || 1), onPick: v => { r.start = v.slice(0, 7); r.jour = +v.slice(8, 10); redraw(); } });
-  } else if (a === 'theme') { setAppearance('theme', b.dataset.t); obRender(0); }
-  else if (a === 'texte') { setAppearance('texte', b.dataset.t); obRender(0); }
-  else if (a === 'accent') { if (isAccent(b.dataset.a)) { OB.accent = b.dataset.a; setAccent(OB.accent); obRender(0); } }
-  else if (a === 'drive') {
+  } else if (a === 'drive') { // patch 5 : plus d'étape « L'apparence » (thème, accent, texte, noir absolu)
     OB.busy = true; OB.driveMsg = '';
     const tok = driveToken(true); // tout de suite : la fenêtre Google demande un geste de l'utilisateur
     obRender(0);
@@ -1056,7 +1051,6 @@ $('#s-onboard').addEventListener('input', e => {
 });
 $('#s-onboard').addEventListener('change', e => {
   const t = e.target;
-  if (t.dataset.ob === 'noir') { setAppearance('noir', t.checked); return; }
   const row = t.closest('.ob-row'); if (!row || !t.dataset.f) return;
   const r = OB[row.dataset.kind === 'ep' ? 'comptes' : row.dataset.kind][+row.dataset.i];
   if (r) r[t.dataset.f] = t.type === 'checkbox' ? t.checked : t.value;
@@ -1151,7 +1145,7 @@ function renderCtx() {
     h = '<div class="pill"><button class="icon-btn" data-act="prev-month" aria-label="Mois précédent">' + ico('left') + '</button><h1><button type="button" class="mtitle" data-act="month-cal" aria-haspopup="dialog" aria-expanded="' + (CAL.open ? 'true' : 'false') + '" aria-label="' + esc(cap(mLabel(S.month))) + ', ouvrir le calendrier du mois">' + esc(cap(mLabel(S.month))) + '</button></h1><button class="icon-btn" data-act="next-month" aria-label="Mois suivant">' + ico('right') + '</button></div>';
   } else if (S.view === 'annee') {
     h = '<div class="pill"><button class="icon-btn" data-act="prev-year" aria-label="Année précédente">' + ico('left') + '</button><h1><button type="button" class="mtitle" data-act="year-pick" aria-haspopup="dialog" aria-expanded="' + (YP.open ? 'true' : 'false') + '" aria-label="' + S.year + ', choisir une autre année">' + S.year + '</button></h1><button class="icon-btn" data-act="next-year" aria-label="Année suivante">' + ico('right') + '</button></div>';
-  } else if (S.view === 'reglages' && S.sub) {
+  } else if (S.view === 'reglages' && S.sub && !setWide()) {
     h = '<button class="pill back" data-act="sub-back" aria-label="Retour aux réglages">' + ico('left') + '</button><div class="pill solo"><h1>' + esc(SUBS[S.sub]) + '</h1></div>';
   } else {
     h = '<div class="pill solo"><h1>' + (S.view === 'fixes' ? 'Charges et revenus fixes' : 'Réglages') + '</h1></div>';
@@ -1164,7 +1158,7 @@ function renderCtx() {
 
 /* ----- lignes d'opérations ----- */
 const ROW_ACT = { entry: 'edit-entry', rec: 'edit-rec', per: 'edit-per', ep: 'edit-ep', auto: 'edit-per' };
-const OP_LABEL = { depot: 'mis de côté', retrait: 'repris', solde: 'solde du compte' };
+const OP_LABEL = { depot: 'mis de côté', retrait: 'repris', solde: 'solde' }; // patch 5 (point 18) : un seul mot « Solde »
 function rowHtml(it, rate, extraCls) {
   const isEp = it.kind === 'ep' || it.kind === 'auto';
   const isRev = !isEp && it.type === 'revenu';
@@ -1174,18 +1168,24 @@ function rowHtml(it, rate, extraCls) {
   if (it.kind === 'ep') meta.push(OP_LABEL[it.op] || '');
   if (it.kind === 'auto') meta.push('versement automatique');
   if (isRev && isPro()) meta.push(it.urssaf ? 'URSSAF ' + MINUS + eur(it.amount * rate / 100) : 'sans URSSAF');
-  const tag = it.kind === 'rec' || it.kind === 'per' ? '<span class="tag">fixe</span>' : '';
+  // Patch 5 (point 10) : plus d'étiquette « fixe » dans les groupes « Charges fixes » / « Revenus fixes » (le titre le
+  // dit), mais le jour où il passe ; ailleurs (bulle du jour du calendrier) l'étiquette reste.
+  const inGroup = extraCls === 'in-fixed';
+  if (inGroup && (it.kind === 'rec' || it.kind === 'per')) { const j = jourOf(it.id) || 1; meta.unshift('le ' + (j === 1 ? '1er' : j)); }
+  const tag = (it.kind === 'rec' || it.kind === 'per') && !inGroup ? '<span class="tag">fixe</span>' : '';
   const back = isEp && it.op === 'retrait';
   const sign = isEp ? (it.op === 'solde' ? '' : back ? '+' : MINUS) : isRev ? '+' : MINUS;
   // Patch 4 : icône aux couleurs choisies (comme les pastilles du calendrier) : revenus, revenus sans URSSAF,
   // dépenses, fixes et épargne ; la flèche garde le sens (rentrée ou sortie).
-  const fixe = it.kind === 'rec' || it.kind === 'per';
-  const icCls = isEp ? 'ep' : fixe ? 'fix' : isRev ? (isPro() && !it.urssaf ? 'aut' : 'in') : 'out';
+  // Patch 5 (points 11 et 14) : chaque type garde sa couleur partout (icône et montant) ; un revenu fixe a la
+  // couleur des revenus, l'orange des Fixes ne sert qu'aux charges fixes ; le vert ne sert plus qu'au Reste.
+  const fixe = !isRev && (it.kind === 'rec' || it.kind === 'per');
+  const icCls = isEp ? 'ep' : isRev ? (isPro() && !it.urssaf ? 'aut' : 'in') : fixe ? 'fix' : 'out';
   const ic = '<span class="row-ico ' + icCls + '">' + ico(isEp ? 'epargne' : isRev ? 'in' : 'out') + '</span>';
   return '<button class="row' + (extraCls ? ' ' + extraCls : '') + '" data-act="' + ROW_ACT[it.kind] + '" data-id="' + esc(it.id) + '">' + ic +
     '<span class="row-main"><span class="row-label">' + esc(it.label) + tag + '</span>' +
     (meta.length ? '<span class="row-meta">' + esc(meta.filter(Boolean).join(' · ')) + '</span>' : '') + '</span>' +
-    '<span class="row-amt' + (isEp ? ' ep' : isRev ? ' in' : '') + '">' + sign + eur(it.amount) + '</span></button>';
+    '<span class="row-amt' + (isEp ? ' ep' : isRev ? ' ' + icCls : '') + '">' + sign + eur(it.amount) + '</span></button>';
 }
 const byDate = (a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || 0) - (a.createdAt || 0);
 
@@ -1430,7 +1430,7 @@ function renderMois() {
     (revs.length ? revs.map(i => rowHtml(i, d.rate)).join('') : '<p class="empty">' + (revR.length ? 'Aucun autre revenu noté pour ' + esc(mLabel(m)) + '.' : 'Aucun revenu noté pour ' + esc(mLabel(m)) + '. Ajoute-le avec <b>+</b> puis « Revenu ».') + '</p>') + '</section>';
   if (revR.length) {
     h += '<section class="group"><button class="group-head" data-act="toggle-fixed-rev" aria-expanded="' + S.showFixedRev + '"><span class="gh-left">' + ico('right', 'chev') + '<span class="h3">Revenus fixes · ' + revR.length + '</span></span><span class="sum">+' + eur(sumOf(revR)) + '</span></button>' +
-      (S.showFixedRev ? revR.map(i => rowHtml(i, d.rate)).join('') : '') + '</section>';
+      (S.showFixedRev ? revR.map(i => rowHtml(i, d.rate, 'in-fixed')).join('') : '') + '</section>';
   }
   h += '<section class="group"><div class="group-head"><h3>Dépenses ponctuelles</h3><span class="gh-tools">' +
     (depE.length > 1 ? '<button class="toggle-mini" data-act="group-toggle" aria-pressed="' + S.grouped + '" title="Regrouper par libellé" aria-label="' + (S.grouped ? 'Triées par libellé' : 'Triées par date') + '">' + ico(S.grouped ? 'group' : 'list') + '<span class="tm-t">' + (S.grouped ? 'Par libellé' : 'Par date') + '</span></button>' : '') +
@@ -1438,7 +1438,7 @@ function renderMois() {
     (depE.length ? (S.grouped ? groupedHtml(depE, d.rate) : depE.map(i => rowHtml(i, d.rate)).join('')) : '<p class="empty">Aucune dépense notée. Ajoute-la avec <b>+</b> : tu écris toi-même à quoi elle correspond.</p>') + '</section>';
   if (depR.length) {
     h += '<section class="group"><button class="group-head" data-act="toggle-fixed" aria-expanded="' + S.showFixed + '"><span class="gh-left">' + ico('right', 'chev') + '<span class="h3">Charges fixes · ' + depR.length + '</span></span><span class="sum">' + MINUS + eur(sumOf(depR)) + '</span></button>' +
-      (S.showFixed ? depR.map(i => rowHtml(i, d.rate)).join('') : '') + '</section>';
+      (S.showFixed ? depR.map(i => rowHtml(i, d.rate, 'in-fixed')).join('') : '') + '</section>';
   }
   // Patch 5 : le total des comptes n'est plus répété ici (il est en grand dans la carte Épargne).
   if (on && epI.length) {
@@ -1494,7 +1494,7 @@ function renderEpCard(d, ok) {
   const cs = comptes(d.m), total = r2(cs.reduce((a, c) => a + c.solde, 0));
   const when = epWhen(d.m);
   $('#ep-card').innerHTML = '<div class="ep-head"><span class="eh-l"><h3>Épargne' + (when ? ' <span class="ep-when">' + esc(when) + '</span>' : '') + '</h3>' + infoBtn('ep-card', 'Épargne') + '</span><span class="ep-total">' + (ok ? eur(total) : '…') + '</span></div>' +
-    infoBubble('ep-card', 'Total de tes comptes à la fin du mois : le dernier montant noté avec « J\'ai actuellement », plus ce que tu as mis de côté, moins ce que tu as repris.') +
+    infoBubble('ep-card', 'Total de tes comptes à la fin du mois : le dernier solde noté, plus ce que tu as mis de côté, moins ce que tu as repris.') +
     (cs.length ? '<div>' + cs.map(c => '<button class="row" data-act="compte-open" data-k="' + esc(c.key) + '"><span class="row-ico ep">' + ico('epargne') + '</span><span class="row-main"><span class="row-label">' + esc(c.label) + '</span>' +
       (c.autos.length ? '<span class="row-meta">' + esc(c.autos.map(p => eur(p.amount) + ' ' + FREQ_LABEL[p.freq]).join(' · ')) + '</span>' : '') + '</span><span class="row-amt">' + eur(c.solde) + '</span></button>').join('') + '</div>'
       : '<p class="empty">Aucun compte pour l\'instant : touche <b>Épargne</b> pour noter ce que tu as ou ce que tu mets de côté.</p>');
@@ -1836,8 +1836,11 @@ const WDAY = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'sa
 function dayItems(m) {
   const d = monthData(m), out = {};
   const add = (day, it) => { (out[day] = out[day] || []).push(it); };
-  for (const e of d.ents) add(+String(e.date).slice(8, 10), Object.assign({ dot: e.type === 'revenu' ? 'in' : 'out' }, e));
-  for (const f of d.recs.concat(d.pers)) add(+fixeDate(f, m).slice(8, 10), Object.assign({ dot: 'fix' }, f));
+  // Patch 5 (points 11 et 14) : factures, autres revenus (sans URSSAF), dépenses, charges fixes : chacun sa pastille ;
+  // un revenu fixe a la pastille des revenus.
+  const revDot = it => (isPro() && !it.urssaf ? 'aut' : 'in');
+  for (const e of d.ents) add(+String(e.date).slice(8, 10), Object.assign({ dot: e.type === 'revenu' ? revDot(e) : 'out' }, e));
+  for (const f of d.recs.concat(d.pers)) add(+fixeDate(f, m).slice(8, 10), Object.assign({ dot: f.type === 'revenu' ? revDot(f) : 'fix' }, f));
   for (const e of d.eps) add(+String(e.date).slice(8, 10), Object.assign({ dot: 'ep' }, e));
   for (const a of d.autos) add(+fixeDate(a, m).slice(8, 10), Object.assign({ dot: 'ep' }, a));
   // URSSAF à payer ce mois-ci (déclaration du mois ou du trimestre précédent), le jour de l'échéance ;
@@ -1872,12 +1875,12 @@ function monthCalHtml() {
   h += '<div class="cal-grid mcal" role="grid">' + ['L', 'M', 'M', 'J', 'V', 'S', 'D'].map(w => '<span class="cal-wd" aria-hidden="true">' + w + '</span>').join('');
   for (let i = 0; i < first; i++) h += '<span></span>';
   for (let d = 1; d <= n; d++) {
-    const its = items[d] || [], kinds = ['in', 'out', 'fix', 'ep', 'urs'].filter(k => its.some(i => i.dot === k));
+    const its = items[d] || [], kinds = ['in', 'aut', 'out', 'fix', 'ep', 'urs'].filter(k => its.some(i => i.dot === k));
     const v = m + '-' + pad(d);
     h += '<button type="button" class="cal-d' + (CAL.sel === d ? ' sel' : '') + (v === TODAY ? ' today' : '') + '" data-mc="day" data-d="' + d + '" aria-label="' + d + ' ' + MONTHS[mm - 1] + (its.length ? ', ' + plural(its.length, 'opération') : '') + '">' +
       '<span>' + d + '</span><span class="dots" aria-hidden="true">' + kinds.map(k => '<i class="cdot d-' + k + '"></i>').join('') + '</span></button>';
   }
-  h += '</div><div class="cal-legend" aria-hidden="true"><span><i class="cdot d-in"></i>Rentrée</span><span><i class="cdot d-out"></i>Dépense</span><span><i class="cdot d-fix"></i>Fixe</span>' +
+  h += '</div><div class="cal-legend" aria-hidden="true"><span><i class="cdot d-in"></i>' + (isPro() ? 'Facture' : 'Revenu') + '</span>' + (isPro() ? '<span><i class="cdot d-aut"></i>Autre revenu</span>' : '') + '<span><i class="cdot d-out"></i>Dépense</span><span><i class="cdot d-fix"></i>Charge fixe</span>' +
     (epOn() ? '<span><i class="cdot d-ep"></i>Épargne</span>' : '') + (isPro() ? '<span><i class="cdot d-urs"></i>URSSAF</span>' : '') + '</div>';
   if (CAL.sel) {
     const d = CAL.sel, its = items[d] || [], dt = new Date(y, mm - 1, d), date = m + '-' + pad(d), rate = its.length ? monthData(m).rate : 0;
@@ -1955,35 +1958,42 @@ function renderFixes() {
   const left = r2(revM - depM - epM);
   const smooth = act.some(x => x.freq !== 'mois');
   $('#fix-totals').innerHTML =
-    '<div class="fix-main"><span>Après les fixes, il te reste</span><strong class="' + (left < 0 ? 'neg' : '') + '">' + (ok ? eur(left) : '…') + '</strong><span>par mois' + (smooth ? ' (trimestriels et annuels comptés en moyenne)' : '') + '</span>' +
-    (ok && left < 0 && pro ? '<p class="hint">Tes factures et autres revenus qui varient ne sont pas comptés ici : seulement ce qui revient tout seul.</p>' : '') + '</div>' +
+    // Patch 5 (point 22) : un résultat négatif est normal sans les factures : « il manque », sans rouge.
+    '<div class="fix-main"><span>Après les fixes, ' + (ok && left < 0 ? 'il manque' : 'il te reste') + '</span><strong>' + (ok ? eur(Math.abs(left)) : '…') + '</strong><span>par mois' + (smooth ? ' (trimestriels et annuels comptés en moyenne)' : '') + '</span>' +
+    (ok && left < 0 ? '<p class="hint">' + (pro ? 'Sans tes factures ni tes revenus variables.' : 'Sans tes revenus variables.') + '</p>' : '') + '</div>' +
     '<div class="fix-small"><div><span><i class="sw s-fixes"></i>Charges fixes</span><b>' + (ok ? eur(depM) : '…') + '</b></div>' +
     '<div><span><i class="sw s-net"></i>Revenus fixes' + (pro && rev.some(x => x.urssaf) ? ' nets' : '') + '</span><b>' + (ok ? eur(revM) : '…') + '</b></div>' +
     (on ? '<div><span><i class="sw s-ep"></i>Épargne auto</span><b>' + (ok ? eur(epM) : '…') + '</b></div>' : '') + '</div>';
-  if (ok) rollNumber($('#fix-totals .fix-main strong'), 'fixes', left); // patch 4 : le montant défile
+  if (ok) rollNumber($('#fix-totals .fix-main strong'), 'fixes', Math.abs(left)); // patch 4 : le montant défile
   const list = $('#fix-list');
   if (!ok) { list.innerHTML = '<p class="empty">Chargement…</p>'; return; }
   const row = r => {
     const isRev = r.type === 'revenu', isEp = r.kind === 'per' && r.type === 'epargne';
     const nx = r.freq !== 'mois' && active(r) ? perNext(r, CUR) : null;
     // Patch 4 : « à partir d'août » (élision), comme partout ailleurs.
-    const meta = [FREQ_LABEL[r.freq], r.start > CUR ? 'à partir ' + deMS(r.start) : 'depuis ' + mShort(r.start)];
+    // Patch 5 (point 21) : plus de « chaque mois » (le « /mois » le dit) ni de « depuis… » pour un fixe déjà en cours ;
+    // le jour où il passe, la fin et la prochaine échéance restent.
+    const j = jourOf(r.id) || 1;
+    const meta = ['le ' + (j === 1 ? '1er' : j)];
+    if (r.start > CUR) meta.push('à partir ' + deMS(r.start));
     if (r.end) meta.push('jusqu\'à ' + mShort(r.end));
     if (nx) meta.push(nx === CUR ? 'échéance ce mois-ci' : 'prochaine : ' + mLabel(nx));
     if (isRev && pro) meta.push(r.urssaf ? 'soumis URSSAF' : 'sans URSSAF');
     // Patch 4 : charges fixes dans la couleur des Fixes, revenus et épargne dans les leurs.
     const ic = '<span class="row-ico ' + (isEp ? 'ep' : isRev ? (pro && !r.urssaf ? 'aut' : 'in') : 'fix') + '">' + ico(isEp ? 'epargne' : isRev ? 'in' : 'out') + '</span>';
     return '<button class="row" data-act="' + (r.kind === 'rec' ? 'edit-rec' : 'edit-per') + '" data-id="' + esc(r.id) + '">' + ic + '<span class="row-main"><span class="row-label">' + esc(r.label) + '</span><span class="row-meta">' + esc(meta.join(' · ')) + '</span></span>' +
-      '<span class="row-amt' + (isEp ? ' ep' : isRev ? ' in' : '') + '">' + (isRev ? '+' : MINUS) + eur(r.amount) + '<small>' + FREQ_UNIT[r.freq] + '</small></span></button>';
+      '<span class="row-amt' + (isEp ? ' ep' : isRev ? (pro && !r.urssaf ? ' aut' : ' in') : '') + '">' + (isRev ? '+' : MINUS) + eur(r.amount) + '<small>' + FREQ_UNIT[r.freq] + '</small></span></button>';
   };
   const sortA = arr => arr.slice().sort((a, b) => perMonth(b) - perMonth(a));
-  let h = '';
+  // Patch 5 (point 30) : deux blocs, côte à côte sur grand écran (charges | revenus, épargne, à venir, terminés).
+  let h = '<div class="fx-c1">';
   h += '<section class="group"><div class="group-head"><h3>Charges</h3><span class="sum">' + (dep.length ? MINUS + eur(depM) + '/mois' : '') + '</span></div>' + (dep.length ? sortA(dep).map(row).join('') : '<p class="empty">Aucune charge fixe pour l\'instant. Ajoute ton loyer, tes abonnements, tes crédits… avec <b>+</b>.</p>') + '</section>';
+  h += '</div><div class="fx-c2">';
   if (rev.length) h += '<section class="group"><div class="group-head"><h3>Revenus</h3><span class="sum">+' + eur(rev.reduce((a, x) => a + perMonth(x), 0)) + '/mois</span></div>' + sortA(rev).map(row).join('') + '</section>';
   if (epx.length) h += '<section class="group"><div class="group-head"><h3>Épargne automatique</h3><span class="sum">' + MINUS + eur(epM) + '/mois</span></div>' + sortA(epx).map(row).join('') + '</section>';
   if (up.length) h += '<section class="group"><div class="group-head"><h3>À venir</h3></div>' + sortA(up).map(row).join('') + '</section>';
   if (ended.length) h += '<section class="group"><button class="group-head" data-act="toggle-ended" aria-expanded="' + S.showEnded + '"><span class="gh-left">' + ico('right', 'chev') + '<span class="h3">Terminés · ' + ended.length + '</span></span></button>' + (S.showEnded ? sortA(ended).map(row).join('') : '') + '</section>';
-  list.innerHTML = h;
+  list.innerHTML = h + '</div>';
 }
 
 /* ----- vue Année ----- */
@@ -2171,9 +2181,18 @@ function showBubble(i) {
 }
 
 /* ----- vue Réglages ----- */
+// Patch 5 (point 30) : sur grand écran (zone de contenu d'au moins 1000 px, comme la requête de conteneur du CSS),
+// la liste des réglages reste à gauche et la page choisie s'affiche à droite (« Mon compte » d'office).
+function setWide() {
+  const m = $('.main'); if (!m) return false;
+  const cs = getComputedStyle(m);
+  return m.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0) >= 1000;
+}
 function renderReglages() {
-  $('#set-home').hidden = !!S.sub;
-  Object.keys(SUBS).forEach(k => { $('#sub-' + k).hidden = S.sub !== k; });
+  const wide = setWide(), sub = S.sub || (wide ? 'compte' : null);
+  $('#set-home').hidden = !!S.sub && !wide;
+  Object.keys(SUBS).forEach(k => { $('#sub-' + k).hidden = sub !== k; });
+  $$('#set-home [data-act="sub"]').forEach(b => { if (wide && b.dataset.sub === sub) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   const email = (S.user && S.user.email) || '';
   $('#acc-email').textContent = email;
   $('#acc-version').textContent = APP_VERSION;
@@ -2325,7 +2344,8 @@ function calc() {
   if (o > 0 && rate < 100) {
     const ca = r2(o / (1 - rate / 100));
     $('#c-out2').innerHTML = 'Il faut facturer <b>' + eur(ca) + '</b> par mois' + (th > 0 ? ', soit <b>' + NUM.format(Math.ceil(ca / th * 10) / 10) + ' h</b> à ' + eur(th) + '/h' : '') + '.';
-  } else $('#c-out2').textContent = 'Indique le net que tu veux te verser.';
+    $('#c-out2').hidden = false;
+  } else $('#c-out2').hidden = true; // patch 5 (point 26) : plus de message qui ressemble à un résultat
 }
 ['#c-brut', '#c-obj', '#c-th'].forEach(id => $(id).addEventListener('input', calc));
 $('#rates').addEventListener('change', e => {
@@ -2421,7 +2441,15 @@ function openCompte(key, m) {
   const autos = S.periodiques.filter(p => p.type === 'epargne' && norm(p.label) === key);
   openPanel(c.label, '<p class="hint">' + esc(m === CUR ? 'Solde estimé' : cap(epWhen(m))) + '</p><p class="uc-amount">' + eur(c.solde) + '</p>' +
     (autos.length ? '<h3>Versements automatiques</h3><div>' + autos.map(p => '<button class="row" data-act="edit-per" data-id="' + esc(p.id) + '"><span class="row-ico ep">' + ico('epargne') + '</span><span class="row-main"><span class="row-label">' + esc(cap(FREQ_LABEL[p.freq])) + '</span><span class="row-meta">' + esc('depuis ' + mShort(p.start) + (p.end ? ' · jusqu\'à ' + mShort(p.end) : '')) + '</span></span><span class="row-amt ep">' + eur(p.amount) + '</span></button>').join('') + '</div>' : '') +
-    '<h3>Opérations</h3>' + (evs.length ? '<div>' + evs.map(e => rowHtml(e, 0)).join('') + '</div>' : '<p class="empty">Aucune opération notée.</p>'));
+    '<h3>Opérations</h3>' + (evs.length ? '<div>' + evs.map(compteRow).join('') + '</div>' : '<p class="empty">Aucune opération notée.</p>'));
+}
+// Patch 5 (point 20) : dans le détail d'un compte, les signes vus du compte (« Mis de côté +100 € », « Repris −200 € »,
+// « Solde 1 500 € ») et chaque ligne nommée par l'opération (le nom du compte est déjà le titre).
+function compteRow(e) {
+  const lab = { depot: 'Mis de côté', retrait: 'Repris', solde: 'Solde' }[e.op] || 'Opération';
+  const sign = e.op === 'depot' ? '+' : e.op === 'retrait' ? MINUS : '';
+  return '<button class="row" data-act="' + ROW_ACT.ep + '" data-id="' + esc(e.id) + '"><span class="row-ico ep">' + ico('epargne') + '</span><span class="row-main"><span class="row-label">' + lab + '</span>' +
+    '<span class="row-meta">' + esc(dLabel(e.date)) + '</span></span><span class="row-amt ep">' + sign + eur(e.amount) + '</span></button>';
 }
 function openTop(k) {
   if (!YD) return;
@@ -2611,7 +2639,8 @@ function sheetHints() {
       hints.push(ns > o.start ?'Attention : le départ passe ' + deM(o.start) + ' à ' + mLabel(ns) + '. Ce fixe ne comptera plus ' + plusRange(o.start, addM(ns, -1)) + '. Pour garder ' + (o.start === addM(ns, -1) ? 'ce mois' : 'ces mois') + ', choisis un jour en ' + mLabel(o.start) + '.'
         : 'Le départ passe ' + deM(o.start) + ' à ' + mLabel(ns) + ' : ce fixe comptera aussi les mois d\'avant.');
     }
-    if (hist && !ended) hints.push('« Arrêter » garde les mois passés comme ils sont. « Supprimer aussi des mois passés » le retire de tous les mois depuis ' + mLabel(o.start) + '.');
+    // Patch 5 (point 19) : une seule ligne.
+    if (hist && !ended) hints.push('Arrêter : garde le passé. Supprimer : l\'efface aussi depuis ' + mShort(o.start) + '.');
   }
   hint.hidden = !hints.length; hint.textContent = hints.join(' ');
 }
@@ -2645,7 +2674,8 @@ function cycleTxt(start, freq) {
 function fixeTxt(m) {
   if (F.freq !== 'trimestre') return '';
   const ms = cycleTxt(m, 'trimestre').split(', ');
-  return 'Tombe en ' + ms.slice(0, -1).join(', ') + ' et ' + ms[ms.length - 1] + '.';
+  const t = 'Tombe en ' + ms.slice(0, -1).join(', ') + ' et ' + ms[ms.length - 1];
+  return t.endsWith('.') ? t : t + '.'; // patch 5 (point 16) : « juil. » finit déjà par un point
 }
 function updatePreview() {
   const p = $('#f-preview'), a = parseAmount($('#f-amount').value);
@@ -2665,7 +2695,10 @@ function updatePreview() {
     say(esc(fixeTxt(m)));
   } else p.hidden = true;
 }
-$('#type-seg').addEventListener('click', e => { const b = e.target.closest('button[data-type]'); if (!b) return; F.type = b.dataset.type; if (F.type === 'epargne' && F.freq !== 'once' && F.op !== 'depot') F.op = 'depot'; syncSheet(); guessUrssaf(); });
+$('#type-seg').addEventListener('click', e => { const b = e.target.closest('button[data-type]'); if (!b) return;
+  // Patch 5 (point 17) : « Facture » tapé en Revenu ne devient pas un compte d'épargne « Facture » (et inversement).
+  if ((F.type === 'epargne') !== (b.dataset.type === 'epargne')) $('#f-label').value = '';
+  F.type = b.dataset.type; if (F.type === 'epargne' && F.freq !== 'once' && F.op !== 'depot') F.op = 'depot'; syncSheet(); guessUrssaf(); });
 $('#op-seg').addEventListener('click', e => { const b = e.target.closest('button[data-op]'); if (!b) return; F.op = b.dataset.op; syncSheet(); });
 $('#freq-seg').addEventListener('click', e => {
   const b = e.target.closest('button[data-f]'); if (!b || b.disabled) return;
@@ -3018,7 +3051,9 @@ window.addEventListener('resize', () => {
   kbUpdate();
   positionIndicator(false);
   if (S.bubble != null) hideBubble();
+  if (S.view === 'reglages' && S.ready) { const w = setWide(); if (w !== lastSetWide) { lastSetWide = w; render(); } } // patch 5
 });
+let lastSetWide = null;
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', kbUpdate);
   window.visualViewport.addEventListener('scroll', kbUpdate);
@@ -3122,6 +3157,7 @@ function viewIn(v) {
 function setSub(name, dir) {
   S.sub = name;
   render(); window.scrollTo(0, 0);
+  if (setWide()) { const p = $('#sub-' + (name || 'compte')); anim(p, [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: SPRING }); return; } // patch 5 : la liste reste à gauche
   slideIn(name ? $('#sub-' + name) : $('#set-home'), dir, 40);
   cascadeIn(name ? $$('#sub-' + name + ' .card, #sub-' + name + ' .set-foot') : $$('#set-home .set-list button'), { dy: 10, step: 28 });
 }

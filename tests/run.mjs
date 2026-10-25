@@ -200,13 +200,21 @@ async function scenarioDonnees(cfg, fx, tag) {
   // Année : totaux
   await page.locator('[data-act="view"][data-view="annee"]:visible').click();
   await until(page, () => !document.getElementById('v-annee').hidden && !document.getElementById('kpis').innerText.includes('…'), null, 'vue Année affichée');
+  // Patch 5 : avec un solde noté, l'Année suit l'interrupteur « Sur mon compte » ; les totaux se lisent en « Reste de l'année ».
+  if (await page.locator('#kpis [data-act="hero-mode"][data-v="reste"]').count()) {
+    await page.click('#kpis [data-act="hero-mode"][data-v="reste"]');
+    await until(page, () => /l'année$/.test(document.querySelector('#kpis .eyebrow').textContent), null, 'Année : « Reste de l\'année »');
+  }
   const K = clean(await page.locator('#kpis').innerText());
   // Patch 4 : avec une URSSAF payée (montant réel ≠ estimation), le jeu donne directement le chiffre d'affaires.
   const baseY = E.annee2026.base != null ? E.annee2026.base : r2(E.annee2026.urssaf / rate);
-  check(K.includes('Revenusbruts' + eur(baseY)) && (E.annee2026.brut > baseY ? K.includes('SansURSSAF' + eur(r2(E.annee2026.brut - baseY))) : !K.includes('SansURSSAF')), 'année : revenus bruts (soumis à l\'URSSAF) ' + eur(baseY) + ' + sans URSSAF');
-  for (const k of ['urssaf', 'net', 'dep', 'ep']) if (E.annee2026[k] != null) check(K.includes(eur(E.annee2026[k])), 'total année ' + k + ' = ' + eur(E.annee2026[k]));
+  check(K.includes('Revenusbruts' + eur(baseY)) && (E.annee2026.brut > baseY ? K.includes('Autresrevenus' + eur(r2(E.annee2026.brut - baseY))) : !K.includes('Autresrevenus')), 'année : revenus bruts (soumis à l\'URSSAF) ' + eur(baseY) + ' + autres revenus');
+  for (const k of ['urssaf', 'net', 'dep']) if (E.annee2026[k] != null) check(K.includes(eur(E.annee2026[k])), 'total année ' + k + ' = ' + eur(E.annee2026[k]));
+  // Patch 5 (point 23) : une seule case « Épargne : total (+X € cette année) ».
+  if (E.annee2026.ep) check(K.includes((E.annee2026.ep > 0 ? '+' : '-') + clean(new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(Math.abs(Math.round(E.annee2026.ep)))) + 'cetteannée'), 'épargne de l\'année = ' + eur(E.annee2026.ep));
   check(K.includes(eur(Math.abs(E.annee2026.reste))) && K.includes(E.annee2026.reste < 0 ? 'manque' : 'Reste'), 'reste de l\'année = ' + eur(E.annee2026.reste));
   await page.screenshot({ path: join(OUT, tag + '-annee.png'), fullPage: true });
+  if (await page.locator('#kpis [data-act="hero-mode"][data-v="compte"]').count()) await page.click('#kpis [data-act="hero-mode"][data-v="compte"]'); // remet le choix d'avant
   await page.locator('[data-act="view"][data-view="mois"]:visible').click();
   await until(page, () => !document.getElementById('v-mois').hidden, null, 'retour au mois');
 
@@ -594,7 +602,7 @@ async function scenarioNouveauCompte(cfg, tag) {
   await page.fill('#o-rate', '21,2');
   await page.click('#ob-next');
   // 2. Revenus fixes : passer
-  await until(page, () => document.getElementById('ob-count').textContent.includes('2 sur 7'), null, 'étape 2 sur 7');
+  await until(page, () => document.getElementById('ob-count').textContent.includes('2 sur 6'), null, 'étape 2 sur 6 (plus d\'étape « L\'apparence »)');
   await page.click('#ob-skip');
   // 3. Charges fixes : boutons rapides (libellé modifiable) et charge au libellé libre
   await page.click('[data-ob="add"][data-l="Loyer"]');
@@ -624,10 +632,8 @@ async function scenarioNouveauCompte(cfg, tag) {
   await page.fill('.ob-row[data-i="0"] [data-f="amount"]', '1 200');
   await page.fill('.ob-row[data-i="0"] [data-f="auto"]', '50');
   await page.click('#ob-next');
-  // 5. Apparence
-  await page.click('[data-ob="theme"][data-t="sombre"]');
-  check(await page.evaluate(() => document.documentElement.getAttribute('data-scheme')) === 'dark', 'apparence appliquée tout de suite');
-  await page.click('#ob-next');
+  // 5. Patch 5 : plus d'étape « L'apparence » (Réglages → Apparence)
+  check(!(await page.locator('#ob-step').innerText()).includes('apparence'), 'pas d\'étape « L\'apparence »');
   // 6. Sauvegarde : plus tard
   await until(page, () => document.getElementById('ob-next').textContent.includes('parti'), null, 'dernière étape');
   check(await page.evaluate(() => window.__PFLOW_DB__.writes()) === 0, 'rien n\'est écrit avant la fin');
@@ -686,7 +692,7 @@ async function scenarioEpargne(cfg, fx, tag) {
   await until(page, () => !document.getElementById('v-fixes').hidden, null, 'vue Fixes');
   const ft = clean(await page.locator('#fix-totals').innerText());
   const F = E.fixesParMois;
-  check(ft.includes(eur(F.reste)) && ft.includes(eur(F.charges)) && ft.includes(eur(F.revenus)) && ft.includes(eur(F.epargne)), 'Fixes : « après les fixes » et moyennes par mois (' + ft.slice(0, 80) + ')');
+  check(ft.includes(eur(Math.abs(F.reste))) && ft.includes(F.reste < 0 ? 'ilmanque' : 'iltereste') && ft.includes(eur(F.charges)) && ft.includes(eur(F.revenus)) && ft.includes(eur(F.epargne)), 'Fixes : « après les fixes » et moyennes par mois (' + ft.slice(0, 80) + ')');
   check(await page.locator('#fix-list .row', { hasText: 'Assurance auto' }).filter({ hasText: 'prochaine : avril 2026' }).count() === 1, 'Fixes : prochaine échéance du trimestriel (avril 2026)');
   check(await page.locator('#fix-list .row', { hasText: 'Assurance habitation' }).filter({ hasText: 'ce mois-ci' }).count() === 1, 'Fixes : échéance de l\'annuel ce mois-ci');
 
@@ -978,7 +984,7 @@ async function scenarioRefaireConfig(cfg, fx, tag) {
   await page.click('#ob-step [data-ob="add"][data-l="Internet"]');
   await page.fill('#ob-step .ob-row [data-f="amount"]', '30');
   await page.click('#ob-next');
-  for (let i = 0; i < 4; i++) await page.click(i === 3 ? '#ob-next' : '#ob-skip'); // compte, épargne, apparence, sauvegarde
+  for (let i = 0; i < 3; i++) await page.click(i === 2 ? '#ob-next' : '#ob-skip'); // compte, épargne, sauvegarde
   await until(page, () => !document.getElementById('app').hidden, null, 'retour à l\'appli');
   await until(page, () => Object.values(window.__PFLOW_DB__.dump()).some(v => v.label === 'Internet' && v.amount === 30 && v.start === '2026-03' && v.end === null), null, 'charge ajoutée');
   const db = await dump(page), S0 = fx.docs['users/uid-test/meta/settings'], S1 = db['users/uid-test/meta/settings'];
@@ -1547,6 +1553,39 @@ async function scenarioPatch5Annee(cfg, fx, tag) {
   await o.ctx.close();
 }
 
+// ---------- patch 5, étape 2 : mise en page selon la place (tablette, grand écran) : Mois, Fixes, Réglages ----------
+async function scenarioPatch5Ecrans(cfg, fx, tag) {
+  const E = fx.expect;
+  const { ctx, page, errors } = await open(cfg, fx.docs, { date: E._date });
+  await waitApp(page);
+  await page.waitForFunction(() => document.getElementById('s-boot').hidden, null, { timeout: 5000 }).catch(() => {});
+  const W = cfg.viewport.width, inner = await page.evaluate(() => { const m = document.querySelector('.main'), cs = getComputedStyle(m); return m.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); });
+  // Mois : 1 colonne sous ~680 px de zone de contenu, 2 colonnes jusqu'à ~1300 px, 3 au-delà
+  const cols = await page.evaluate(() => getComputedStyle(document.querySelector('.month-grid')).gridTemplateColumns.split(' ').length);
+  check(cols === (inner >= 1300 ? 3 : inner >= 680 ? 2 : 1), 'Mois : ' + cols + ' colonne(s) pour ' + Math.round(inner) + ' px de contenu');
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: join(OUT, tag + '-p5-mois-cols.png') });
+  // Fixes : charges | revenus côte à côte dès 1000 px
+  await page.locator('[data-act="view"][data-view="fixes"]:visible').click();
+  await until(page, () => !document.getElementById('v-fixes').hidden && !!document.querySelector('#fix-list .fx-c1'), null, 'Fixes : deux blocs');
+  const fx2 = await page.evaluate(() => { const a = document.querySelector('.fx-c1').getBoundingClientRect(), b = document.querySelector('.fx-c2').getBoundingClientRect(); return b.left > a.right - 1; });
+  check(fx2 === (inner >= 1000), 'Fixes : charges et revenus côte à côte seulement sur grand écran');
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: join(OUT, tag + '-p5-fixes.png') });
+  // Réglages : la liste reste à gauche et la page choisie à droite dès 1000 px ; sinon, sous-page comme avant
+  await page.locator('[data-act="view"][data-view="reglages"]:visible').click();
+  await until(page, () => !document.getElementById('v-reglages').hidden, null, 'Réglages');
+  if (inner >= 1000) check(await page.locator('#sub-compte').isVisible() && await page.locator('#set-home').isVisible(), 'Réglages : la liste et « Mon compte » côte à côte');
+  await page.click('#set-home [data-act="sub"][data-sub="apparence"]');
+  await until(page, () => !document.getElementById('sub-apparence').hidden, null, 'Réglages → Apparence');
+  check(await page.locator('#set-home').isVisible() === (inner >= 1000), 'la liste reste affichée seulement sur grand écran');
+  if (inner >= 1000) check(await page.locator('#set-home [data-sub="apparence"][aria-current="page"]').count() === 1, 'page choisie surlignée dans la liste');
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: join(OUT, tag + '-p5-reglages.png') });
+  noErr(errors, 'mise en page');
+  await ctx.close();
+}
+
 // ---------- lancement ----------
 // Un scénario qui plante compte comme un échec, et les suivants continuent.
 async function run(fn, name) {
@@ -1585,6 +1624,7 @@ for (const file of fixtures) {
     if (file === 'v0.1.4-beta.json' && cfg.name !== 'tablette clair') await go('Patch4', () => scenarioPatch4(cfg, fx, tag));
     if (file === 'v0.1.4-beta.json') await go('Patch5', () => scenarioPatch5(cfg, fx, tag));
     if (file === 'v0.1.4-beta.json') await go('Patch5Annee', () => scenarioPatch5Annee(cfg, fx, tag));
+    if (file === 'v0.1.4-beta.json') await go('Patch5Ecrans', () => scenarioPatch5Ecrans(cfg, fx, tag));
     if (last) {
       await go('Demandes', () => scenarioDemandes(cfg, fx, tag));
       await go('Nouveautes', () => scenarioNouveautes(cfg, fx, tag));

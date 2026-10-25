@@ -210,16 +210,12 @@
             <div class="uc" id="urssaf-card" hidden>
               <div class="stack-s" id="uc-info"></div>
               <div><button class="btn ghost sm" data-act="sim-toggle" id="sim-btn" aria-expanded="false" aria-controls="sim"><svg class="i"><use href="#i-calc"/></svg>Simuler une facture</button></div>
+              <!-- Patch 5 (point 26) : seulement « Ce que je facture → URSSAF, il te reste » ; le net voulu et le taux
+                   horaire sont dans Réglages → Auto-entrepreneur (« Calculer mon tarif »). -->
               <div class="stack" id="sim" hidden>
                 <p class="hint" id="c-rate"></p>
                 <label class="field"><span>Ce que je facture (brut)</span><input class="input num" id="c-brut" inputmode="decimal" placeholder="Ex. 1 500" autocomplete="off"></label>
                 <p class="out" id="c-out1"></p>
-                <div class="calc-grid">
-                  <label class="field"><span>Net voulu par mois</span><input class="input num" id="c-obj" inputmode="decimal" placeholder="Ex. 2 000" autocomplete="off"></label>
-                  <label class="field"><span>Taux horaire</span><input class="input num" id="c-th" inputmode="decimal" placeholder="Ex. 40" autocomplete="off"></label>
-                </div>
-                <p class="out" id="c-out2"></p>
-                <p class="hint">En micro-entreprise, les frais pro ne sont pas déduits : prévois-les en plus.</p>
               </div>
             </div>
           </article>
@@ -311,7 +307,7 @@
         </article>
         <article class="card stack">
           <h3>Configuration</h3>
-          <p class="hint">Revoir les étapes du premier démarrage : profil, revenus et charges fixes, épargne, apparence, sauvegarde. Rien de ce que tu as déjà noté n'est supprimé.</p>
+          <p class="hint">Revoir les étapes du premier démarrage : profil, revenus et charges fixes, compte en banque, épargne, sauvegarde. Rien de ce que tu as déjà noté n'est supprimé.</p>
           <div><button class="btn ghost" data-act="redo-setup">Refaire la configuration</button></div>
         </article>
         <!-- Patch 4 : « Se déconnecter » tout en bas. -->
@@ -324,6 +320,16 @@
           <p class="hint">Pourcentage prélevé sur ton chiffre d'affaires, pour toute l'année choisie.</p>
           <p class="hint rate-help">Artisan (ex. électricien) : tape 21,98 %. Avec le versement libératoire : 23,68 %. Avec l'ACRE la première année, le taux est réduit : regarde ton espace URSSAF.</p>
           <div class="stack" id="rates"></div>
+        </article>
+        <!-- Patch 5 (point 26) : déplacé du bloc URSSAF de l'écran Mois -->
+        <article class="card stack pro-only">
+          <h3>Calculer mon tarif</h3>
+          <div class="calc-grid">
+            <label class="field"><span>Net voulu par mois</span><input class="input num" id="c-obj" inputmode="decimal" placeholder="Ex. 2 000" autocomplete="off"></label>
+            <label class="field"><span>Taux horaire</span><input class="input num" id="c-th" inputmode="decimal" placeholder="Ex. 40" autocomplete="off"></label>
+          </div>
+          <p class="out" id="c-out2" hidden></p>
+          <p class="hint">En micro-entreprise, les frais pro ne sont pas déduits : prévois-les en plus.</p>
         </article>
         <article class="card stack pro-only">
           <h3>Déclaration URSSAF</h3>
@@ -462,7 +468,7 @@
     <div class="seg seg3 ep-op" id="op-seg" hidden>
       <button type="button" data-op="depot">J'ai mis de côté</button>
       <button type="button" data-op="retrait">J'ai repris</button>
-      <button type="button" data-op="solde">J'ai actuellement</button>
+      <button type="button" data-op="solde">Solde</button>
     </div>
     <label class="field"><span id="f-amount-label">Montant</span>
       <div class="amount-wrap"><input id="f-amount" inputmode="decimal" placeholder="0,00" autocomplete="off" aria-label="Montant en euros"><span>€</span></div>
