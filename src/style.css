@@ -820,8 +820,7 @@ th small{display:block;font-size:calc(10*var(--u));font-weight:500;text-transfor
 .btn,.row,.chip,.set-list button,.chips button,.acc-chips button,.icon-btn,.toggle-mini,.top-row,.color-head,.uc-line,.choice button{
   transition:transform .42s var(--spring),background-color .2s,color .2s,border-color .2s,box-shadow .2s,opacity .2s}
 .btn:active,.row:active,.chip:active,.set-list button:active,.chips button:active,.acc-chips button:active,.icon-btn:active,.toggle-mini:active,.top-row:active,.color-head:active,.uc-line:active,.choice button:active{transform:scale(.96);transition-duration:.09s}
-.seg button:active{transform:scale(.95)}
-.seg button{transition:transform .42s var(--spring),background-color .2s,color .2s}
+/* Boutons à choix : seul le rebond du choix (main.js) bouge, sans effet d'appui en plus (patch 5). */
 .fab:active{transform:scale(.88)}
 /* Barre du bas : l'icône s'enfonce au toucher et rebondit quand l'onglet devient actif. */
 .tabbar button[data-view] svg.i{transition:transform .42s var(--spring)}

@@ -1544,6 +1544,22 @@ async function scenarioPatch5Annee(cfg, fx, tag) {
   await page.click('#hero-mode [data-act="hero-mode"][data-v="compte"]');
   await page.waitForTimeout(500);
   await page.screenshot({ path: join(OUT, tag + '-p5-mois-large.png') });
+  // Retour sur l'APK 80 : l'année suivante garde l'interrupteur et la prévision du compte (les opérations depuis le
+  // dernier solde sont chargées), et le mois de janvier aussi ; la fin de décembre est la même dans Mois et Année.
+  const dec = await page.evaluate(() => { const y = +document.querySelector('#ctx h1').textContent.slice(-4); return y; });
+  await page.locator('[data-act="view"][data-view="annee"]:visible').click();
+  await until(page, () => !document.getElementById('v-annee').hidden && !!document.getElementById('y-mode'), null, 'retour à l\'Année');
+  await page.waitForTimeout(800); // le gros chiffre défile d'une vue à l'autre
+  const end = clean(await page.locator('#kpis .big').textContent());
+  await page.click('[data-act="next-year"]');
+  await until(page, y => document.querySelector('#ctx h1').textContent.trim() === String(y) && !!document.getElementById('y-mode') && /^Prévu\s+sur\s+ton\s+compte\s+le\s+31\s+décembre/.test(document.querySelector('#kpis .eyebrow').textContent), dec + 1, 'année suivante : interrupteur et « Prévu sur ton compte le 31 décembre »');
+  await page.click('[data-act="prev-year"]');
+  await until(page, y => document.querySelector('#ctx h1').textContent.trim() === String(y), dec, 'retour à l\'année du jeu');
+  await page.locator('[data-act="view"][data-view="mois"]:visible').click();
+  for (let i = 0; i < 14 && !(await page.locator('#ctx h1').textContent()).includes(String(dec + 1)); i++) { await page.click('[data-act="next-month"]'); await page.waitForTimeout(120); }
+  await until(page, () => !document.getElementById('hero-mode').hidden && /^Prévu\s+sur\s+ton\s+compte\s+le\s+31\s+janvier/.test(document.getElementById('hero-label').textContent), null, 'janvier de l\'année suivante : prévision du compte gardée');
+  await page.click('[data-act="prev-month"]');
+  await until(page, v => /^Prévu\s+sur\s+ton\s+compte\s+le\s+31\s+décembre$/.test(document.getElementById('hero-label').textContent) && document.getElementById('hero-amount').textContent.replace(/\s/g, '').replace(/−/g, '-') === v, end, 'décembre : même montant dans Mois et dans Année (' + end + ')');
   // 6. Sans aucun solde : pas d'interrupteur dans l'Année
   noErr(errors, 'Année, sur mon compte');
   await ctx.close();

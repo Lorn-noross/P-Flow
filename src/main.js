@@ -231,7 +231,9 @@ function growBars(els, axis) {
   const s = axis === 'x' ? 'scaleX(0)' : 'scaleY(0)';
   Array.from(els).slice(0, 24).forEach((el, i) => anim(el, [{ transform: s }, { transform: 'none' }], { duration: 560, delay: i * 22, easing: SPRING, fill: 'backwards' }));
 }
-// Boutons à choix (segments) : le choix fait un petit rebond « liquide ».
+// Boutons à choix (segments) : le choix fait un petit rebond « liquide ». C'est leur seul mouvement : pas d'effet
+// d'appui (:active) en plus (patch 5, retour sur l'APK 80 : « double palpitation » quand le rendu qui suit le
+// clic est long, l'effet d'appui et le rebond se suivaient au lieu de se fondre).
 document.addEventListener('click', e => {
   const b = e.target.closest('.seg button');
   if (!b || b.disabled) return;
@@ -276,7 +278,7 @@ function bootReveal() {
 const S = {
   user: null, isAdmin: false, ready: false,
   view: 'mois', month: CUR, year: NOW.getFullYear(), sub: null,
-  entries: [], entriesYear: null, unsubEntries: null,
+  entries: [], entriesYear: null, entriesFrom: null, entriesWant: null, unsubEntries: null,
   recurring: [], periodiques: [], epargne: [], demandes: [],
   // Patch 3 : jours des fixes (`jours/{id du fixe}`), soldes du compte courant (`soldes`), réponses « déjà passée ? » (`pointages`).
   jours: [], soldes: [], pointages: [],
@@ -382,7 +384,9 @@ function firstDue(anchor, freq, from) {
 }
 // Opérations chargées : l'année affichée, plus octobre à décembre de l'année d'avant (patch 3) pour l'URSSAF
 // du trimestre ou du mois précédent payée en janvier, la comparaison de janvier et le solde du compte.
-const entCovered = m => S.entriesYear !== null && m >= ym(S.entriesYear - 1, 10) && m <= ym(S.entriesYear, 12);
+// Mois dont les opérations ponctuelles sont chargées : l'année affichée, octobre à décembre d'avant, et depuis le
+// dernier solde noté avant l'année (patch 5 : sinon la prévision du compte disparaissait l'année suivante).
+const entCovered = m => S.entriesYear !== null && m >= (S.entriesFrom || ym(S.entriesYear - 1, 10)) && m <= ym(S.entriesYear, 12);
 function monthItems(m) {
   const ents = (entCovered(m) ? S.entries : []).filter(e => e.month === m).map(e => Object.assign({ kind: 'entry' }, e));
   const recs = S.recurring.filter(r => r.start && r.start <= m && (!r.end || r.end >= m)).map(r => Object.assign({ kind: 'rec' }, r));
@@ -690,7 +694,7 @@ function stopData() {
   S.unsubs = [];
   if (S.unsubEntries) { try { S.unsubEntries(); } catch (e) { /* ignoré */ } }
   toastUndoFn = null; // « Annuler » ne doit jamais écrire dans un autre compte
-  S.unsubEntries = null; S.entriesYear = null; S.entries = []; S.recurring = []; S.periodiques = []; S.epargne = []; S.demandes = []; S.jours = []; S.soldes = []; S.pointages = []; S.urssafPay = [];
+  S.unsubEntries = null; S.entriesYear = null; S.entriesFrom = null; S.entriesWant = null; S.entries = []; S.recurring = []; S.periodiques = []; S.epargne = []; S.demandes = []; S.jours = []; S.soldes = []; S.pointages = []; S.urssafPay = [];
   S.settings = null; S.allow = []; S.sub = null; S.justOnboarded = false; S.bubble = null;
   S.readOnly = false; S.settingsServer = false; $('#outdated').hidden = true; applyColors();
   // Le message « Supprimé · Annuler » d'un compte ne reste pas affiché après la déconnexion (patch 4).
@@ -712,6 +716,7 @@ function startData() {
     $('#outdated').hidden = !S.readOnly;
     applyColors();
     S.loaded.settings = true;
+    if (S.user) ensureYearSub(); // la déclaration (mensuelle / trimestrielle) change le premier mois à charger
     document.body.classList.toggle('pro', isPro());
     if (!S.settingsExists) { openOnboarding(false); return; }
     enterApp();
@@ -721,7 +726,9 @@ function startData() {
   const sub = (name, key) => S.unsubs.push(onSnapshot(ucol(name), opts, snap => {
     S[key] = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
     S.pend[key] = snap.metadata.hasPendingWrites;
-    S.loaded[key] = true; render();
+    S.loaded[key] = true;
+    if (key === 'soldes') ensureYearSub(); // patch 5 : la fenêtre des opérations chargées part du dernier solde
+    render();
   }, dbError));
   sub('recurring', 'recurring');
   // Patch 2 : nouvelles collections (déjà couvertes par les règles users/{uid}/…), ignorées par les anciennes versions.
@@ -772,15 +779,27 @@ function countEpOffer() {
   lsSet('pf-offre-ep', (DATE_RE.test(d || '') ? d : TODAY) + '|' + ((Number(n) || 0) + 1));
 }
 function neededYear() { return S.view === 'mois' ? pYM(S.month).y : S.year; }
+// Premier mois à charger pour l'année y : octobre d'avant, ou plus tôt quand le dernier solde noté avant l'année est
+// plus ancien (la prévision du compte part de lui : ses opérations et l'URSSAF payée après lui doivent être là).
+// Au plus 4 ans en arrière : au-delà, la prévision n'est pas affichée (on ne devine pas).
+function entriesFromFor(y) {
+  let from = ym(y - 1, 10);
+  const L = soldeAvant(ym(y - 1, 12) + '-31');
+  if (L) { const f = soldeFrom(L.date.slice(0, 7)), cap = ym(y - 4, 1); if (f < from) from = f > cap ? f : cap; }
+  return from;
+}
 function ensureYearSub() {
   if (!S.user) return;
-  const y = neededYear();
-  if (S.entriesYear === y && S.unsubEntries) return;
+  const y = neededYear(), from = entriesFromFor(y);
+  if (S.entriesYear === y && S.entriesWant === from && S.unsubEntries) return;
   if (S.unsubEntries) { try { S.unsubEntries(); } catch (e) { /* ignoré */ } }
-  S.entriesYear = y; S.entries = []; S.loaded.entries = false;
-  const q = query(ucol('entries'), where('month', '>=', ym(y - 1, 10)), where('month', '<=', y + '-12'));
+  // Même année, fenêtre élargie (solde chargé ou ajouté) : les opérations déjà là restent affichées jusqu'à la réponse.
+  if (S.entriesYear !== y) { S.entriesYear = y; S.entries = []; S.loaded.entries = false; S.entriesFrom = from; }
+  S.entriesWant = from;
+  const q = query(ucol('entries'), where('month', '>=', from), where('month', '<=', y + '-12'));
   S.unsubEntries = onSnapshot(q, { includeMetadataChanges: true }, snap => {
-    if (S.entriesYear !== y) return;
+    if (S.entriesYear !== y || S.entriesWant !== from) return;
+    S.entriesFrom = from;
     S.entries = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
     S.pend.entries = snap.metadata.hasPendingWrites;
     S.loaded.entries = true; render();
@@ -3237,7 +3256,14 @@ document.addEventListener('click', e => {
   else if (a === 'prev-year') setYear(S.year - 1, -1);
   else if (a === 'next-year') setYear(S.year + 1, 1);
   else if (a === 'year-pick') openYearPick(t);
-  else if (a === 'hero-mode') { lsSet('pf-vue-compte', t.dataset.v === 'reste' ? '0' : '1'); render(); } // patch 5 : même choix en Mois et en Année
+  else if (a === 'hero-mode') {
+    // Patch 5 : même choix en Mois et en Année. Le bouton change tout de suite (rebond lancé sur l'image suivante),
+    // puis l'écran est redessiné juste après cette image : le rendu ne retarde plus la réaction du bouton.
+    const v = t.dataset.v;
+    lsSet('pf-vue-compte', v === 'reste' ? '0' : '1');
+    $$('.hero-mode button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+    requestAnimationFrame(() => setTimeout(render, 0));
+  }
   else if (a === 'add') openSheet({ mode: 'new', rec: S.view === 'fixes' });
   else if (a === 'add-type') openSheet({ mode: 'new', type: t.dataset.type });
   else if (a === 'month-cal') { if (CAL.open && popOpen()) closePop(); else openMonthCal(t); }
