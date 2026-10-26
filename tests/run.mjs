@@ -204,6 +204,8 @@ async function scenarioDonnees(cfg, fx, tag) {
   if (await page.locator('#kpis [data-act="hero-mode"][data-v="reste"]').count()) {
     await page.click('#kpis [data-act="hero-mode"][data-v="reste"]');
     await until(page, () => /l'année$/.test(document.querySelector('#kpis .eyebrow').textContent), null, 'Année : « Reste de l\'année »');
+    // Le gros chiffre défile d'une vue à l'autre (rollNumber, 520 ms) : attendre la valeur finale.
+    await until(page, v => document.querySelector('#kpis .big').textContent.replace(/\s/g, '').includes(v), eur(Math.abs(E.annee2026.reste)), 'Année : gros chiffre arrivé');
   }
   const K = clean(await page.locator('#kpis').innerText());
   // Patch 4 : avec une URSSAF payée (montant réel ≠ estimation), le jeu donne directement le chiffre d'affaires.
