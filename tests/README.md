@@ -34,6 +34,10 @@ npx playwright install chromium
 node tests/run.mjs
 ```
 
+Deux niveaux (demande du propriétaire du 26/10/2026 : moins de temps et de consommation pour les APK de test) :
+- **APK de test** : `node tests/run.mjs --rapide` (ou `npm run test:rapide`) : le jeu de données le plus récent, sur téléphone clair et PC sombre, plus un nouveau compte sur téléphone (quelques minutes). Si un changement touche un écran précis, ajouter seulement le scénario concerné (`ONLY=…`).
+- **Avant chaque publication** : `node tests/run.mjs` complet (tous les jeux 0.1.0 → dernier, tous les écrans), obligatoire (règle n°1).
+
 Autre Chromium : `CHROME_PATH=/chemin/vers/chromium CHROME_ARGS="--no-sandbox" node tests/run.mjs`.
 Une partie seulement : `FX=0.1.2` (jeu de données), `CFG=PC` (appareil), `ONLY=Epargne` (scénario), `--no-build` (réutiliser la construction), `DEBUG=1` (détail d'un échec).
 

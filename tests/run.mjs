@@ -1613,6 +1613,10 @@ async function run(fn, name) {
   try { await fn(); } catch (e) { check(false, 'scénario ' + (name || '') + ' interrompu : ' + String(e.message).split('\n')[0]); if (process.env.DEBUG) console.log(String(e.message).split('\n').slice(0, 30).join('\n')); }
 }
 const fixtures = readdirSync(join(ROOT, 'tests/fixtures')).filter(f => f.endsWith('.json')).sort();
+// --rapide (APK de test) : seulement le jeu de données le plus récent, sur téléphone clair et PC sombre, et un nouveau
+// compte sur téléphone ; le test complet (tous les jeux, tous les écrans) reste obligatoire avant chaque publication.
+const RAPIDE = process.argv.includes('--rapide');
+const RAPIDE_CFG = ['téléphone clair', 'PC sombre'];
 const onlyFx = process.env.FX ? new RegExp(process.env.FX) : null; // ex. FX=0.1.2
 const onlyCfg = process.env.CFG ? new RegExp(process.env.CFG) : null; // ex. CFG=PC
 const only = process.env.ONLY ? new RegExp(process.env.ONLY) : null; // ex. ONLY=Epargne pour un seul scénario
@@ -1623,8 +1627,9 @@ for (const file of fixtures) {
   const fx = JSON.parse(readFileSync(join(ROOT, 'tests/fixtures', file), 'utf8'));
   if (onlyFx && !onlyFx.test(file)) continue;
   const last = file === fixtures[fixtures.length - 1];
+  if (RAPIDE && !last) continue;
   const oldFormat = !('epargne' in fx.docs['users/uid-test/meta/settings']);
-  for (const cfg of CONFIGS.filter(c => !onlyCfg || onlyCfg.test(c.name))) {
+  for (const cfg of CONFIGS.filter(c => (!onlyCfg || onlyCfg.test(c.name)) && (!RAPIDE || RAPIDE_CFG.includes(c.name)))) {
     const tag = file.replace('.json', '') + '-' + cfg.name.replace(/\s+/g, '-');
     const before = failures;
     curCfg = cfg;
@@ -1656,7 +1661,7 @@ for (const file of fixtures) {
   }
 }
 curCfg = null;
-for (const cfg of CONFIGS.filter(c => c.name === 'téléphone clair' || c.name === 'PC clair')) {
+for (const cfg of CONFIGS.filter(c => c.name === 'téléphone clair' || (!RAPIDE && c.name === 'PC clair'))) {
   const before = failures;
   console.log('▶ nouveau compte · ' + cfg.name);
   await go('NouveauCompte', () => scenarioNouveauCompte(cfg, 'nouveau-' + cfg.name.replace(/\s+/g, '-')));
