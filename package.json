@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node tests/run.mjs",
+    "test:rapide": "node tests/run.mjs --rapide"
   },
   "dependencies": {
     "@capacitor-firebase/authentication": "^7.5.0",
