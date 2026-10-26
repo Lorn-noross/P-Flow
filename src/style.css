@@ -17,10 +17,11 @@
   --urssaf:#C2810C; --dep:#6A7D90; --pos:#13865A; --neg:#C8372F; --neg-soft:#FCE9E7; --pos-soft:#DFF3E8; --ep:#7A5AF8;
   --scrim:rgba(8,12,20,.42); --shadow:0 10px 30px rgba(20,35,70,.14); --shadow-bar:0 10px 34px rgba(20,35,70,.18);
   /* couleurs des montants : personnalisables (Réglages → Apparence → Couleurs), sinon celles-ci */
-  /* Retour sur l'APK 79 : couleurs par défaut = celles choisies par le propriétaire (pastilles de Couleurs : Bleu, Orange,
-     Vert, Rouge, Gris). En clair, « Autres revenus » prend un vert distinct de celui du Reste (sinon identiques) et
-     « Revenus nets » un bleu ciel (sinon trop proche du bleu des revenus bruts). */
-  --c-brut:#2453C4; --c-autres:#3A9B3F; --c-fixes:#6A7D90; --c-urssaf:#E0662E; --c-net:#3E8EDB; --c-dep:#C23B35; --c-reste:var(--pos); --c-ep:var(--ep);
+  /* Couleurs par défaut validées par le propriétaire le 26/10/2026 (après l'APK 80) : ce qui rentre en bleu (brut foncé,
+     net du même bleu en plus clair, autres revenus en turquoise), ce qui part en couleurs chaudes (URSSAF orange,
+     dépenses rouge), fixes en gris, épargne en violet, reste en vert. En sombre, mêmes teintes plus claires (lisibles
+     sur le fond sombre : texte ≥ 4,5:1). Une couleur choisie dans Réglages reste prioritaire. */
+  --c-brut:#1F4FC0; --c-autres:#0E8C99; --c-fixes:#6A7D90; --c-urssaf:#D9622B; --c-net:#2E7BE0; --c-dep:#C23B35; --c-reste:var(--pos); --c-ep:var(--ep);
   /* verre liquide des fenêtres maison (calendriers, listes de choix, teinte) : translucide + flou, reflet clair */
   --pop-glass:rgba(255,255,255,.80); --pop-fill:rgba(15,23,34,.05); --pop-rim:inset 0 1px 0 rgba(255,255,255,.85),inset 0 0 0 1px rgba(255,255,255,.35);
   /* Patch 4 : une seule police, Figtree (chiffres tabulaires pour les montants) ; les trois rôles restent nommés. */
@@ -43,7 +44,7 @@
   --glass:rgba(22,29,39,.72); --glass-solid:#161D26; --glass-line:rgba(255,255,255,.07);
   --quick:rgba(255,255,255,.08); --quick-ink:var(--ink);
   --urssaf:#E4A940; --dep:#8799AC; --pos:#4DC48B; --neg:#F2766B; --neg-soft:#3A1E1E; --pos-soft:#13301F; --ep:#A58BFF;
-  --scrim:rgba(0,0,0,.55); --shadow:0 10px 30px rgba(0,0,0,.45); --shadow-bar:0 12px 34px rgba(0,0,0,.55); --c-brut:#2453C4; --c-autres:#16845A; --c-fixes:#6A7D90; --c-urssaf:#E0662E; --c-dep:#C23B35; --c-net:#7DA3FF;
+  --scrim:rgba(0,0,0,.55); --shadow:0 10px 30px rgba(0,0,0,.45); --shadow-bar:0 12px 34px rgba(0,0,0,.55); --c-brut:#4C86F5; --c-autres:#3CC6D2; --c-fixes:#8B9BAD; --c-urssaf:#F28A52; --c-dep:#E5534B; --c-net:#9DBEFF;
   --shadow-pill:0 6px 20px rgba(0,0,0,.40);
   --pop-glass:rgba(24,31,42,.80); --pop-fill:rgba(255,255,255,.06); --pop-rim:inset 0 1px 0 rgba(255,255,255,.16),inset 0 0 0 1px rgba(255,255,255,.05);
   color-scheme:dark;
@@ -57,7 +58,7 @@
     --glass:rgba(22,29,39,.72); --glass-solid:#161D26; --glass-line:rgba(255,255,255,.07);
     --quick:rgba(255,255,255,.08);
     --urssaf:#E4A940; --dep:#8799AC; --pos:#4DC48B; --neg:#F2766B; --neg-soft:#3A1E1E; --pos-soft:#13301F; --ep:#A58BFF;
-    --scrim:rgba(0,0,0,.55); --shadow:0 10px 30px rgba(0,0,0,.45); --shadow-bar:0 12px 34px rgba(0,0,0,.55); --c-brut:#2453C4; --c-autres:#16845A; --c-fixes:#6A7D90; --c-urssaf:#E0662E; --c-dep:#C23B35; --c-net:#7DA3FF;
+    --scrim:rgba(0,0,0,.55); --shadow:0 10px 30px rgba(0,0,0,.45); --shadow-bar:0 12px 34px rgba(0,0,0,.55); --c-brut:#4C86F5; --c-autres:#3CC6D2; --c-fixes:#8B9BAD; --c-urssaf:#F28A52; --c-dep:#E5534B; --c-net:#9DBEFF;
     --shadow-pill:0 6px 20px rgba(0,0,0,.40);
     color-scheme:dark;
   }
