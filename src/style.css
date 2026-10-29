@@ -560,6 +560,13 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
 .seg button[aria-pressed="true"].rev{color:var(--c-net)} .pro .seg button[aria-pressed="true"].rev{color:var(--c-brut)}
 :root[data-scheme="dark"] .seg button[aria-pressed="true"]{background:var(--surface-3);box-shadow:none}
 .seg button[aria-pressed="true"].ep{color:var(--c-ep)}
+/* Patch 6 : fond du choix qui glisse d'un bouton à l'autre (main.js, segSlide) ; pendant le glissement, le bouton
+   choisi n'a pas son propre fond, et il le reprend sans fondu à l'arrivée. */
+.seg{position:relative}
+.seg>button{position:relative;z-index:1}
+.seg-ind{position:absolute;z-index:0;border-radius:999px;pointer-events:none}
+.seg.sliding>button[aria-pressed="true"]{background:transparent!important;box-shadow:none!important}
+.seg.sliding>button,.seg.settle>button{transition:color .2s var(--ease)}
 .seg.seg3{grid-template-columns:repeat(3,1fr)}
 .seg.seg4{grid-template-columns:repeat(4,1fr)}
 .seg.seg3 button,.seg.seg4 button{font-size:calc(13*var(--u))}
@@ -577,6 +584,12 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
   padding:10px max(20px,env(safe-area-inset-right,0px)) calc(20px + env(safe-area-inset-bottom,0px)) max(20px,env(safe-area-inset-left,0px));box-shadow:0 -10px 40px rgba(0,0,0,.18)}
 .grab{width:40px;height:5px;border-radius:3px;background:var(--surface-3);justify-self:center;margin-bottom:-4px}
 @media (min-width:700px){.backdrop{align-items:center;padding:24px}.sheet{border-radius:28px;padding:22px 26px 24px}.grab{display:none}}
+/* Patch 6 (retour sur l'APK 87 : « pas d'effet verre ») : fenêtre d'ajout et panneaux en verre, exactement comme
+   les fenêtres maison (.pop : même fond, flou, reflet d'accent et liseré) ; champs sur le même fond léger que dans .pop. Coupé par « Effets réduits » (règles plus bas). */
+.sheet{background:var(--pop-glass);border:1px solid var(--glass-line);box-shadow:0 -10px 40px rgba(0,0,0,.18),var(--pop-rim);
+  -webkit-backdrop-filter:blur(20px) saturate(1.25);backdrop-filter:blur(20px) saturate(1.25)}
+@supports (color:color-mix(in srgb,red,blue)){.sheet{background:linear-gradient(150deg,color-mix(in srgb,var(--accent) 7%,transparent) 0%,transparent 40%),var(--pop-glass)}}
+.sheet .input,.sheet .suggest{background:var(--pop-fill)} /* boutons à choix : fond d'origine, pour garder le contraste du choix */
 .sheet-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .sheet-head h2{font-family:var(--f-display);font-size:calc(21*var(--u));font-weight:700;letter-spacing:-.015em}
 .amount-wrap{display:flex;align-items:baseline;gap:8px;border-bottom:2px solid var(--line);padding-bottom:2px}
@@ -727,9 +740,9 @@ th small{display:block;font-size:calc(10*var(--u));font-weight:500;text-transfor
   -webkit-backdrop-filter:blur(20px) saturate(1.25);backdrop-filter:blur(20px) saturate(1.25)}
 /* reflet « liquide » aux couleurs de l'accentuation, en haut à gauche */
 @supports (color:color-mix(in srgb,red,blue)){.pop{background:linear-gradient(150deg,color-mix(in srgb,var(--accent) 7%,transparent) 0%,transparent 40%),var(--pop-glass)}}
-:root[data-effets="reduits"] .pop,:root[data-effets="reduits"] .bubble,:root[data-effets="reduits"] .toast:not(.err){-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--glass-solid)}
+:root[data-effets="reduits"] .pop,:root[data-effets="reduits"] .sheet,:root[data-effets="reduits"] .bubble,:root[data-effets="reduits"] .toast:not(.err){-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--glass-solid)}
 :root[data-effets="reduits"] .toast.err{-webkit-backdrop-filter:none;backdrop-filter:none}
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.pop,.bubble,.toast:not(.err){background:var(--glass-solid)}}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.pop,.sheet,.bubble,.toast:not(.err){background:var(--glass-solid)}}
 .pop .seg{background:var(--pop-fill)}
 .pop-list{display:grid;gap:2px}
 .pop-list button{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;min-height:46px;border-radius:14px;text-align:left;font-weight:560;width:100%}

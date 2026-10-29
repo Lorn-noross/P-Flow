@@ -235,15 +235,91 @@ function growBars(els, axis) {
   const s = axis === 'x' ? 'scaleX(0)' : 'scaleY(0)';
   Array.from(els).slice(0, 24).forEach((el, i) => anim(el, [{ transform: s }, { transform: 'none' }], { duration: 560, delay: i * 22, easing: SPRING, fill: 'backwards' }));
 }
+// Patch 6 (retour sur l'APK 87) : menus dépliants (petite flèche : URSSAF, charges et revenus fixes, groupes,
+// couleurs, simulateur). Même animation partout : à l'ouverture, la flèche tourne et le contenu arrive (cascadeIn
+// pour des lignes, riseIn pour un bloc) ; à la fermeture, la flèche revient et le contenu part en fondu (EASE_IN,
+// ~70 % de l'entrée) avant d'être retiré. Les en-têtes sont souvent redessinés avec leur liste : la flèche est
+// tournée en Web Animations (la transition CSS ne joue pas sur un élément neuf).
+const FOLDING = new Set();
+const chevTurn = h => (h.classList.contains('uc-line') ? 'rotate(180deg)' : 'rotate(90deg)');
+function foldOut(head, els) {
+  const out = [], chev = head && head.querySelector('.chev');
+  if (chev) out.push(anim(chev, [{ transform: chevTurn(head) }, { transform: 'none' }], { duration: 180, easing: EASE_IN, fill: 'forwards' }));
+  els.slice(0, 14).forEach(el => out.push(anim(el, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-6px)' }], { duration: 180, easing: EASE_IN, fill: 'forwards' })));
+  return out.filter(Boolean);
+}
+function foldIn(head, els, block) {
+  const chev = head.querySelector('.chev');
+  if (chev) anim(chev, [{ transform: 'none' }, { transform: chevTurn(head) }], { duration: 260, easing: EASE });
+  if (block) els.forEach(riseIn); else cascadeIn(els, { max: 8, dy: 8, step: 26 });
+}
+// o.sel : en-tête (même sélecteur avant et après le rendu) ; o.open : ouvert après le geste ; o.apply() : change
+// l'état et redessine ; o.items(en-tête) : contenu à l'écran ; o.block : un bloc plutôt que des lignes ;
+// o.out : sélecteur d'un autre menu que celui-ci referme (couleurs : un seul ouvert à la fois).
+function foldToggle(o) {
+  if (FOLDING.has(o.sel)) return;
+  const outHead = o.out ? $(o.out) : o.open ? null : $(o.sel);
+  const anims = outHead && motionOK() ? foldOut(outHead, o.items(outHead)) : [];
+  const run = () => {
+    FOLDING.delete(o.sel);
+    o.apply();
+    anims.forEach(a => a.cancel()); // éléments gardés d'un rendu à l'autre (bloc URSSAF) : retirer le fondu figé
+    const h = o.open && $(o.sel);
+    if (h && motionOK()) foldIn(h, o.items(h), o.block);
+  };
+  if (!anims.length) { run(); return; }
+  FOLDING.add(o.sel);
+  Promise.all(anims.map(a => a.finished)).then(run, run);
+}
+const sectionRows = h => $$('.row', h.closest('section'));
+const childRows = h => { const out = []; let n = h.nextElementSibling; while (n && n.classList.contains('child')) { out.push(n); n = n.nextElementSibling; } return out; };
+const foldSel = (act, k) => '[data-act="' + act + '"]' + (k != null ? '[data-k="' + CSS.escape(k) + '"]' : '');
 // Boutons à choix (segments) : le choix fait un petit rebond « liquide ». C'est leur seul mouvement : pas d'effet
 // d'appui (:active) en plus (patch 5, retour sur l'APK 80 : « double palpitation » quand le rendu qui suit le
 // clic est long, l'effet d'appui et le rebond se suivaient au lieu de se fondre).
+// Patch 6 (retour sur l'APK 87 : « pas d'effet liquide ») : le fond du choix glisse en plus de l'ancien bouton au
+// nouveau en s'étirant, comme le surlignage de la barre du bas (mêmes durée, courbe et étirement), dans tous les
+// boutons à choix. Le départ est lu avant le geste (phase de capture), l'arrivée après le rendu.
+let segFrom = null;
+document.addEventListener('click', e => {
+  segFrom = null;
+  const b = e.target.closest('.seg button'), seg = b && b.closest('.seg');
+  if (!seg || b.disabled || !motionOK()) return;
+  const on = seg.querySelector(':scope > button[aria-pressed="true"]');
+  if (!on || on === b || !on.offsetWidth) return;
+  const cs = getComputedStyle(on);
+  segFrom = { seg, x: on.offsetLeft, y: on.offsetTop, w: on.offsetWidth, bg: cs.backgroundColor, sh: cs.boxShadow };
+}, true);
+function segSlide(seg, f, on) {
+  const old = $(':scope > .seg-ind', seg); if (old) old.remove();
+  const x = on.offsetLeft, y = on.offsetTop, w = on.offsetWidth, h = on.offsetHeight;
+  if (!w || !f.w || (Math.abs(f.x - x) < 1 && Math.abs(f.y - y) < 1)) return;
+  const ind = document.createElement('i');
+  ind.className = 'seg-ind'; ind.setAttribute('aria-hidden', 'true');
+  ind.style.cssText = 'left:' + x + 'px;top:' + y + 'px;width:' + w + 'px;height:' + h + 'px;background:' + f.bg + ';box-shadow:' + f.sh;
+  const dx = f.x + f.w / 2 - (x + w / 2), dy = f.y - y, sx = f.w / w;
+  seg.prepend(ind); seg.classList.add('sliding');
+  const a = anim(ind, [
+    { transform: 'translate(' + dx + 'px,' + dy + 'px) scaleX(' + sx + ')' },
+    { transform: 'translate(' + dx / 2 + 'px,' + dy / 2 + 'px) scaleX(' + ((sx + 1) / 2 * 1.32).toFixed(3) + ')', offset: 0.45 },
+    { transform: 'none' },
+  ], { duration: 460, easing: 'cubic-bezier(.3,.8,.25,1)' });
+  const end = () => {
+    if (!ind.isConnected) return;
+    // Le bouton reprend son fond sans fondu, au même moment où le fond qui glissait disparaît.
+    seg.classList.add('settle'); seg.classList.remove('sliding'); ind.remove();
+    requestAnimationFrame(() => seg.classList.remove('settle'));
+  };
+  if (a) a.finished.then(end, end); else end();
+}
 document.addEventListener('click', e => {
   const b = e.target.closest('.seg button');
   if (!b || b.disabled) return;
+  const f = segFrom; segFrom = null;
   requestAnimationFrame(() => {
-    const on = b.closest('.seg') && b.closest('.seg').querySelector('button[aria-pressed="true"]');
+    const seg = b.closest('.seg'), on = seg && seg.querySelector(':scope > button[aria-pressed="true"]');
     if (on) anim(on, [{ transform: 'scale(.9)' }, { transform: 'scale(1.04)', offset: 0.55 }, { transform: 'none' }], { duration: 380, easing: EASE });
+    if (f && on && f.seg === seg && seg.isConnected && motionOK()) segSlide(seg, f, on);
   });
 });
 
@@ -2615,7 +2691,11 @@ function closeSheet() {
   if (!layerOpen(pbg)) document.body.style.overflow = '';
   if (lastFocus && lastFocus.focus && document.contains(lastFocus)) { try { lastFocus.focus(); } catch (e) { /* ignoré */ } }
 }
-function syncSheet() {
+// Patch 6 (retour sur l'APK 87) : un champ qui apparaît dans la fenêtre d'ajout (choix du type, de la fréquence…)
+// arrive comme une carte (riseIn) au lieu de surgir. Pas à l'ouverture : toute la fenêtre monte déjà.
+const SHEET_FX = ['#op-seg', '#f-accounts', '#f-epstart-field', '#f-freq-field', '#f-urssaf-row', '#f-preview', '#f-hint', '#f-stop'];
+function syncSheet(fx) {
+  const shown0 = fx && motionOK() ? SHEET_FX.map(id => !$(id).hidden) : null;
   const t = F.type, isNew = F.mode === 'new', ep = t === 'epargne', rev = t === 'revenu', fixe = isFixe();
   // Type : les trois en ajout (épargne si elle est suivie) ; en modification, on reste dans la même famille.
   const showEp = isNew && epOn();
@@ -2657,6 +2737,7 @@ function syncSheet() {
   updatePreview();
   // Les suggestions dépendent du type (dépense, revenu ou compte d'épargne).
   if (document.activeElement === $('#f-label')) suggest(); else closeSuggest();
+  if (shown0) SHEET_FX.forEach((id, i) => { const el = $(id); if (!shown0[i] && !el.hidden) riseIn(el); });
 }
 // Patch 3 : « Soumis à l'URSSAF » reprend le choix du dernier revenu de même libellé (une CAF reste « sans URSSAF »).
 // null = libellé jamais utilisé pour un revenu (la case reste cochée d'office). Rien de nouveau n'est enregistré.
@@ -2766,8 +2847,8 @@ function updatePreview() {
 $('#type-seg').addEventListener('click', e => { const b = e.target.closest('button[data-type]'); if (!b) return;
   // Patch 5 (point 17) : « Facture » tapé en Revenu ne devient pas un compte d'épargne « Facture » (et inversement).
   if ((F.type === 'epargne') !== (b.dataset.type === 'epargne')) $('#f-label').value = '';
-  F.type = b.dataset.type; if (F.type === 'epargne' && F.freq !== 'once' && F.op !== 'depot') F.op = 'depot'; syncSheet(); guessUrssaf(); });
-$('#op-seg').addEventListener('click', e => { const b = e.target.closest('button[data-op]'); if (!b) return; F.op = b.dataset.op; syncSheet(); });
+  F.type = b.dataset.type; if (F.type === 'epargne' && F.freq !== 'once' && F.op !== 'depot') F.op = 'depot'; syncSheet(true); guessUrssaf(); });
+$('#op-seg').addEventListener('click', e => { const b = e.target.closest('button[data-op]'); if (!b) return; F.op = b.dataset.op; syncSheet(true); });
 $('#freq-seg').addEventListener('click', e => {
   const b = e.target.closest('button[data-f]'); if (!b || b.disabled) return;
   const was = F.freq; F.freq = b.dataset.f;
@@ -2779,7 +2860,7 @@ $('#freq-seg').addEventListener('click', e => {
     const st = $('#f-start').value, { y, m } = pYM(st);
     $('#f-date').value = st + '-' + pad(Math.min(F.jour, new Date(y, m, 0).getDate()));
   }
-  syncSheet();
+  syncSheet(true);
 });
 ['#f-amount', '#f-date'].forEach(id => $(id).addEventListener('input', () => { updatePreview(); if (isFixe()) sheetHints(); }));
 // Date ou départ : calendrier maison (patch 3, plus de sélecteur natif). Pour un fixe, le jour choisi est celui
@@ -3326,15 +3407,15 @@ document.addEventListener('click', e => {
     else { const row = t.closest('.pt-row'); if (row) { row.classList.add('done'); $$('button', row).forEach(b => { b.disabled = true; b.setAttribute('aria-pressed', String(b === t)); }); } }
   }
   else if (a === 'edit-entry' || a === 'edit-rec' || a === 'edit-per' || a === 'edit-ep') openSheet({ mode: a, id: t.dataset.id });
-  else if (a === 'toggle-fixed') { S.showFixed = !S.showFixed; lsSet('pf-showFixed', S.showFixed ? '1' : '0'); renderMois(); }
-  else if (a === 'toggle-fixed-rev') { S.showFixedRev = !S.showFixedRev; lsSet('pf-showFixedRev', S.showFixedRev ? '1' : '0'); renderMois(); }
+  else if (a === 'toggle-fixed') foldToggle({ sel: foldSel(a), open: !S.showFixed, items: sectionRows, apply: () => { S.showFixed = !S.showFixed; lsSet('pf-showFixed', S.showFixed ? '1' : '0'); renderMois(); } });
+  else if (a === 'toggle-fixed-rev') foldToggle({ sel: foldSel(a), open: !S.showFixedRev, items: sectionRows, apply: () => { S.showFixedRev = !S.showFixedRev; lsSet('pf-showFixedRev', S.showFixedRev ? '1' : '0'); renderMois(); } });
   else if (a === 'info') toggleInfo(t.dataset.k); // patch 5 : petit ⓘ
   else if (a === 'info-close') closeInfo(false);
-  else if (a === 'toggle-ended') { S.showEnded = !S.showEnded; renderFixes(); }
+  else if (a === 'toggle-ended') foldToggle({ sel: foldSel(a), open: !S.showEnded, items: sectionRows, apply: () => { S.showEnded = !S.showEnded; renderFixes(); } });
   else if (a === 'group-toggle') { S.grouped = !S.grouped; lsSet('pf-groupe', S.grouped ? '1' : '0'); renderMois(); }
-  else if (a === 'grp-open') { const k = t.dataset.k; if (S.openGroups.has(k)) S.openGroups.delete(k); else S.openGroups.add(k); renderMois(); }
-  else if (a === 'urssaf-toggle') { S.ucOpen = !S.ucOpen; renderMois(); if (S.ucOpen) riseIn($('#urssaf-card')); }
-  else if (a === 'sim-toggle') { S.simOpen = !S.simOpen; renderMois(); if (S.simOpen) { riseIn($('#sim')); $('#c-brut').focus(); } }
+  else if (a === 'grp-open') { const k = t.dataset.k; foldToggle({ sel: foldSel(a, k), open: !S.openGroups.has(k), items: childRows, apply: () => { if (S.openGroups.has(k)) S.openGroups.delete(k); else S.openGroups.add(k); renderMois(); } }); }
+  else if (a === 'urssaf-toggle') foldToggle({ sel: '#urssaf-line', open: !S.ucOpen, block: true, items: () => [$('#urssaf-card')], apply: () => { S.ucOpen = !S.ucOpen; renderMois(); } });
+  else if (a === 'sim-toggle') foldToggle({ sel: '#sim-btn', open: !S.simOpen, block: true, items: () => [$('#sim')], apply: () => { S.simOpen = !S.simOpen; renderMois(); if (S.simOpen) $('#c-brut').focus(); } });
   else if (a === 'ep-offer') {
     if (blocked()) return;
     const yes = t.dataset.v === '1';
@@ -3378,7 +3459,11 @@ document.addEventListener('click', e => {
     BK.due = false; BK.list = null;
   } else if (a === 'restore-go') { if (BK.plan) applyRestore(BK.plan); }
   else if (a === 'restore-cancel') { BK.plan = null; renderBackup(); }
-  else if (a === 'color-open') { S.colorOpen = S.colorOpen === t.dataset.k ? null : t.dataset.k; renderColors(); }
+  else if (a === 'color-open') {
+    const k = t.dataset.k, prev = S.colorOpen, open = prev !== k;
+    foldToggle({ sel: foldSel(a, k), open, block: true, out: open && prev ? foldSel(a, prev) : null,
+      items: h => $$('.palette, .color-note', h.parentElement), apply: () => { S.colorOpen = open ? k : null; renderColors(); } });
+  }
   else if (a === 'color-set') setColor(t.dataset.k, t.dataset.c);
   else if (a === 'color-other') pickOtherColor(t);
   else if (a === 'color-reset') setColor(t.dataset.k, null);
