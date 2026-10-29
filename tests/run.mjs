@@ -1462,6 +1462,11 @@ async function scenarioPatch5(cfg, fx, tag) {
     check(dt > want - 1200 && dt < want + 1200, 'bulle fermée seule après ~' + (want / 1000) + ' s (' + words + ' mots, ' + (dt / 1000).toFixed(1) + ' s)');
     await page.click('#legend [data-act="info"][data-k="net"]');
     await until(page, () => !!document.querySelector('#legend .cexp'), null, 'retoucher le ⓘ : la bulle revient');
+    // Patch 6 (point 0b) : retoucher le ⓘ ouvert ferme la bulle en fondu (elle reste un instant, puis disparaît).
+    await page.waitForTimeout(450);
+    await page.click('#legend [data-act="info"][data-k="net"]');
+    check(await page.evaluate(() => !!document.querySelector('#legend .cexp[data-k="net"]') && document.querySelector('#legend [data-k="net"].cinfo').getAttribute('aria-expanded') === 'false'), 'retoucher le ⓘ : la bulle part en fondu');
+    await until(page, () => !document.querySelector('#legend .cexp'), null, 'retoucher le ⓘ : bulle fermée après le fondu');
   }
   await page.click('[data-act="next-month"]');
   await until(page, () => !document.querySelector('.cexp'), null, 'changer de mois ferme la bulle');
@@ -1551,8 +1556,11 @@ async function scenarioPatch5Annee(cfg, fx, tag) {
   await until(page, () => !document.getElementById('v-annee').hidden && !!document.getElementById('y-mode'), null, 'retour à l\'Année');
   await page.waitForTimeout(800); // le gros chiffre défile d'une vue à l'autre
   const end = clean(await page.locator('#kpis .big').textContent());
+  await page.evaluate(() => { window.__segY = document.getElementById('y-mode'); });
   await page.click('[data-act="next-year"]');
   await until(page, y => document.querySelector('#ctx h1').textContent.trim() === String(y) && !!document.getElementById('y-mode') && /^Prévu\s+sur\s+ton\s+compte\s+le\s+31\s+décembre/.test(document.querySelector('#kpis .eyebrow').textContent), dec + 1, 'année suivante : interrupteur et « Prévu sur ton compte le 31 décembre »');
+  // Patch 6 (point 0c) : changer d'année garde le même interrupteur (pas retiré puis recréé pendant le chargement).
+  check(await page.evaluate(() => window.__segY === document.getElementById('y-mode') && window.__segY.isConnected), 'Année suivante : l\'interrupteur n\'est pas redessiné');
   await page.click('[data-act="prev-year"]');
   await until(page, y => document.querySelector('#ctx h1').textContent.trim() === String(y), dec, 'retour à l\'année du jeu');
   await page.locator('[data-act="view"][data-view="mois"]:visible').click();

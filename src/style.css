@@ -34,6 +34,7 @@
   /* cartes : opaques, sauf en noir absolu (verre translucide) */
   --card:var(--surface); --card-line:var(--line); --card-hi:none;
   --ease:cubic-bezier(.2,.8,.2,1);
+  --ease-in:cubic-bezier(.4,0,1,1); /* patch 6 : sorties (fermetures) */
   color-scheme:light;
 }
 :root[data-texte="grand"]{--u:1.14px}
@@ -140,7 +141,7 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
 /* Fondu (sans flou), seulement quand le contenu passe dessous : opaque sous la barre d'état (l'heure reste lisible),
    puis de plus en plus transparent jusqu'au bas des pilules. */
 .top::before{content:"";position:absolute;z-index:-1;inset:0;pointer-events:none;
-  background:linear-gradient(180deg,var(--bg-top) 0,var(--bg-top) var(--sat),transparent 100%);opacity:0;transition:opacity .2s}
+  background:linear-gradient(180deg,var(--bg-top) 0,var(--bg-top) var(--sat),transparent 100%);opacity:0;transition:opacity .2s var(--ease)}
 .top.scrolled::before{opacity:1}
 .pill{pointer-events:auto;display:flex;align-items:center;min-width:0;height:44px;padding:2px;border-radius:999px;
   background:var(--glass);border:1px solid var(--glass-line);box-shadow:var(--shadow-pill);
@@ -155,7 +156,7 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
 @media (hover:hover){.icon-btn:hover{background:var(--surface-2)}}
 
 .sync{display:inline-flex;align-items:center;gap:8px;font-size:calc(12.5*var(--u));color:var(--muted);white-space:nowrap}
-.sync svg.i{width:22px;height:22px;transition:color .3s}
+.sync svg.i{width:22px;height:22px;transition:color .3s var(--ease)}
 .sync[data-s="ok"]{color:var(--pos)}
 .sync[data-s="pending"]{color:var(--urssaf)}
 .sync[data-s="off"]{color:var(--neg)}
@@ -174,12 +175,12 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
 /* Réglages : pas de « + », la pilule se resserre à 4 onglets (main.js anime le passage, FLIP en transform). */
 .tabbar[data-view="reglages"]{width:calc(min(calc(100% - 24px),440px) - 64px);grid-template-columns:1fr 1fr 0 1fr 1fr}
 .tabbar button[data-view]{position:relative;z-index:1;height:100%;border-radius:999px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
-  font-size:calc(11*var(--u));font-weight:600;color:var(--muted);transition:color .25s}
+  font-size:calc(11*var(--u));font-weight:600;color:var(--muted);transition:color .25s var(--ease)}
 .tabbar button[data-view] svg.i{width:22px;height:22px}
 .tabbar button[aria-current="page"]{color:var(--accent)}
 .tab-ind{position:absolute;z-index:0;top:6px;bottom:6px;left:0;width:0;border-radius:999px;background:var(--accent-soft);transform-origin:center;will-change:transform}
 .fab{position:relative;z-index:2;justify-self:center;width:52px;height:52px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;
-  box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 45%,transparent);transition:transform .32s cubic-bezier(.3,1.4,.5,1),opacity .2s}
+  box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 45%,transparent);transition:transform .32s cubic-bezier(.3,1.4,.5,1),opacity .2s var(--ease)}
 .fab svg.i{width:26px;height:26px;stroke-width:2.3}
 .tabbar[data-view="reglages"] .fab{transform:scale(0);opacity:0;pointer-events:none;transition-delay:0s}
 .fab{transition-delay:.12s} /* le + revient en rebond, une fois la pilule élargie */
@@ -220,7 +221,7 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
 .card h3,.h3{font-size:calc(12*var(--u));text-transform:uppercase;letter-spacing:.09em;color:var(--muted);font-weight:650}
 .card-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:46px;padding:0 20px;border-radius:999px;font-weight:650;white-space:nowrap;
-  transition:transform .15s var(--ease),background-color .2s}
+  transition:transform .15s var(--ease),background-color .2s var(--ease)}
 .btn.sm{height:38px;padding:0 15px;font-size:calc(14*var(--u))}
 .btn svg.i{width:18px;height:18px}
 .btn.primary{background:var(--accent);color:var(--accent-ink)}
@@ -320,7 +321,7 @@ body:not(.ep-on) .ep-only{display:none!important}
 /* Patch 5 : petit ⓘ, pastille ronde à la couleur d'accentuation (zone de toucher de 40 px sans agrandir la ligne) ;
    ouverte = pastille pleine. La bulle (.cexp) se ferme seule : la fine ligne du bas se vide (main.js, armInfo). */
 .cinfo{flex:none;position:relative;z-index:1;display:inline-grid;place-items:center;width:22px;height:22px;margin:-3px 0;vertical-align:middle;border-radius:50%;
-  background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent);transition:background-color .2s,color .2s}
+  background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent);transition:background-color .2s var(--ease),color .2s var(--ease)}
 .cinfo::before{content:"";position:absolute;inset:-9px;border-radius:50%}
 .cinfo svg.i{width:15px;height:15px;stroke-width:3}
 .cinfo[aria-expanded="true"]{background:var(--accent);color:var(--accent-ink)}
@@ -362,7 +363,7 @@ p .cinfo{margin-left:6px}
 .toggle-mini{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border-radius:999px;background:var(--surface-2);color:var(--muted);font-size:calc(12*var(--u));font-weight:600}
 .toggle-mini svg.i{width:14px;height:14px}
 .toggle-mini[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent)}
-.row{display:flex;width:100%;text-align:left;align-items:center;justify-content:space-between;gap:12px;padding:11px 8px;border-radius:14px;transition:transform .15s var(--ease),background-color .15s}
+.row{display:flex;width:100%;text-align:left;align-items:center;justify-content:space-between;gap:12px;padding:11px 8px;border-radius:14px;transition:transform .15s var(--ease),background-color .15s var(--ease)}
 @media (hover:hover){.row:hover{background:var(--surface-2)}}
 .row-ico{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--surface-2);color:var(--muted)}
 .row-ico svg.i{width:18px;height:18px}
@@ -515,7 +516,7 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
    dessous est un dégradé fixe), plus aérés ; tout tient sur un écran de téléphone. */
 .set-list{display:grid;gap:10px}
 .set-list button{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:13px 14px;border-radius:var(--r);
-  background:var(--glass);border:1px solid var(--glass-line);box-shadow:var(--shadow-pill);transition:transform .32s cubic-bezier(.3,1.5,.5,1),background-color .15s}
+  background:var(--glass);border:1px solid var(--glass-line);box-shadow:var(--shadow-pill);transition:transform .32s cubic-bezier(.3,1.5,.5,1),background-color .15s var(--ease)}
 @media (hover:hover){.set-list button:hover{background:var(--glass-solid)}}
 .si{width:40px;height:40px;border-radius:14px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;flex:none}
 .set-foot{padding:4px 0 2px}
@@ -542,7 +543,7 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
 .palette .link{margin-left:4px}
 .accents{padding:2px 0 4px}
 .accents .dot{position:relative;display:grid;place-items:center;color:#fff}
-.accents .dot svg.i{width:18px;height:18px;stroke-width:2.6;opacity:0;transform:scale(.6);transition:opacity .2s,transform .3s cubic-bezier(.3,1.5,.5,1)}
+.accents .dot svg.i{width:18px;height:18px;stroke-width:2.6;opacity:0;transform:scale(.6);transition:opacity .2s var(--ease),transform .3s cubic-bezier(.3,1.5,.5,1)}
 .accents .dot[aria-pressed="true"] svg.i{opacity:1;transform:none}
 .input{height:48px;width:100%;min-width:0;border:1px solid var(--line);border-radius:14px;background:var(--surface);padding:0 14px;font-size:16px}
 .input:focus{border-color:var(--accent);outline:none;box-shadow:0 0 0 3px var(--accent-soft)}
@@ -554,7 +555,7 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
 .out{font-size:calc(14.5*var(--u));padding:12px 14px;border-radius:14px;background:var(--surface-2)}
 .out b{font-family:var(--f-data);font-weight:500}
 .seg{display:grid;grid-template-columns:1fr 1fr;background:var(--surface-2);border-radius:999px;padding:4px;gap:4px}
-.seg button{min-height:40px;border-radius:999px;font-weight:620;color:var(--muted);padding:0 6px;line-height:1.15;transition:background-color .2s,color .2s}
+.seg button{min-height:40px;border-radius:999px;font-weight:620;color:var(--muted);padding:0 6px;line-height:1.15;transition:background-color .2s var(--ease),color .2s var(--ease)}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 4px rgba(0,0,0,.14)}
 .seg button[aria-pressed="true"].rev{color:var(--c-net)} .pro .seg button[aria-pressed="true"].rev{color:var(--c-brut)}
 :root[data-scheme="dark"] .seg button[aria-pressed="true"]{background:var(--surface-3);box-shadow:none}
@@ -586,7 +587,7 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
 .card .check:first-of-type{border-top:0;padding-top:0}
 .check span{display:grid;gap:1px;font-weight:560}
 .check small{font-weight:400;font-size:calc(12.5*var(--u));color:var(--muted)}
-.check input{appearance:none;-webkit-appearance:none;width:48px;height:30px;border-radius:15px;background:var(--surface-3);border:0;position:relative;flex:none;cursor:pointer;margin:0;transition:background-color .2s}
+.check input{appearance:none;-webkit-appearance:none;width:48px;height:30px;border-radius:15px;background:var(--surface-3);border:0;position:relative;flex:none;cursor:pointer;margin:0;transition:background-color .2s var(--ease)}
 .check input::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .28s cubic-bezier(.3,1.4,.5,1)}
 .check input:checked{background:var(--accent)}
 .check input:checked::after{transform:translateX(18px)}
@@ -646,7 +647,7 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
 .code{font-family:var(--f-data);font-size:calc(12.5*var(--u));padding:10px 12px;border-radius:12px;background:var(--surface-2);overflow-wrap:anywhere;-webkit-user-select:all;user-select:all}
 .steps{display:grid;gap:6px;padding-left:20px;margin:0;font-size:calc(14*var(--u));color:var(--muted)}
 .choice{display:grid;gap:10px}
-.choice button{text-align:left;padding:16px;border:1.5px solid var(--line);border-radius:18px;background:var(--surface);display:grid;gap:3px;transition:border-color .2s,background-color .2s,transform .15s var(--ease)}
+.choice button{text-align:left;padding:16px;border:1.5px solid var(--line);border-radius:18px;background:var(--surface);display:grid;gap:3px;transition:border-color .2s var(--ease),background-color .2s var(--ease),transform .15s var(--ease)}
 .choice button b{font-size:calc(16*var(--u));font-weight:650}
 .choice button span{color:var(--muted);font-size:calc(13.5*var(--u))}
 .choice button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
@@ -799,7 +800,7 @@ th small{display:block;font-size:calc(10*var(--u));font-weight:500;text-transfor
 .seg.sd-sign{flex:none;width:104px}
 .seg.sd-sign button{font-size:calc(20*var(--u));font-weight:700}
 .pt-list{display:grid;gap:10px}
-.pt-row{display:grid;gap:8px;padding:12px 14px;border-radius:18px;background:var(--surface-2);transition:opacity .25s}
+.pt-row{display:grid;gap:8px;padding:12px 14px;border-radius:18px;background:var(--surface-2);transition:opacity .25s var(--ease)}
 .pt-row.done{opacity:.55}
 .pt-row .btn[aria-pressed="true"]{background:var(--accent);color:#fff;border-color:transparent}
 /* Patch 3 : couleurs déjà prises (bloquées), choix de l'année, interrupteur du gros chiffre */
@@ -819,7 +820,7 @@ th small{display:block;font-size:calc(10*var(--u));font-weight:500;text-transfor
 :root{--spring:cubic-bezier(.3,1.6,.5,1)}
 /* Appui : on s'enfonce vite, on revient en rebond. */
 .btn,.row,.chip,.set-list button,.chips button,.acc-chips button,.icon-btn,.toggle-mini,.top-row,.color-head,.uc-line,.choice button{
-  transition:transform .42s var(--spring),background-color .2s,color .2s,border-color .2s,box-shadow .2s,opacity .2s}
+  transition:transform .42s var(--spring),background-color .2s var(--ease),color .2s var(--ease),border-color .2s var(--ease),box-shadow .2s var(--ease),opacity .2s var(--ease)}
 .btn:active,.row:active,.chip:active,.set-list button:active,.chips button:active,.acc-chips button:active,.icon-btn:active,.toggle-mini:active,.top-row:active,.color-head:active,.uc-line:active,.choice button:active{transform:scale(.96);transition-duration:.09s}
 /* Boutons à choix : seul le rebond du choix (main.js) bouge, sans effet d'appui en plus (patch 5). */
 .fab:active{transform:scale(.88)}
@@ -862,8 +863,8 @@ th small{display:block;font-size:calc(10*var(--u));font-weight:500;text-transfor
   animation:boot-drop .52s cubic-bezier(.55,0,.85,.45) .08s both}
 @keyframes boot-drop{0%{transform:translateY(-34vh) scaleY(1.2);opacity:0}18%{opacity:1}86%{transform:translateY(0) scaleY(1.12);opacity:1}100%{transform:translateY(0) scale(1.7,.25);opacity:0}}
 /* Révélation : les vagues s'élargissent jusqu'aux bords et l'écran apparaît dessous. */
-.boot.out{animation:boot-out .5s ease-in .16s forwards}
-.boot.out .ring{animation:boot-fade .22s ease-out forwards}
+.boot.out{animation:boot-out .5s var(--ease-in) .16s forwards}
+.boot.out .ring{animation:boot-fade .22s var(--ease-in) forwards}
 .boot.out .wave{animation:boot-wave .72s cubic-bezier(.2,.7,.3,1) forwards}
 @keyframes boot-out{to{opacity:0}}
 @keyframes boot-fade{to{opacity:0}}

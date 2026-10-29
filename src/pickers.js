@@ -18,6 +18,7 @@ let cfg = { motionOK: () => true, today: () => new Date() };
 export function initPickers(o) { cfg = Object.assign(cfg, o || {}); }
 
 const SPRING = 'cubic-bezier(.2,1.18,.32,1)';
+const EASE_IN = 'cubic-bezier(.4,0,1,1)'; // patch 6 : sorties, même courbe que main.js
 function anim(el, frames, opts) {
   if (!el || !el.animate || !cfg.motionOK()) return null;
   try { return el.animate(frames, opts); } catch (e) { return null; }
@@ -32,7 +33,7 @@ export function closePop(silent) {
   document.removeEventListener('keydown', onKey, true);
   window.removeEventListener('resize', onResize);
   const done = () => { p.scrim.remove(); p.box.remove(); };
-  const a = anim(p.box, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(' + (p.below ? -6 : 6) + 'px) scale(.97)' }], { duration: 160, easing: 'ease-in', fill: 'forwards' });
+  const a = anim(p.box, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(' + (p.below ? -6 : 6) + 'px) scale(.97)' }], { duration: 160, easing: EASE_IN, fill: 'forwards' });
   if (a) a.finished.then(done, done); else done();
   if (p.anchor && p.anchor.setAttribute) p.anchor.setAttribute('aria-expanded', 'false');
   if (!silent && p.onClose) p.onClose();

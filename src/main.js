@@ -189,6 +189,10 @@ onMq(mqDark, () => applyAppearance());
 // Toujours sur transform / opacity (gérées par la carte graphique, sans recalcul de la page).
 const EASE = 'cubic-bezier(.2,.8,.2,1)';
 const SPRING = 'cubic-bezier(.2,1.18,.32,1)'; // léger dépassement, effet « liquide »
+// Patch 6 : courbe des sorties (fermetures : bulles, fenêtres, feuille du bas, messages), ~70 % de la durée d'entrée.
+// Entrées en EASE (ease-out), sorties en EASE_IN, interface en SPRING ; jamais de linéaire (sauf la ligne du
+// minuteur du ⓘ, qui montre le temps qui passe).
+const EASE_IN = 'cubic-bezier(.4,0,1,1)';
 function anim(el, frames, opts) {
   if (!el || !el.animate || !motionOK()) return null;
   try { return el.animate(frames, opts); } catch (e) { return null; }
@@ -265,7 +269,7 @@ function bootReveal() {
       b.classList.add('out');
       setTimeout(() => { b.hidden = true; bootState = 'off'; }, 760);
     } else {
-      const a = b.animate ? b.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, fill: 'forwards' }) : null;
+      const a = b.animate ? b.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, easing: EASE_IN, fill: 'forwards' }) : null;
       const end = () => { b.hidden = true; bootState = 'off'; };
       if (a) a.finished.then(end, end); else end();
     }
@@ -830,7 +834,7 @@ function write(p, okMsg) {
 const plain = o => { const c = Object.assign({}, o); delete c.id; delete c.kind; return c; };
 
 /* ---------- premier démarrage guidé ---------- */
-// 7 étapes (patch 3 : « Ton compte en banque »), toutes facultatives (« Passer »). Écrit exactement les mêmes documents qu'un ajout manuel.
+// 6 étapes (patch 3 : « Ton compte en banque » ajoutée ; patch 5 : « L'apparence » retirée), toutes facultatives (« Passer »). Écrit exactement les mêmes documents qu'un ajout manuel.
 // Nouveau compte (meta/settings absent) : tout est écrit à la fin. « Refaire la configuration » (Réglages) :
 // rien n'est supprimé, on ajoute seulement ce qui est saisi, et les réglages sont fusionnés.
 // Patch 5 (point 27) : plus d'étape « L'apparence » (6 étapes) ; tout reste dans Réglages → Apparence.
@@ -1302,9 +1306,12 @@ const infoBubble = (k, text) => (infoOpen(k) ? '<p class="cexp" data-act="info-c
 const infoDur = text => Math.min(12000, Math.max(6000, 2500 + 350 * String(text).trim().split(/\s+/).filter(Boolean).length));
 function toggleInfo(k) {
   const again = infoOpen(k);
-  closeInfo(true);
-  if (!again) S.info = { k, t0: 0, dur: 0 };
-  render(); // armInfo() est appelé à la fin du rendu de l'écran (Mois, Année)
+  // Patch 6 : retoucher le ⓘ ouvert ou en ouvrir un autre ferme la bulle avec le même fondu que le minuteur et le
+  // toucher (plus de fermeture sèche) ; la nouvelle bulle s'ouvre une fois l'ancienne partie.
+  const out = closeInfo(false);
+  if (again) return;
+  const go = () => { if (S.info) return; S.info = { k, t0: 0, dur: 0 }; render(); }; // armInfo() : à la fin du rendu (Mois, Année)
+  if (out) out.then(go, go); else go();
 }
 // Après chaque rendu : démarre le compte à rebours d'une bulle qui vient de s'ouvrir, ou reprend sa ligne là où
 // elle en était ; ferme si la bulle n'est plus à l'écran.
@@ -1321,16 +1328,20 @@ function armInfo() {
   const rem = Math.max(0, S.info.t0 + S.info.dur - now);
   anim($('.cexp-t', el), [{ transform: 'scaleX(' + (rem / S.info.dur).toFixed(4) + ')' }, { transform: 'scaleX(0)' }], { duration: rem, easing: 'linear', fill: 'forwards' });
 }
-// Ferme la bulle ouverte sans tout redessiner ; `silent` = sans fondu.
+// Ferme la bulle ouverte sans tout redessiner ; `silent` = sans fondu (changement d'écran ou de mois, où tout le
+// contenu glisse). Renvoie une promesse tenue à la fin du fondu (null sans fondu).
 function closeInfo(silent) {
   clearTimeout(infoTimer);
-  if (!S.info) return;
+  if (!S.info) return null;
   S.info = null;
   $$('.cinfo[aria-expanded="true"]').forEach(b => b.setAttribute('aria-expanded', 'false'));
+  const outs = [];
   $$('.cexp[data-k]').forEach(el => {
-    const a = silent ? null : anim(el, [{ opacity: 1 }, { opacity: 0, transform: 'translateY(-4px)' }], { duration: 200, easing: EASE, fill: 'forwards' });
-    if (a) a.onfinish = () => el.remove(); else el.remove();
+    const a = silent ? null : anim(el, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-4px)' }], { duration: 200, easing: EASE_IN, fill: 'forwards' });
+    if (!a) { el.remove(); return; }
+    outs.push(a.finished.then(() => el.remove(), () => el.remove()));
   });
+  return outs.length ? Promise.all(outs) : null;
 }
 // Explication d'une ligne de la cascade (petit ⓘ, patch 3) : une phrase simple, avec les vrais chiffres du mois.
 function casInfoText(k, d, pro) {
@@ -1790,8 +1801,9 @@ function soldeView(m) {
   const L = lastSolde(); if (!L) return null;
   const T = m + '-' + pad(dimOf(m));
   if (T < L.date) return null;
-  // Opérations chargées par année (+ octobre à décembre d'avant) : sans les mois depuis le solde (et ceux dont
-  // l'URSSAF se paie après lui), la prévision serait fausse. On ne l'affiche pas plutôt que de se tromper.
+  // Opérations chargées à partir d'octobre de l'année d'avant, ou du dernier solde noté avant l'année (4 ans au plus,
+  // voir entriesFromFor) : sans les mois depuis le solde (et ceux dont l'URSSAF se paie après lui), la prévision
+  // serait fausse. On ne l'affiche pas plutôt que de se tromper.
   if (!entCovered(soldeFrom(L.date.slice(0, 7))) || !entCovered(m)) return null;
   const ev = soldeMoves(L, T), dates = Object.keys(ev).sort();
   let bal = Number(L.montant) || 0, i = 0;
@@ -2038,11 +2050,19 @@ function renderAnnee() {
   // Patch 5 (point 31) : interrupteur « Sur mon compte / Reste de l'année », même réglage que l'écran Mois
   // (propre à l'appareil), affiché dès qu'une fin de mois de l'année est connue grâce à un solde noté.
   YC = ok ? compteAnnee(y) : null;
+  const k = $('#kpis');
+  let seg = $('#y-mode', k);
+  // Patch 6 : pendant le chargement d'une autre année (flèches), l'interrupteur et la vue choisie restent en place.
+  const keep = !ok && !!seg;
   const was = yCpt;
-  yCpt = !!(YC && YC.any) && lsGet('pf-vue-compte') !== '0';
+  yCpt = (keep || !!(YC && YC.any)) && lsGet('pf-vue-compte') !== '0';
   // Retour sur l'APK 79 : basculer doit être aussi doux que dans l'écran Mois (même rebond du bouton, montant qui
-  // défile, barres qui repoussent, tableau en fondu), pas un écran qui change d'un coup.
-  const switched = ok && was !== yCpt && YC && YC.any && S.view === 'annee' && !S.deferYear;
+  // défile, barres qui repoussent, tableau en fondu), pas un écran qui change d'un coup. Patch 6 : seulement un vrai
+  // geste sur l'interrupteur (même année déjà affichée), jamais l'arrivée des données d'une autre année.
+  const switched = ok && yShown === y && was !== yCpt && YC && YC.any && S.view === 'annee' && !S.deferYear;
+  // Données arrivées après un chargement : les barres poussent comme pour une année déjà chargée (setYear).
+  const arrived = ok && yWait === y && S.view === 'annee';
+  yShown = ok ? y : null; yWait = ok ? null : y;
   const n = yd.n, neg = T.reste < 0;
   // Patch 5 (point 23) : mêmes mots que l'écran Mois ; « Mis de côté » et « Total épargné » réunis en une case.
   const mini = (sw, label, v, sub) => '<div class="mini"><span><i class="sw ' + sw + '"></i>' + label + '</span><b>' + (ok ? eur(v) : '…') + '</b>' + (sub && ok ? '<small>' + esc(sub) + '</small>' : '') + '</div>';
@@ -2052,9 +2072,7 @@ function renderAnnee() {
     mini('s-dep', 'Dépenses', T.dep) + (on ? mini('s-ep', 'Épargne', epTot, epSub) : '') + '</div>';
   // L'interrupteur reste le même élément d'un rendu à l'autre (comme dans l'écran Mois) : seul son état change, ce
   // qui garde la transition du bouton et son petit rebond. Le reste du haut de l'écran est redessiné après lui.
-  const k = $('#kpis');
-  let seg = $('#y-mode', k);
-  if (YC && YC.any) {
+  if ((YC && YC.any) || keep) {
     if (!seg) {
       k.insertAdjacentHTML('afterbegin', '<div class="seg hero-mode" id="y-mode" role="group" aria-label="Gros chiffre : ton compte ou le reste de l\'année">' +
         '<button type="button" data-act="hero-mode" data-v="compte">Sur mon compte</button><button type="button" data-act="hero-mode" data-v="reste">Reste de l\'année</button></div>');
@@ -2063,7 +2081,9 @@ function renderAnnee() {
     $$('button', seg).forEach(b => b.setAttribute('aria-pressed', String((b.dataset.v === 'compte') === yCpt)));
   } else if (seg) { seg.remove(); seg = null; }
   const put = html => { while (seg ? seg.nextSibling : k.firstChild) (seg ? seg.nextSibling : k.firstChild).remove(); k.insertAdjacentHTML('beforeend', html); };
-  if (yCpt) {
+  if (yCpt && !YC) {
+    put('<p class="eyebrow">Sur ton compte</p><p class="big">…</p><p class="hero-sub"><span>Chargement…</span></p>' + minis);
+  } else if (yCpt) {
     // Dernière fin de mois connue (décembre en général : prévision pour les mois à venir) et évolution depuis le
     // début de l'année (ou depuis le premier solde noté dans l'année).
     const i = YC.last, mi = ym(y, i + 1), v = YC.v[i], diff = YC.start ? r2(v - YC.start.v) : null;
@@ -2079,15 +2099,15 @@ function renderAnnee() {
   }
   $('#chart-title').textContent = yCpt ? 'Sur ton compte à la fin de chaque mois' : 'Reste de chaque mois';
   if (yCpt) {
-    const f = YC.v.findIndex(x => x != null);
-    $('#y-period').textContent = 'Calculé à partir des soldes que tu as notés' + (f > 0 ? ' (rien avant ' + (/^[aeiouyàâéèêîôû]/i.test(MONTHS[f]) ? 'd\'' : '') + MONTHS[f] + ')' : '') + '. Les mois à venir sont des prévisions, en pâle.';
+    const f = YC ? YC.v.findIndex(x => x != null) : -1;
+    $('#y-period').textContent = !YC ? '' : 'Calculé à partir des soldes que tu as notés' + (f > 0 ? ' (rien avant ' + (/^[aeiouyàâéèêîôû]/i.test(MONTHS[f]) ? 'd\'' : '') + MONTHS[f] + ')' : '') + '. Les mois à venir sont des prévisions, en pâle.';
     $('#chart-legend').innerHTML = '<span><i class="sw s-reste"></i>Sur ton compte</span><span><i class="sw" style="background:var(--neg)"></i>À découvert</span>';
   } else {
     $('#y-period').textContent = !ok || n === 0 ? '' : n === 12 ? 'Année ' + y + ' complète.' : 'De janvier à ' + MONTHS[n - 1] + ' ' + y + '. Les mois suivants sont des prévisions (fixes seulement), en pâle.';
     $('#chart-legend').innerHTML = '<span><i class="sw s-reste"></i>Reste</span><span><i class="sw" style="background:var(--neg)"></i>Manque</span>' + (ok && yd.n ? '<span><i class="dash"></i>Reste moyen ' + esc(eur0(yd.avg)) + '</span>' : '');
   }
   lastChartW = 0; renderChart();
-  if (switched) growBars($$('#chart .b-pos, #chart .b-neg'));
+  if (switched || arrived) growBars($$('#chart .b-pos, #chart .b-neg'));
   // Tableau, « Où part l'argent » et seuils (sous le graphique) : après l'animation d'arrivée sur l'écran,
   // pour que l'écran apparaisse tout de suite, même sur un vieux téléphone.
   clearTimeout(yearLater);
@@ -2095,7 +2115,7 @@ function renderAnnee() {
   else { S.deferYear = false; renderAnneeBottom(yd, ok, pro, on); }
   if (switched) anim($('#y-table'), [{ opacity: 0.25 }, { opacity: 1 }], { duration: 320, easing: EASE });
 }
-let yearLater = 0;
+let yearLater = 0, yShown = null, yWait = null; // patch 6 : année affichée avec ses données / en attente de ses données
 function renderAnneeBottom(yd, ok, pro, on) {
   const y = yd.months[0].m.slice(0, 4), T = yd.T;
   let rows = '';
@@ -2105,14 +2125,14 @@ function renderAnneeBottom(yd, ok, pro, on) {
   for (const d of yd.months) {
     const cls = ['go', d.fut ? 'fut' : '', d.now ? 'now' : ''].join(' ');
     // Patch 5 (point 31) : en « Sur mon compte », la dernière colonne = solde à la fin du mois (« — » avant le premier solde noté).
-    const cv = yCpt ? YC.v[pYM(d.m).m - 1] : null;
+    const cv = yCpt && YC ? YC.v[pYM(d.m).m - 1] : null;
     const last = yCpt ? '<td class="' + (cv == null || d.fut ? '' : cv < 0 ? 'neg' : 'pos') + '">' + (cv == null ? '—' : n0(cv)) + '</td>'
       : '<td class="' + (d.fut ? '' : (d.reste < 0 ? 'neg' : 'pos')) + '">' + n0(d.reste) + '</td>';
     rows += '<tr class="' + cls + '" data-act="goto-month" data-month="' + d.m + '"><td><button class="cell-btn" data-act="goto-month" data-month="' + d.m + '" aria-label="' + cap(MONTHS[pYM(d.m).m - 1]) + '"><span class="m-l">' + cap(MONTHS[pYM(d.m).m - 1]) + '</span><span class="m-s">' + cap(MS[pYM(d.m).m - 1]) + '</span></button>' + (d.fut ? '<small class="prev-l">prévision</small>' : '') + '</td>' +
       '<td>' + n0(d.net) + '</td><td>' + n0(d.dep) + '</td>' + (on ? epCell(d) : '') + last + '</tr>';
   }
   // Total de la colonne « Compte » : l'évolution depuis le début de l'année (ou le premier solde noté).
-  const cDiff = yCpt && YC.start ? r2(YC.v[YC.last] - YC.start.v) : null;
+  const cDiff = yCpt && YC && YC.start ? r2(YC.v[YC.last] - YC.start.v) : null;
   const lastFoot = yCpt ? '<td class="' + (cDiff == null ? '' : cDiff < 0 ? 'neg' : 'pos') + '">' + (cDiff == null ? '—' : (cDiff > 0 ? '+' : '') + n0(cDiff) + '<small class="ep-mv yr">évolution</small>') + '</td>'
     : '<td class="' + (T.reste < 0 ? 'neg' : 'pos') + '">' + n0(T.reste) + '</td>';
   $('#y-table').innerHTML = ok ? '<table><caption>Montants en euros, arrondis</caption><thead><tr><th>Mois</th><th>' + (pro ? 'Nets' : 'Revenus') + '</th><th>Dépenses</th>' + (on ? '<th>Épargne<small>total</small></th>' : '') + (yCpt ? '<th>Compte<small>fin du mois</small></th>' : '<th>Reste</th>') + '</tr></thead><tbody>' + rows + '</tbody>' +
@@ -2185,11 +2205,21 @@ function renderChart() {
 }
 let chartW = 0;
 if (window.ResizeObserver) new ResizeObserver(es => { const w = es[es.length - 1].contentRect.width; if (w > 0) chartW = w; renderChart(); }).observe($('#chart'));
-function hideBubble() { const b = $('#bubble'); if (b) b.hidden = true; $$('#chart .bar-g.sel').forEach(g => g.classList.remove('sel')); S.bubble = null; }
+// Patch 6 : `fade` = fermeture voulue (retoucher la barre, toucher à côté, Retour) : fondu en EASE_IN, l'inverse
+// de l'ouverture. Sans `fade` (autre barre, nouveau rendu, changement d'écran) : cachée tout de suite.
+function hideBubble(fade) {
+  const b = $('#bubble');
+  $$('#chart .bar-g.sel').forEach(g => g.classList.remove('sel')); S.bubble = null;
+  if (!b || b.hidden) return;
+  if (b.getAnimations) b.getAnimations().forEach(x => x.cancel());
+  const a = fade ? anim(b, [{ opacity: 1, transform: b.style.transform }, { opacity: 0, transform: b.style.transform + ' translateY(6px) scale(.96)' }], { duration: 160, easing: EASE_IN, fill: 'forwards' }) : null;
+  if (!a) { b.hidden = true; return; }
+  a.finished.then(() => { if (S.bubble == null) b.hidden = true; a.cancel(); }, () => {}); // annulée : une autre barre s'ouvre
+}
 function showBubble(i) {
   if (!chartGeo || !YD) return;
   const d = YD.months[i], b = $('#bubble'), on = epOn();
-  if (S.bubble === i && !b.hidden) { hideBubble(); return; }
+  if (S.bubble === i && !b.hidden) { hideBubble(true); return; }
   hideBubble(); S.bubble = i;
   const g = $('#chart .bar-g[data-i="' + i + '"]'); if (g) g.classList.add('sel');
   const l = (k, v) => '<div class="l"><span>' + k + '</span><span>' + eur(v) + '</span></div>';
@@ -2218,10 +2248,13 @@ function showBubble(i) {
 /* ----- vue Réglages ----- */
 // Patch 5 (point 30) : sur grand écran (zone de contenu d'au moins 1000 px, comme la requête de conteneur du CSS),
 // la liste des réglages reste à gauche et la page choisie s'affiche à droite (« Mon compte » d'office).
+// Patch 6 : résultat gardé en mémoire (plus de calcul de mise en page à chaque rendu), recalculé au redimensionnement.
+let wideMemo = null;
 function setWide() {
-  const m = $('.main'); if (!m) return false;
+  if (wideMemo != null) return wideMemo;
+  const m = $('.main'); if (!m || !m.clientWidth) return false; // écran pas encore affiché : rien à retenir
   const cs = getComputedStyle(m);
-  return m.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0) >= 1000;
+  return (wideMemo = m.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0) >= 1000);
 }
 function renderReglages() {
   const wide = setWide(), sub = S.sub || (wide ? 'compte' : null);
@@ -2428,7 +2461,7 @@ function openLayer(back, sheet) {
   sheet.getAnimations && sheet.getAnimations().forEach(a => a.cancel());
   delete back.dataset.closing; back.style.pointerEvents = '';
   back.hidden = false;
-  anim(back, [{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: 'ease-out' });
+  anim(back, [{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: EASE });
   return anim(sheet, isWide()
     ? [{ transform: 'translateY(18px) scale(.97)', opacity: 0 }, { transform: 'none', opacity: 1 }]
     : [{ transform: 'translateY(100%)' }, { transform: 'none' }], { duration: isWide() ? 300 : 380, easing: SPRING });
@@ -2437,9 +2470,9 @@ function closeLayer(back, sheet) {
   if (back.hidden || back.dataset.closing) return;
   const a = anim(sheet, isWide()
     ? [{ transform: 'none', opacity: 1 }, { transform: 'translateY(12px) scale(.98)', opacity: 0 }]
-    : [{ transform: 'none' }, { transform: 'translateY(100%)' }], { duration: 220, easing: 'cubic-bezier(.4,0,1,1)', fill: 'forwards' });
+    : [{ transform: 'none' }, { transform: 'translateY(100%)' }], { duration: 220, easing: EASE_IN, fill: 'forwards' });
   if (!a) { back.hidden = true; return; }
-  const b = anim(back, [{ opacity: 1 }, { opacity: 0 }], { duration: 220, fill: 'forwards' });
+  const b = anim(back, [{ opacity: 1 }, { opacity: 0 }], { duration: 220, easing: EASE_IN, fill: 'forwards' });
   back.dataset.closing = '1'; back.style.pointerEvents = 'none';
   a.finished.then(() => {
     if (!back.dataset.closing) return; // rouverte entre-temps
@@ -2782,7 +2815,7 @@ $('#sheet-close').addEventListener('click', closeSheet);
 bg.addEventListener('click', e => { if (e.target === bg) closeSheet(); });
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape' || popOpen()) return;
-  if (layerOpen(pbg)) closePanel(); else if (layerOpen(bg)) closeSheet(); else if (S.bubble != null) hideBubble();
+  if (layerOpen(pbg)) closePanel(); else if (layerOpen(bg)) closeSheet(); else if (S.bubble != null) hideBubble(true);
 });
 
 form.addEventListener('submit', e => {
@@ -2884,8 +2917,8 @@ function pendingOps(d) {
   return out;
 }
 const opTxt = e => esc(e.label) + ' · ' + esc(dShort(e.date)) + ' · ' + (e.op ? (e.op === 'solde' ? '' : e.op === 'retrait' ? '+' : MINUS) : e.type === 'revenu' ? '+' : MINUS) + esc(eur(e.amount));
-// La question remplace le message « Enregistré » (il passerait sur ses boutons).
-const hideToast = () => { const t = $('#toast'); if (!toastUndoFn) { clearTimeout(toastT); t.hidden = true; } };
+// La question remplace le message « Enregistré » (il passerait sur ses boutons) ; patch 6 : il part en fondu.
+const hideToast = () => { const t = $('#toast'); if (!toastUndoFn && !t.hidden) { clearTimeout(toastT); hideToastSoft(); } };
 function askPending(list, d) {
   hideToast();
   openPanel('Déjà passées sur ton compte ?', '<p class="hint">Ces opérations n\'étaient pas encore passées sur ton compte. Le sont-elles au ' + esc(dShort(d)) + ' ?</p>' +
@@ -3082,6 +3115,7 @@ function keepFocusVisible() {
   });
 }
 window.addEventListener('resize', () => {
+  wideMemo = null;
   if (!KB.native && !isEditable(document.activeElement)) KB.base = window.innerHeight;
   kbUpdate();
   positionIndicator(false);
@@ -3192,7 +3226,7 @@ function viewIn(v) {
 function setSub(name, dir) {
   S.sub = name;
   render(); window.scrollTo(0, 0);
-  if (setWide()) { const p = $('#sub-' + (name || 'compte')); anim(p, [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: SPRING }); return; } // patch 5 : la liste reste à gauche
+  if (setWide()) { riseIn($('#sub-' + (name || 'compte'))); return; } // patch 5 : la liste reste à gauche ; patch 6 : même apparition qu'une carte
   slideIn(name ? $('#sub-' + name) : $('#set-home'), dir, 40);
   cascadeIn(name ? $$('#sub-' + name + ' .card, #sub-' + name + ' .set-foot') : $$('#set-home .set-list button'), { dy: 10, step: 28 });
 }
@@ -3244,7 +3278,7 @@ function setYear(y, dir) {
 })();
 const armedAllow = new Set();
 document.addEventListener('click', e => {
-  if (S.bubble != null && !e.target.closest('#bubble, #chart .bar-g')) hideBubble();
+  if (S.bubble != null && !e.target.closest('#bubble, #chart .bar-g')) hideBubble(true);
   const t = e.target.closest('[data-act]'); if (!t) return;
   const a = t.dataset.act;
   if (a === 'logout') { logout(); return; }
@@ -3397,7 +3431,7 @@ function toast(msg, isErr) {
 }
 function hideToastSoft() {
   const t = $('#toast'); toastUndoFn = null;
-  const a = anim(t, [{ transform: 'translateX(-50%)', opacity: 1 }, { transform: 'translateX(-50%) translateY(10px) scale(.94)', opacity: 0 }], { duration: 200, easing: 'ease-in', fill: 'forwards' });
+  const a = anim(t, [{ transform: 'translateX(-50%)', opacity: 1 }, { transform: 'translateX(-50%) translateY(10px) scale(.94)', opacity: 0 }], { duration: 200, easing: EASE_IN, fill: 'forwards' });
   if (!a) { t.hidden = true; return; }
   toastOut = a;
   a.finished.then(() => { if (toastOut === a) { t.hidden = true; a.cancel(); toastOut = null; } }, () => {});
