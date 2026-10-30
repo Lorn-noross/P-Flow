@@ -45,7 +45,8 @@
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></symbol>
   <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
-  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M2.5 12c2.4-6.5 4.8-6.5 7.2 0s4.8 6.5 7.2 0c1-2.7 2-4.2 3-4.6"/></symbol>
+  <!-- Patch 6 : logo dessiné par la sœur du propriétaire (monogramme), à la place de la vague. -->
+  <symbol id="i-logo" viewBox="0 0 100.28 94.47"><path d="M58.65,18.47c-1.26-3.54-3.2-6.64-5.91-9.35-2.67-2.76-6.16-4.94-10.37-6.59-4.22-1.65-9.26-2.52-15.12-2.52H0v94.42h19.39v-38.39h7.85c5.77,0,10.76-.78,14.93-2.28,4.22-1.55,7.66-3.59,10.37-6.11,2.76-2.52,4.75-5.38,6.06-8.63,1.26-3.25,1.89-6.49,1.89-9.79,0-3.68-.58-7.22-1.84-10.76ZM36.35,34.99c-2.13,1.7-5.43,2.52-9.98,2.52h-6.98v-19h6.98c4.56,0,7.85,1.07,9.98,3.1,2.08,2.08,3.15,4.46,3.15,7.08s-1.07,4.6-3.15,6.3Z"/><path d="M100.28,4.7v89.76h-16.48v-48.18c-3.44,4.36-7.61,8.63-12.6,12.6v35.58h-14.54v-25.25c-15.41,12.07-17.69,21.96-17.98,25.25h-16.48c.19-7.76,5.31-25.38,34.98-44.33,26.71-17.06,26.58-42.14,26.63-45.05v-.29l16.48-.1Z"/></symbol>
   <symbol id="i-out" viewBox="0 0 24 24"><path d="M7 17L17 7M9 7h8v8"/></symbol>
   <symbol id="i-in" viewBox="0 0 24 24"><path d="M17 7L7 17M15 17H7V9"/></symbol>
   <symbol id="i-epargne" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="2.5"/><path d="M5 6v4c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6M5 10v4c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-4M5 14v4c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-4"/></symbol>
@@ -71,15 +72,17 @@
 </svg>
 
 <!-- Chargement (patch 4) : une goutte tombe dans l'eau et fait des vagues, aux couleurs de la personne ;
-     quand l'appli est prête, les vagues s'élargissent et dévoilent l'écran (main.js, bootReveal). -->
-<div class="boot" id="s-boot" role="status" aria-label="Chargement"><div class="boot-water" aria-hidden="true"><i class="ring r1"></i><i class="ring r2"></i><i class="ring r3"></i><i class="wave"></i><i class="drop"></i></div></div>
+     quand l'appli est prête, les vagues s'élargissent et dévoilent l'écran (main.js, bootReveal).
+     Patch 6 (retour sur l'APK 90) : vagues jusqu'aux bords de l'écran, aspect verre liquide, et le logo qui apparaît
+     après la première vague, pendant le chargement. -->
+<div class="boot" id="s-boot" role="status" aria-label="Chargement"><div class="boot-water" aria-hidden="true"><i class="ring r1"></i><i class="ring r2"></i><i class="ring r3"></i><i class="wave"></i><i class="drop"></i><span class="boot-logo"><svg viewBox="0 0 100.28 94.47"><use href="#i-logo"/></svg></span></div></div>
 
 <!-- Connexion -->
 <div class="screen" id="s-login" hidden>
   <form class="screen-card" id="login-form" novalidate>
     <div class="auth-brand">
-      <span class="mark"><svg class="i"><use href="#i-wave"/></svg></span>
-      <h1>P-Flow</h1>
+      <!-- Patch 6 : logo complet (monogramme + nom), même dessin que l'icône. -->
+      <h1 class="lockup"><svg viewBox="0 0 143.24 50.02" fill="currentColor" role="img" aria-label="Pocket Flow"><path d="M22.05,28.1c2.2-.81,4-1.88,5.42-3.19,1.44-1.32,2.48-2.81,3.17-4.51.66-1.7.99-3.4.99-5.12,0-1.93-.3-3.78-.96-5.63-.66-1.85-1.67-3.47-3.09-4.89-1.39-1.44-3.22-2.58-5.42-3.45-2.2-.86-4.84-1.32-7.91-1.32H0v49.36h10.14v-20.07h4.1c3.02,0,5.63-.41,7.8-1.19ZM10.14,19.61v-9.93h3.65c2.38,0,4.1.56,5.22,1.62,1.09,1.09,1.65,2.33,1.65,3.7s-.56,2.41-1.65,3.29c-1.11.89-2.84,1.32-5.22,1.32h-3.65Z"/><path d="M43.81,2.66c-.03,1.52.04,14.63-13.92,23.55-15.51,9.91-18.18,19.12-18.29,23.18h8.62c.15-1.72,1.34-6.89,9.4-13.2v13.2h7.6v-18.6c2.61-2.08,4.79-4.31,6.59-6.59v25.19h8.62V2.46l-8.62.05v.15Z"/><path d="M78.35,7.19c-.3-.86-.79-1.63-1.44-2.3-.66-.67-1.51-1.21-2.54-1.61-1.03-.41-2.27-.61-3.71-.61h-6.66v20.75h4.75v-7.03h1.92c1.42,0,2.64-.19,3.67-.56,1.02-.38,1.87-.87,2.54-1.49.67-.62,1.16-1.32,1.48-2.11.31-.79.47-1.59.47-2.4,0-.89-.15-1.77-.46-2.63ZM72.89,11.24c-.52.42-1.33.62-2.45.62h-1.7v-4.65h1.7c1.12,0,1.93.25,2.45.76.52.51.78,1.08.78,1.74,0,.61-.26,1.12-.78,1.54Z"/><path d="M90.81,21.36c.63-.63,1.11-1.37,1.45-2.24.33-.86.5-1.8.5-2.82,0-.83-.16-1.67-.49-2.53-.32-.85-.8-1.62-1.42-2.31-.62-.69-1.37-1.26-2.25-1.7-.88-.45-1.88-.67-3-.67s-2.05.2-2.94.59c-.88.4-1.64.92-2.27,1.58-.63.66-1.12,1.43-1.46,2.3-.35.87-.52,1.79-.52,2.74s.17,1.86.52,2.72c.34.86.83,1.61,1.46,2.25.63.64,1.39,1.15,2.27,1.52.88.37,1.86.56,2.94.56s2.05-.18,2.94-.53c.88-.35,1.64-.85,2.27-1.48ZM88.25,17.36c-.12.35-.3.68-.55.97-.24.29-.54.53-.9.72-.36.18-.76.27-1.2.27-.83,0-1.51-.29-2.04-.88-.53-.59-.79-1.31-.79-2.16,0-.41.07-.8.21-1.19.14-.39.34-.73.58-1.02.24-.29.54-.53.88-.7.34-.17.73-.26,1.16-.26.85,0,1.54.3,2.05.91.52.61.78,1.36.78,2.25,0,.36-.06.73-.18,1.08Z"/><path d="M95.38,21.28c.58.63,1.27,1.14,2.1,1.52,2.64,1.22,5.96.41,8.49-.66.03,0,.05-.03.08-.03v1.34h4.13v-5.32l.76.94.79.96,2.79,3.45h5.02l-5.7-7,5.93-6.9h-5.02s-3.17,4.97-6.34,7.35c-1.93,1.45-4.16,2.51-6.62,2.56-1.01,0-2.05-.23-2.92-.79-.86-.56-1.22-1.42-1.22-2.43,0-.41.08-.81.2-1.19.13-.38.33-.74.58-1.01.25-.3.58-.53.96-.71.38-.18.79-.25,1.27-.25.51,0,.99.08,1.42.28.43.18.79.43,1.04.76l2.1-2.84c-.66-.71-1.42-1.27-2.26-1.65-.81-.38-1.72-.58-2.71-.58s-1.9.2-2.74.61c-.81.38-1.52.91-2.13,1.57-.58.66-1.06,1.42-1.37,2.31-.33.86-.51,1.77-.51,2.74s.18,1.85.51,2.71c.3.86.76,1.62,1.34,2.26Z"/><path d="M110.19,12.78V3.43h-4.13v12.76c.65-.36,1.39-.84,2.16-1.47.83-.68,1.48-1.35,1.98-1.94Z"/><path d="M130.51,11.38c-.58-.69-1.28-1.23-2.11-1.63-.83-.39-1.76-.59-2.8-.59s-1.91.2-2.74.59c-.83.4-1.54.92-2.13,1.58-.59.66-1.04,1.43-1.37,2.3s-.49,1.79-.49,2.74.17,1.86.52,2.72c.34.86.83,1.61,1.46,2.25.63.64,1.39,1.15,2.27,1.52.88.37,1.86.56,2.94.56,1.34,0,2.51-.27,3.51-.81,1-.54,1.79-1.27,2.36-2.21l-3.13-1.98c-.26.41-.62.73-1.08.97-.46.24-1.01.36-1.66.36-.85,0-1.55-.23-2.1-.7-.55-.47-.88-1.05-1-1.77h9.34v-.46c0-1.07-.15-2.08-.46-3.03-.3-.94-.75-1.76-1.32-2.45ZM123.19,14.76c.16-.61.45-1.11.85-1.51.4-.4.91-.59,1.52-.59.71,0,1.27.19,1.69.58.41.39.67.89.78,1.52h-4.84Z"/><path d="M142.33,19.14c-.28.16-.54.27-.77.33-.23.06-.46.09-.68.09-.55,0-.94-.17-1.19-.5-.24-.34-.37-.71-.37-1.11v-5.41h2.92v-3.56h-2.92v-2.92h-4.14v2.92h-1.7v3.56h1.7v5.57c0,1.81.47,3.14,1.41,4.02.94.87,2.15,1.31,3.64,1.31.4,0,.89-.05,1.46-.15.57-.1,1.09-.25,1.55-.46l-.91-3.68Z"/><polygon points="63.91 49.41 68.65 49.41 68.65 42.14 76.56 42.14 76.56 37.39 68.65 37.39 68.65 33.46 77.6 33.46 77.6 28.72 63.91 28.72 63.91 49.41"/><path d="M84.2,46.64c-.06-.45-.1-.9-.11-1.37-.01-.47-.02-.91-.02-1.34v-15.61h-4.2v15.61c0,.45,0,.92.01,1.41,0,.5.04.99.11,1.46.06.48.15.93.27,1.35.12.43.29.79.52,1.09l4.2-.3c-.22-.28-.4-.63-.52-1.03s-.21-.83-.27-1.28Z"/><path d="M99.09,37.51c-.62-.69-1.37-1.26-2.25-1.7s-1.88-.67-3-.67-2.06.2-2.94.59c-.88.4-1.64.92-2.27,1.58-.63.66-1.11,1.43-1.46,2.3-.35.87-.52,1.79-.52,2.74s.17,1.86.52,2.72c.34.86.83,1.61,1.46,2.25.63.64,1.39,1.15,2.27,1.52.88.37,1.86.56,2.94.56s2.05-.18,2.93-.53c.88-.35,1.64-.85,2.27-1.48.63-.63,1.11-1.37,1.45-2.24.33-.86.5-1.8.5-2.82,0-.83-.16-1.67-.49-2.53-.32-.85-.8-1.62-1.42-2.31ZM96.49,43.4c-.12.35-.3.68-.55.97-.25.29-.54.53-.9.72-.35.18-.76.27-1.2.27-.83,0-1.51-.29-2.04-.88-.53-.59-.79-1.31-.79-2.16,0-.41.07-.8.21-1.19.14-.39.33-.73.58-1.02.25-.29.54-.53.88-.7.34-.17.73-.26,1.16-.26.85,0,1.54.3,2.05.91.52.61.77,1.36.77,2.25,0,.36-.06.73-.18,1.08Z"/><polygon points="115.66 41.47 112.37 35.47 109.06 41.47 106.71 35.66 102.45 35.66 108.51 50.02 112.37 42.74 116.17 50.02 122.32 35.66 118 35.66 115.66 41.47"/></svg></h1>
       <p>Know where your money flows.</p>
     </div>
     <button type="button" class="btn google block" id="google-btn">
@@ -106,7 +109,7 @@
 <!-- Vérification de l'email -->
 <div class="screen" id="s-verify" hidden>
   <div class="screen-card">
-    <div class="auth-brand"><span class="mark"><svg class="i"><use href="#i-wave"/></svg></span></div>
+    <div class="auth-brand"><span class="mark"><svg class="i logo"><use href="#i-logo"/></svg></span></div>
     <h2>Vérifie ton email</h2>
     <p>On t'a envoyé un lien à <b id="v-email"></b>. Ouvre-le, puis reviens ici. Pense à regarder dans les spams.</p>
     <p class="error" id="v-error" role="alert"></p>
@@ -121,7 +124,7 @@
 <!-- Accès refusé : demande d'accès -->
 <div class="screen" id="s-denied" hidden>
   <div class="screen-card">
-    <div class="auth-brand"><span class="mark"><svg class="i"><use href="#i-wave"/></svg></span></div>
+    <div class="auth-brand"><span class="mark"><svg class="i logo"><use href="#i-logo"/></svg></span></div>
     <h2>Accès pas encore autorisé</h2>
     <p>Le compte <b id="d-email"></b> n'est pas encore dans la liste des personnes autorisées.</p>
     <div class="card stack" id="req-box">
@@ -155,7 +158,7 @@
 
 <div class="app" id="app" hidden>
   <aside class="side">
-    <div class="brand"><span class="mark"><svg class="i"><use href="#i-wave"/></svg></span>P-Flow</div>
+    <div class="brand"><span class="mark"><svg class="i logo"><use href="#i-logo"/></svg></span>P-Flow</div>
     <button class="btn primary side-add" data-act="add"><svg class="i"><use href="#i-plus"/></svg>Ajouter</button>
     <nav class="nav" aria-label="Sections">
       <span class="nav-ind" aria-hidden="true"></span>
@@ -177,11 +180,14 @@
     <div class="update" id="update" role="status" hidden></div>
     <div class="update" id="backup-due" hidden><span>C'est le moment de la copie de tes données sur Google Drive.</span><button class="link" data-act="drive-due">Sauvegarder</button></div>
     <div class="update req" id="req-banner" hidden></div>
+    <!-- Patch 6 : hors ligne (point 4) et visite guidée proposée une fois aux comptes existants (point 9). -->
+    <div class="update" id="offline" role="status" hidden><span>Pas de réseau : ce que tu notes est gardé ici et partira dès son retour.</span></div>
+    <div class="update" id="tuto-banner" hidden><span>Découvre P-Flow en 1 minute.</span><span class="acts"><button class="link" data-act="tuto-hide">Plus tard</button><button class="link" data-act="tuto-start">C'est parti</button></span></div>
 
     <!-- MOIS -->
     <section class="view" id="v-mois">
       <!-- Patch 5 (points 28 et 30) : trois blocs. Téléphone : l'un sous l'autre ; tablette : (A + B) | C ;
-           grand écran : A | B | C (chaque colonne défile seule si l'écran est assez haut). -->
+           grand écran : A | B | C (les colonnes restent en haut de l'écran pendant que la page défile). -->
       <div class="month-grid">
         <div class="col-ab">
         <div class="col col-a">
@@ -264,7 +270,10 @@
       <div class="two">
         <article class="card"><h3>Détail par mois</h3><div class="tbl-wrap" id="y-table"></div></article>
         <div class="stack">
-          <article class="card"><div class="card-head"><h3>Où part l'argent</h3><div class="mini-legend"><span><i class="sw s-fixes"></i>fixes</span><span><i class="sw s-dep"></i>ponctuelles</span></div></div><div class="top-list" id="y-top"></div></article>
+          <article class="card"><div class="card-head"><h3>Où part l'argent</h3><div class="mini-legend" id="y-top-legend"><span><i class="sw s-fixes"></i>fixes</span><span><i class="sw s-dep"></i>ponctuelles</span></div></div>
+            <!-- Patch 6 : par libellé ou par catégorie (choix propre à l'appareil). -->
+            <div class="seg y-top-mode" id="y-top-mode" role="group" aria-label="Regrouper les dépenses"><button type="button" data-act="top-mode" data-v="lib">Par libellé</button><button type="button" data-act="top-mode" data-v="cat">Par catégorie</button></div>
+            <div class="top-list" id="y-top"></div></article>
           <article class="card pro-only"><h3>Seuils de la micro-entreprise</h3><div class="meters" id="y-meters"></div>
             <!-- Patch 5 (point 24) : une ligne, le détail dans un ⓘ (rempli par renderAnneeBottom) -->
             <div class="hint meters-note" id="y-meters-note"></div>
@@ -305,10 +314,16 @@
           <label class="check"><span>Suivre mon épargne<small>Livret A, PEL… Ce que tu mets de côté baisse le reste du mois.</small></span><input type="checkbox" id="ep-toggle"></label>
           <p class="hint" id="ep-toggle-hint" hidden>Désactivée : tes opérations d'épargne restent enregistrées, mais elles ne sont plus affichées ni comptées.</p>
         </article>
+        <!-- Patch 6 (point 6) -->
+        <article class="card stack">
+          <h3>Rappel du solde</h3>
+          <p class="hint">Ces jours-là, l'appli te demande ton solde.</p>
+          <button type="button" class="input pick" id="rappel-pick" data-act="rappel-open" aria-haspopup="dialog" aria-expanded="false"><span id="rappel-txt"></span><svg class="i"><use href="#i-mois"/></svg></button>
+        </article>
         <article class="card stack">
           <h3>Configuration</h3>
           <p class="hint">Revoir les étapes du premier démarrage : profil, revenus et charges fixes, compte en banque, épargne, sauvegarde. Rien de ce que tu as déjà noté n'est supprimé.</p>
-          <div><button class="btn ghost" data-act="redo-setup">Refaire la configuration</button></div>
+          <div class="btn-row"><button class="btn ghost" data-act="redo-setup">Refaire la configuration</button><button class="btn ghost" data-act="tuto-start">Revoir le didacticiel</button></div>
         </article>
         <!-- Patch 4 : « Se déconnecter » tout en bas. -->
         <div class="set-foot"><button class="btn ghost block" data-act="logout"><svg class="i"><use href="#i-logout"/></svg>Se déconnecter</button></div>
@@ -337,6 +352,7 @@
             <button type="button" data-act="period" data-p="mensuelle">Tous les mois</button>
             <button type="button" data-act="period" data-p="trimestrielle">Tous les trimestres</button>
           </div>
+          <p class="hint" id="period-note" hidden></p>
         </article>
       </div>
 
@@ -388,10 +404,21 @@
           <p class="notice" id="backup-status" role="status" hidden></p>
           <div class="notice stack" id="restore-panel" hidden></div>
         </article>
+        <!-- Patch 6 (points 1 et 1 bis) : import, chacun son bouton. Pas de filtre de type : sur Android, les
+             extensions inconnues du système (.ofx, .qif) rendraient le fichier impossible à choisir ; le contenu est
+             reconnu à la lecture. -->
+        <article class="card stack">
+          <h3>Importer</h3>
+          <div class="btn-row">
+            <label class="btn ghost">Importer un tableau (Excel / CSV)<input type="file" id="imp-table" hidden></label>
+            <label class="btn ghost">Importer un relevé de ma banque<input type="file" id="imp-bank" hidden></label>
+          </div>
+          <p class="hint">Relevé : exporte au moins 3 mois depuis ton espace bancaire, en CSV ou OFX. Rien n'est envoyé ailleurs.</p>
+          <div class="stack" id="imp-last" hidden></div>
+        </article>
         <article class="card stack">
           <h3>Tableur</h3>
-          <div class="web-only"><button class="btn ghost" data-act="export" id="export-btn">Exporter l'année en CSV</button></div>
-          <p class="hint native-only">L'export CSV (pour un tableur) se fait depuis la version PC.</p>
+          <div><button class="btn ghost" data-act="export" id="export-btn">Exporter l'année en CSV</button></div>
         </article>
       </div>
 
@@ -451,6 +478,11 @@
     <button data-act="view" data-view="annee"><svg class="i"><use href="#i-annee"/></svg><span>Année</span></button>
     <button data-act="view" data-view="reglages"><svg class="i"><use href="#i-reglages"/></svg><span>Réglages</span></button>
   </nav>
+  <!-- Patch 6 : brouillon d'un ajout réduit (point 8). -->
+  <div class="draft pill" id="draft" hidden>
+    <button type="button" class="draft-open" data-act="draft-open"><svg class="i"><use href="#i-plus"/></svg><span id="draft-txt">Brouillon</span></button>
+    <button type="button" class="icon-btn" data-act="draft-del" aria-label="Abandonner le brouillon"><svg class="i"><use href="#i-close"/></svg></button>
+  </div>
 </div>
 
 <div class="backdrop" id="sheet-bg" hidden>
@@ -479,16 +511,23 @@
       <ul class="suggest" id="f-suggest" role="listbox" aria-label="Libellés déjà utilisés" hidden></ul>
       <div class="acc-chips" id="f-accounts" role="group" aria-label="Tes comptes d'épargne" hidden></div>
     </div>
+    <!-- Patch 6 : catégorie de la dépense, devinée d'après le libellé ; la changer la retient pour ce libellé. -->
+    <div class="field" id="f-cat-field" hidden>
+      <span class="field-label" id="f-cat-label">Catégorie</span>
+      <button type="button" class="input pick" id="f-cat" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="f-cat-label f-cat-txt"><span id="f-cat-txt"></span><svg class="i"><use href="#i-down"/></svg></button>
+    </div>
     <label class="field" id="f-epstart-field" hidden><span>Nouveau compte : combien as-tu déjà dessus ? (facultatif)</span>
       <div class="amount-wrap small"><input id="f-epstart" inputmode="decimal" placeholder="0,00" autocomplete="off" aria-label="Montant déjà sur ce compte, en euros"><span>€</span></div>
     </label>
     <div class="field" id="f-freq-field">
       <span class="field-label" id="f-freq-label">Fréquence</span>
-      <div class="seg seg4" id="freq-seg" role="group" aria-labelledby="f-freq-label">
+      <!-- Patch 6 : + « Semaine » ; mots courts pour tenir à 5 sur un téléphone étroit. -->
+      <div class="seg seg5" id="freq-seg" role="group" aria-labelledby="f-freq-label">
         <button type="button" data-f="once">Une fois</button>
-        <button type="button" data-f="mois">Mensuel</button>
-        <button type="button" data-f="trimestre">Trimestriel</button>
-        <button type="button" data-f="annee">Annuel</button>
+        <button type="button" data-f="semaine">Semaine</button>
+        <button type="button" data-f="mois">Mois</button>
+        <button type="button" data-f="trimestre">Trimestre</button>
+        <button type="button" data-f="annee">Année</button>
       </div>
     </div>
     <div class="field" id="f-when-field">
@@ -519,6 +558,14 @@
   </div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<!-- Patch 6 : didacticiel (point 9) : un seul calque, l'élément expliqué reste visible dans le « trou ». -->
+<div class="tuto" id="tuto" hidden>
+  <div class="tuto-hole" aria-hidden="true"></div>
+  <div class="tuto-bub" role="dialog" aria-modal="true" aria-label="Visite de P-Flow">
+    <p class="tuto-t" id="tuto-t"></p>
+    <div class="tuto-foot"><span class="hint" id="tuto-n"></span><span class="btn-row"><button type="button" class="link" data-tuto="skip">Passer</button><button type="button" class="btn ghost sm" data-tuto="prev">Retour</button><button type="button" class="btn primary sm" data-tuto="next">Suivant</button></span></div>
+  </div>
+</div>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

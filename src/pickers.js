@@ -18,6 +18,7 @@ let cfg = { motionOK: () => true, today: () => new Date() };
 export function initPickers(o) { cfg = Object.assign(cfg, o || {}); }
 
 const SPRING = 'cubic-bezier(.2,1.18,.32,1)';
+const EASE_IN = 'cubic-bezier(.4,0,1,1)'; // patch 6 : sorties, même courbe que main.js
 function anim(el, frames, opts) {
   if (!el || !el.animate || !cfg.motionOK()) return null;
   try { return el.animate(frames, opts); } catch (e) { return null; }
@@ -32,7 +33,7 @@ export function closePop(silent) {
   document.removeEventListener('keydown', onKey, true);
   window.removeEventListener('resize', onResize);
   const done = () => { p.scrim.remove(); p.box.remove(); };
-  const a = anim(p.box, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(' + (p.below ? -6 : 6) + 'px) scale(.97)' }], { duration: 160, easing: 'ease-in', fill: 'forwards' });
+  const a = anim(p.box, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(' + (p.below ? -6 : 6) + 'px) scale(.97)' }], { duration: 160, easing: EASE_IN, fill: 'forwards' });
   if (a) a.finished.then(done, done); else done();
   if (p.anchor && p.anchor.setAttribute) p.anchor.setAttribute('aria-expanded', 'false');
   if (!silent && p.onClose) p.onClose();
@@ -175,6 +176,28 @@ export function openCalendar({ anchor, value, mode, label, onPick, min, max, not
       if (mode === 'month') { closePop(true); onPick(ym(V.y, m)); return; }
       V.m = m; V.view = 'days'; render(0);
     } else if (b.dataset.d) { closePop(true); onPick(V.y + '-' + pad(V.m) + '-' + pad(+b.dataset.d)); }
+  });
+}
+
+/* ---------- jours du mois à cocher (patch 6 : rappel du solde) ---------- */
+// value : liste de jours (1 à 31), répétés chaque mois ; onPick(liste triée) à « OK » ; « Aucun » vide la liste.
+export function openDays({ anchor, value, label, note, onPick }) {
+  const sel = new Set(value || []);
+  const html = '<p class="hue-title">' + esc(label || 'Jours') + '</p><div class="cal-grid days-grid" role="group" aria-label="' + esc(label || 'Jours') + '">' +
+    Array.from({ length: 31 }, (_, i) => '<button type="button" class="cal-d' + (sel.has(i + 1) ? ' sel' : '') + '" data-d="' + (i + 1) + '" aria-pressed="' + sel.has(i + 1) + '">' + (i + 1) + '</button>').join('') + '</div>' +
+    (note ? '<p class="hint days-note">' + esc(note) + '</p>' : '') +
+    '<div class="btn-row"><button type="button" class="btn ghost sm" data-c="none">Aucun</button><button type="button" class="btn primary sm" data-c="ok">OK</button></div>';
+  const box = openPop(anchor, html, { label: label || 'Jours', width: 336, cls: 'pop-days' });
+  box.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.d) {
+      const d = +b.dataset.d, on = !sel.has(d);
+      if (on) sel.add(d); else sel.delete(d);
+      b.classList.toggle('sel', on); b.setAttribute('aria-pressed', String(on));
+      // même petit rebond qu'un choix dans les boutons à choix
+      anim(b, [{ transform: 'scale(.9)' }, { transform: 'scale(1.04)', offset: 0.55 }, { transform: 'none' }], { duration: 380, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    } else if (b.dataset.c === 'none') { sel.clear(); box.querySelectorAll('.cal-d').forEach(x => { x.classList.remove('sel'); x.setAttribute('aria-pressed', 'false'); }); }
+    else if (b.dataset.c === 'ok') { closePop(true); onPick(Array.from(sel).sort((x, y) => x - y)); }
   });
 }
 

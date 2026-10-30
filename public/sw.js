@@ -2,7 +2,7 @@
 // - Page de l'appli : réseau d'abord, copie de secours en cache.
 // - Fichiers versionnés (assets/*) : cache d'abord.
 // - Page de téléchargement, version.json et APK : jamais mis en cache (toujours la dernière version).
-const CACHE = 'pflow-v2';
+const CACHE = 'pflow-v3'; // patch 6 : nouvelle icône
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg', './apple-touch-icon.png'];
 const NEVER = ['telecharger.html', 'version.json', '.apk'];
 
