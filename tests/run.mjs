@@ -1712,7 +1712,8 @@ async function scenarioPatch6(cfg, fx, tag) {
       await page.click('[data-tuto="next"]');
       await until(page, n => document.getElementById('tuto-n').textContent !== n, n0, 'didacticiel : étape suivante');
       const y1 = await page.evaluate(() => scrollY);
-      if (/opérations/.test(await page.locator('#tuto-t').textContent())) check(y1 > y0, 'didacticiel : la visite descend vers les opérations (' + y0 + ' → ' + y1 + ')');
+      // Téléphone (une colonne) seulement : sur tablette, les opérations sont en haut de la 2e colonne, la visite y remonte.
+      if (cfg.viewport.width < 600 && /opérations/.test(await page.locator('#tuto-t').textContent())) check(y1 > y0, 'didacticiel : la visite descend vers les opérations (' + y0 + ' → ' + y1 + ')');
     }
     // Retour arrière puis Suivant : prise de mesures pendant la transition (position À L'ÉCRAN du contenu : depuis
     // l'APK 92, la page saute à sa place et le contenu revient en transform).
@@ -1747,6 +1748,12 @@ async function scenarioPatch6(cfg, fx, tag) {
   await until(page, () => document.getElementById('panel-title').textContent === 'Importer un tableau' && /Ajouter 2 opérations/.test(document.querySelector('[data-act="imp-go"]').textContent), null, 'import tableau : 2 à ajouter (Courses déjà là)');
   check(/1 ligne déjà dans P-Flow/.test(await page.locator('#panel-body').innerText()), 'import tableau : doublon signalé');
   check(await page.locator('#imp-sign').isVisible(), 'import tableau : « Dépenses / Revenus » proposé (montants sans signe)');
+  // Changer de sens garde le même .seg (sinon sa transition ne se joue pas) et met l'aperçu à jour.
+  await page.evaluate(() => { document.getElementById('imp-sign').__garde = 1; });
+  await page.click('#imp-sign [data-v="revenu"]');
+  await until(page, () => /\+/.test(document.getElementById('imp-trest').textContent), null, 'import tableau : aperçu en revenus');
+  check(await page.evaluate(() => document.getElementById('imp-sign').__garde === 1 && document.querySelector('#imp-sign [data-v="revenu"]').getAttribute('aria-pressed') === 'true'), 'import tableau : « Dépenses / Revenus » gardé (pas recréé)');
+  await page.click('#imp-sign [data-v="depense"]');
   await page.click('[data-act="imp-go"]');
   await until(page, () => Object.keys(window.__PFLOW_DB__.dump()).filter(k => /\/entries\/imt/.test(k)).length === 2, null, 'import tableau : 2 opérations créées');
   db = await dump(page);
@@ -1763,12 +1770,16 @@ async function scenarioPatch6(cfg, fx, tag) {
   // 8. Relevé de banque (OFX) : loyer déjà compté par le fixe, Netflix repéré comme fixe, solde noté
   const tr = (d, a, n) => '<STMTTRN><TRNTYPE>' + (a < 0 ? 'DEBIT' : 'CREDIT') + '<DTPOSTED>' + d + '<TRNAMT>' + a + '<FITID>' + d + n.length + '<NAME>' + n + '</STMTTRN>';
   const ofx = 'OFXHEADER:100\n<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKTRANLIST>' + tr('20260108', -13.49, 'PRLV SEPA NETFLIX') + tr('20260208', -13.49, 'PRLV SEPA NETFLIX') + tr('20260308', -13.49, 'PRLV SEPA NETFLIX') +
-    tr('20260305', -500, 'VIR LOYER MARS') + tr('20260312', -40.1, 'CB CARREFOUR 11/03') + '</BANKTRANLIST><LEDGERBAL><BALAMT>1000.00<DTASOF>20260314</LEDGERBAL></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>';
+    tr('20260305', -500, 'VIR LOYER MARS') + tr('20260312', -40.1, 'CB CARREFOUR 11/03') +
+    tr('20260311', 50, 'VIR REMBOURSEMENT') + tr('20260210', -95.37, 'PRLV SEPA URSSAF') + '</BANKTRANLIST><LEDGERBAL><BALAMT>1000.00<DTASOF>20260314</LEDGERBAL></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>';
+  // Avant l'import : URSSAF de janvier « pas encore payée » ; le Remboursement (e3) est « pas encore passé » dans le jeu de données.
+  await page.evaluate(u => window.__PFLOW_DB__.set(u + 'urssaf/2026-01', { payee: false, createdAt: 1 }), U);
   await page.setInputFiles('#imp-bank', { name: 'releve.ofx', mimeType: 'application/x-ofx', buffer: Buffer.from(ofx, 'utf8') });
   await until(page, () => document.getElementById('panel-title').textContent === 'Importer un relevé' && /Fixes repérés/.test(document.getElementById('panel-body').textContent), null, 'relevé : fenêtre, fixes repérés');
   const pb = (await page.locator('#panel-body').textContent()).replace(/[\u00a0\u202f]/g, ' ');
   check(/Netflix/.test(pb) && /le 8 de chaque mois/.test(pb), 'relevé : Netflix, le 8 de chaque mois');
-  check(/1 ligne déjà dans P-Flow/.test(pb), 'relevé : le loyer est reconnu (fixe déjà noté)');
+  check(/2 lignes déjà dans P-Flow/.test(pb), 'relevé : le loyer (fixe) et le Remboursement (opération) sont reconnus');
+  check(/URSSAF de janvier 2026 : 95,37 €/.test(pb), 'relevé : URSSAF de janvier payée proposée');
   check(/1 000,00 € le 14 mars/.test(pb), 'relevé : solde proposé');
   check(await page.locator('#imp-rest .imp-line').count() === 1 && (await page.inputValue('#imp-rest .imp-lab')) === 'Carrefour', 'relevé : reste Carrefour, libellé nettoyé');
   await page.click('[data-act="imp-go"]');
@@ -1777,6 +1788,16 @@ async function scenarioPatch6(cfg, fx, tag) {
   check(Object.values(db).filter(v => v.label === 'Carrefour' && v.amount === 40.1 && v.type === 'depense').length === 1, 'relevé : opération Carrefour créée');
   check(!Object.entries(db).some(([k, v]) => /\/entries\//.test(k) && /loyer|netflix/i.test(v.label || '')), 'relevé : ni loyer ni Netflix en double');
   check(Object.values(db).some(v => v.montant === 1000 && v.date === '2026-03-14'), 'relevé : solde du 14 mars noté');
+  check(db[U + 'pointages/e3'] && db[U + 'pointages/e3'].passee === true, 'relevé : Remboursement retrouvé, passé au nouveau solde (pas compté deux fois)');
+  check(db[U + 'urssaf/2026-01'] && db[U + 'urssaf/2026-01'].payee === true && db[U + 'urssaf/2026-01'].montant === 95.37, 'relevé : URSSAF de janvier payée');
+  // Annuler : ce qui existait avant l'import est remis tel quel, le reste est retiré.
+  await until(page, () => !document.getElementById('imp-last').hidden, null, 'relevé : « Annuler le dernier import »');
+  await page.click('[data-act="imp-undo"]'); await page.click('[data-act="imp-undo"]');
+  await until(page, () => !Object.values(window.__PFLOW_DB__.dump()).some(v => v.label === 'Netflix'), null, 'relevé annulé : fixe Netflix retiré');
+  db = await dump(page);
+  check(JSON.stringify(db[U + 'pointages/e3']) === JSON.stringify({ passee: false, createdAt: 1773216000000 }), 'relevé annulé : pointage du Remboursement remis (' + JSON.stringify(db[U + 'pointages/e3']) + ')');
+  check(JSON.stringify(db[U + 'urssaf/2026-01']) === JSON.stringify({ payee: false, createdAt: 1 }), 'relevé annulé : URSSAF de janvier « pas encore » remise (' + JSON.stringify(db[U + 'urssaf/2026-01']) + ')');
+  check(!Object.values(db).some(v => v.montant === 1000 && v.date === '2026-03-14') && db[U + 'soldes/s2'] && db[U + 'urssaf/2026-02'] && db[U + 'urssaf/2026-02'].champFutur, 'relevé annulé : solde importé retiré, le reste intact');
   noErr(errors, 'patch 6');
   await ctx.close();
 

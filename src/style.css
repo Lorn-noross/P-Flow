@@ -949,6 +949,7 @@ th small{display:block;font-size:calc(10*var(--u));font-weight:500;text-transfor
 .imp-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
 .imp-col .pick span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .imp-lines{display:grid;gap:8px}
+#imp-trest{display:contents}
 .imp-line{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"lab sw" "meta sw";gap:4px 12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);transition:opacity .2s var(--ease)}
 .imp-line:last-child{border-bottom:0}
 .imp-line.off{opacity:.5}

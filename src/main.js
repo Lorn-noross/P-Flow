@@ -3698,7 +3698,11 @@ document.addEventListener('click', e => {
   else if (a === 'tuto-hide') { lsSet('pf-tuto', 'vu'); TUTO.banner = false; renderTutoBanner(); }
   else if (a === 'imp-col') impColPick(t);
   else if (a === 'imp-sheet') openChoice({ anchor: t, label: 'Feuille', value: String(IMP.sheet), options: IMP.sheets.map((x, i) => ({ v: String(i), label: x.name || 'Feuille ' + (i + 1), hint: plural(x.rows.length, 'ligne') })), onPick: async v => { IMP.sheet = +v; impGuess(); try { await impLoadHave(); } catch (e) { toast(e.message || OFFLINE_MSG, true); } impRedraw(); } });
-  else if (a === 'imp-sign') { IMP.positive = t.dataset.v === 'revenu' ? 'revenu' : 'depense'; impOps(); impRedraw(); }
+  else if (a === 'imp-sign') {
+    IMP.positive = t.dataset.v === 'revenu' ? 'revenu' : 'depense'; impOps();
+    $$('[data-act="imp-sign"]').forEach(b => b.setAttribute('aria-pressed', String(b === t)));
+    const r = $('#imp-trest'); if (r) r.innerHTML = impTableRest(); else impRedraw();
+  }
   else if (a === 'imp-all') { const on = t.dataset.v === '1'; $$('#imp-rest .imp-line').forEach(r => { const l = IMP.plan.lines[+r.dataset.i]; if (l) l.on = on; r.classList.toggle('off', !on); const c = $('input[type="checkbox"]', r); if (c) c.checked = on; }); }
   else if (a === 'imp-urs') { const l = IMP.plan && IMP.plan.lines[+t.dataset.i]; if (l) { l.urs = !l.urs; t.setAttribute('aria-pressed', String(l.urs)); } }
   else if (a === 'imp-go') impGo();
@@ -4019,11 +4023,13 @@ async function buildBackup() {
   return o;
 }
 function validItem(it, kind) {
-  if (!it || typeof it !== 'object' || !ID_RE.test(String(it.id))) return false;
+  if (!it || typeof it !== 'object') return false;
+  // Clé d'une correction de catégorie = libellé nettoyé (espaces et apostrophes permis) : contrôle à part.
+  if (kind === 'categories') return typeof it.id === 'string' && catKey(it.id) === it.id && !!CAT_LABEL[it.cat];
+  if (!ID_RE.test(String(it.id))) return false;
   if (kind === 'jours') return Number.isInteger(it.jour) && it.jour >= 1 && it.jour <= 31;
   if (kind === 'soldes') return typeof it.montant === 'number' && isFinite(it.montant) && DATE_RE.test(it.date);
   if (kind === 'pointages') return typeof it.passee === 'boolean';
-  if (kind === 'categories') return !!CAT_LABEL[it.cat] && catKey(it.id) === it.id;
   if (kind === 'hebdo') return hebOk(it) && typeof it.label === 'string' && !!it.label.trim() && typeof it.amount === 'number' && isFinite(it.amount);
   if (kind === 'urssaf') return /^\d{4}-(\d{2}|T[1-4])$/.test(it.id) && (it.payee === false || (it.payee === true && typeof it.montant === 'number' && isFinite(it.montant) && it.montant >= 0 && DATE_RE.test(it.date)));
   const amt = typeof it.amount === 'number' && isFinite(it.amount);
@@ -4485,11 +4491,15 @@ function impTableLines() {
   });
 }
 function impTableHtml() {
+  return '<p class="hint">' + esc(IMP.name) + ' · ' + plural(IMP.ops.length, 'opération') + '</p>' + impColsHtml() +
+    (IMP.needSign ? '<div class="field"><span class="field-label">Ces montants sont des</span><div class="seg" id="imp-sign"><button type="button" data-act="imp-sign" data-v="depense" aria-pressed="' + (IMP.positive !== 'revenu') + '">Dépenses</button><button type="button" data-act="imp-sign" data-v="revenu" aria-pressed="' + (IMP.positive === 'revenu') + '">Revenus</button></div></div>' : '') +
+    '<div id="imp-trest">' + impTableRest() + '</div>';
+}
+// Sous « Dépenses / Revenus » : redessiné seul quand on change de sens (le .seg est gardé, sa transition se joue).
+function impTableRest() {
   const L = impTableLines(), add = L.filter(l => !l.dup), dups = L.length - add.length;
   const notes = [dups ? plural(dups, 'ligne') + ' déjà dans P-Flow' : '', IMP.bad ? plural(IMP.bad, 'ligne') + ' sans date, libellé ou montant' : ''].filter(Boolean);
-  return '<p class="hint">' + esc(IMP.name) + ' · ' + plural(L.length, 'opération') + '</p>' + impColsHtml() +
-    (IMP.needSign ? '<div class="field"><span class="field-label">Ces montants sont des</span><div class="seg" id="imp-sign"><button type="button" data-act="imp-sign" data-v="depense" aria-pressed="' + (IMP.positive !== 'revenu') + '">Dépenses</button><button type="button" data-act="imp-sign" data-v="revenu" aria-pressed="' + (IMP.positive === 'revenu') + '">Revenus</button></div></div>' : '') +
-    (isPro() && add.some(l => l.amount > 0) ? '<label class="check"><span>Revenus soumis à l\'URSSAF<small>Ton chiffre d\'affaires. Pas la CAF ni un salaire.</small></span><input type="checkbox" data-imp="urs"' + (IMP.urs ? ' checked' : '') + '></label>' : '') +
+  return (isPro() && add.some(l => l.amount > 0) ? '<label class="check"><span>Revenus soumis à l\'URSSAF<small>Ton chiffre d\'affaires. Pas la CAF ni un salaire.</small></span><input type="checkbox" data-imp="urs"' + (IMP.urs ? ' checked' : '') + '></label>' : '') +
     (add.length ? '<h3>Aperçu</h3><div>' + add.slice(0, 6).map(l => impRowHtml(l.label, l.date, l.amount)).join('') + '</div>' + (add.length > 6 ? '<p class="hint">Et ' + plural(add.length - 6, 'autre') + '.</p>' : '') : '') +
     (notes.length ? '<p class="hint">' + esc(notes.join(' · ')) + '.</p>' : '') +
     '<div><button type="button" class="btn primary block" data-act="imp-go"' + (add.length ? '' : ' disabled') + '>' + (add.length ? 'Ajouter ' + plural(add.length, 'opération') : 'Rien à ajouter') + '</button></div>';
@@ -4506,9 +4516,9 @@ function impBankPlan() {
   const holds = (x, raw) => { const k = fold(x.label); return k.length >= 4 && fold(raw).includes(k); };
   for (const l of lines) {
     const rev = l.amount > 0, a = Math.abs(l.amount), m = l.date.slice(0, 7);
-    if (IMP.have.ids.has(l.id) || S.epargne.some(x => x.id === l.id)) { l.st = 'known'; continue; }
+    if (IMP.have.ids.has(l.id) || S.epargne.some(x => x.id === l.id)) { l.st = 'known'; l.op = l.id; continue; }
     const e = IMP.have.list.find(x => !usedE.has(x.id) && DATE_RE.test(x.date || '') && near(x.date, l.date) && Math.abs(Number(x.amount) - a) < 0.005 && (x.type === 'revenu') === rev);
-    if (e) { usedE.add(e.id); l.st = 'known'; continue; }
+    if (e) { usedE.add(e.id); l.st = 'known'; l.op = e.id; continue; }
     const fx = monthItems(m);
     let hit = null;
     for (const x of fx.recs.concat(fx.pers)) { const k = x.id + '|' + m; if (!usedF.has(k) && (x.type === 'revenu') === rev && (Math.abs(Number(x.amount) - a) < 0.005 || holds(x, l.raw))) { hit = k; break; } }
@@ -4583,7 +4593,8 @@ function impWrite(list, msg) {
   const jobs = [];
   for (let k = 0; k < list.length; k += 400) {
     const b = writeBatch(db);
-    for (const [col, id, data, merge] of list.slice(k, k + 400)) { const r = id ? doc(ucol(col), id) : doc(ucol(col)); if (merge) b.set(r, data, { merge: true }); else b.set(r, data); refs.push([col, r.id]); }
+    // prev : le document tel qu'il était avant l'import (s'il existait), remis tel quel par « Annuler ».
+    for (const [col, id, data, merge, prev] of list.slice(k, k + 400)) { const r = id ? doc(ucol(col), id) : doc(ucol(col)); if (merge) b.set(r, data, { merge: true }); else b.set(r, data); refs.push(prev ? [col, r.id, prev] : [col, r.id]); }
     jobs.push(b.commit());
   }
   lsSet(impLogKey(), JSON.stringify({ at: Date.now(), refs }));
@@ -4603,16 +4614,20 @@ async function impGo() {
   } else {
     const P = IMP.plan, inFix = new Set();
     P.fixes.forEach(f => { if (f.on) f.idx.forEach(i => inFix.add(i)); });
-    if (P.solde && P.solde.on) list.push(['soldes', null, { montant: P.solde.montant, date: P.solde.date, createdAt: now + n++ }]);
+    let sd = null;
+    if (P.solde && P.solde.on) { list.push(['soldes', null, { montant: P.solde.montant, date: P.solde.date, createdAt: now + n++ }]); sd = P.solde.date; }
     else if (P.askSolde && $('#imp-solde') && $('#imp-solde').value.trim()) {
       const a = IMP.I.parseNum($('#imp-solde').value);
       if (a == null) { toast('Solde : indique un montant, par exemple 1 250,40.', true); return; }
-      list.push(['soldes', null, { montant: a, date: P.dmax, createdAt: now + n++ }]);
+      list.push(['soldes', null, { montant: a, date: P.dmax, createdAt: now + n++ }]); sd = P.dmax;
     }
+    // Opération retrouvée dans le relevé mais notée « pas encore passée » : elle est dans le nouveau solde,
+    // donc passée (sinon elle serait comptée deux fois dans ce qui est prévu sur le compte).
+    if (sd) for (const l of P.lines) if (l.st === 'known' && l.op && l.date <= sd) { const p = pointageOf(l.op); if (p && p.passee === false) list.push(['pointages', l.op, { passee: true, createdAt: now + n++ }, true, plain(p)]); }
     for (const l of P.lines) {
       if (!l.on) continue;
       const a = Math.abs(l.amount), month = l.date.slice(0, 7);
-      if (l.st === 'urs' && !(paiementOf(l.pid) && paiementOf(l.pid).payee)) list.push(['urssaf', l.pid, { payee: true, date: l.date, montant: a, createdAt: now + n++ }, true]);
+      if (l.st === 'urs' && !(paiementOf(l.pid) && paiementOf(l.pid).payee)) { const old = S.urssafPay.find(x => x.id === l.pid); list.push(['urssaf', l.pid, { payee: true, date: l.date, montant: a, createdAt: now + n++ }, true, old ? plain(old) : null]); }
       else if (l.st === 'ep') list.push(['epargne', l.id, { op: l.amount < 0 ? 'depot' : 'retrait', label: l.acc, amount: a, date: l.date, month, createdAt: now + n++ }]);
       else if (l.st === 'add' && !inFix.has(l.i)) list.push(['entries', l.id, { type: l.amount > 0 ? 'revenu' : 'depense', label: (l.label || '').trim().slice(0, 80) || l.raw.slice(0, 80), amount: a, urssaf: pro && l.amount > 0 && l.urs, date: l.date, month, createdAt: now + n++ }]);
     }
@@ -4632,7 +4647,8 @@ function impLast() { try { const o = JSON.parse(lsGet(impLogKey()) || 'null'); r
 function impUndo(now) {
   const o = impLast(); if (!o || blocked()) return;
   const jobs = [];
-  for (let k = 0; k < o.refs.length; k += 400) { const b = writeBatch(db); o.refs.slice(k, k + 400).forEach(([c, id]) => b.delete(doc(ucol(c), id))); jobs.push(b.commit()); }
+  // Créé par l'import : retiré ; déjà là avant (URSSAF « pas encore », pointage) : remis tel qu'il était.
+  for (let k = 0; k < o.refs.length; k += 400) { const b = writeBatch(db); o.refs.slice(k, k + 400).forEach(([c, id, prev]) => { const r = doc(ucol(c), id); if (prev && typeof prev === 'object') b.set(r, prev); else b.delete(r); }); jobs.push(b.commit()); }
   lsSet(impLogKey(), '');
   write(Promise.all(jobs), now ? 'Import annulé' : 'Dernier import annulé');
   renderImpLast();
