@@ -1704,6 +1704,27 @@ async function scenarioPatch6(cfg, fx, tag) {
   await page.click('[data-tuto="next"]');
   await until(page, () => /^2 sur/.test(document.getElementById('tuto-n').textContent), null, 'didacticiel : Suivant');
   await page.screenshot({ path: join(OUT, tag + '-p6-tuto.png') });
+  if (cfg.isMobile) {
+    // Retour sur l'APK 90 : vers une étape plus bas, la page défile en douceur (pas de saut) et la bulle revient ensuite.
+    for (let k = 0; k < 8 && !/opérations/.test(await page.locator('#tuto-t').textContent()); k++) {
+      const n0 = await page.locator('#tuto-n').textContent();
+      const y0 = await page.evaluate(() => scrollY);
+      await page.click('[data-tuto="next"]');
+      await until(page, n => document.getElementById('tuto-n').textContent !== n, n0, 'didacticiel : étape suivante');
+      const y1 = await page.evaluate(() => scrollY);
+      if (/opérations/.test(await page.locator('#tuto-t').textContent())) check(y1 > y0, 'didacticiel : la visite descend vers les opérations (' + y0 + ' → ' + y1 + ')');
+    }
+    // Retour arrière puis Suivant : prise de mesures pendant la transition.
+    await page.click('[data-tuto="prev"]'); await page.waitForTimeout(1100);
+    const ya = await page.evaluate(() => scrollY);
+    await page.click('[data-tuto="next"]'); await page.waitForTimeout(140);
+    const mid = await page.evaluate(() => ({ y: scrollY, op: getComputedStyle(document.querySelector('.tuto-bub')).opacity }));
+    await page.waitForTimeout(1000);
+    const yb = await page.evaluate(() => scrollY);
+    check(yb !== ya && Math.min(ya, yb) < mid.y && mid.y < Math.max(ya, yb), 'didacticiel : défilement progressif (' + ya + ' → ' + mid.y + ' → ' + yb + ')');
+    check(+mid.op < 0.5, 'didacticiel : la bulle part en fondu pendant le défilement (opacité ' + mid.op + ')');
+    check(await page.evaluate(() => getComputedStyle(document.querySelector('.tuto-bub')).opacity) === '1', 'didacticiel : la bulle revient');
+  }
   await page.keyboard.press('Escape');
   await until(page, () => document.getElementById('tuto').hidden, null, 'didacticiel : Échap ferme');
 

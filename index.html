@@ -72,8 +72,10 @@
 </svg>
 
 <!-- Chargement (patch 4) : une goutte tombe dans l'eau et fait des vagues, aux couleurs de la personne ;
-     quand l'appli est prête, les vagues s'élargissent et dévoilent l'écran (main.js, bootReveal). -->
-<div class="boot" id="s-boot" role="status" aria-label="Chargement"><div class="boot-water" aria-hidden="true"><i class="ring r1"></i><i class="ring r2"></i><i class="ring r3"></i><i class="wave"></i><i class="drop"></i></div></div>
+     quand l'appli est prête, les vagues s'élargissent et dévoilent l'écran (main.js, bootReveal).
+     Patch 6 (retour sur l'APK 90) : vagues jusqu'aux bords de l'écran, aspect verre liquide, et le logo qui apparaît
+     après la première vague, pendant le chargement. -->
+<div class="boot" id="s-boot" role="status" aria-label="Chargement"><div class="boot-water" aria-hidden="true"><i class="ring r1"></i><i class="ring r2"></i><i class="ring r3"></i><i class="wave"></i><i class="drop"></i><span class="boot-logo"><svg viewBox="0 0 100.28 94.47"><use href="#i-logo"/></svg></span></div></div>
 
 <!-- Connexion -->
 <div class="screen" id="s-login" hidden>

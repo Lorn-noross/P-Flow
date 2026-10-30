@@ -868,24 +868,47 @@ th small{display:block;font-size:calc(10*var(--u));font-weight:500;text-transfor
   radial-gradient(60% 34% at 92% 14%,var(--glow-2) 0%,transparent 70%),
   linear-gradient(180deg,var(--bg-top) 0,var(--bg) 420px)}
 .boot-water{position:relative;width:132px;height:132px}
-.boot .ring,.boot .wave{position:absolute;left:50%;top:50%;width:132px;height:132px;margin:-66px 0 0 -66px;border-radius:50%;
-  border:2.5px solid var(--accent);background:radial-gradient(circle,transparent 52%,var(--accent-soft) 100%);opacity:0;transform:scale(.1)}
+/* Patch 6 (retour sur l'APK 90) : les vagues partent du centre et vont jusqu'aux bords de l'écran (cercle de 160 vmax,
+   plus grand que la diagonale), en verre liquide : bord clair qui accroche la lumière, liseré à l'accent, intérieur
+   transparent. La bande s'élargit en s'éloignant, comme une vraie vague. */
+.boot .ring,.boot .wave{position:absolute;left:50%;top:50%;width:160vmax;height:160vmax;margin:-80vmax 0 0 -80vmax;border-radius:50%;
+  opacity:0;transform:scale(.02);will-change:transform,opacity;
+  background:radial-gradient(circle closest-side,transparent 86%,var(--accent-soft) 92%,rgba(255,255,255,.7) 95.5%,var(--accent) 97%,transparent 100%)}
 @supports (color:color-mix(in srgb,red,blue)){
-  .boot .ring,.boot .wave{border-color:color-mix(in srgb,var(--accent) 88%,transparent);background:radial-gradient(circle,transparent 50%,color-mix(in srgb,var(--accent) 18%,transparent) 100%)}}
-.boot .ring{animation:boot-ring 1.6s cubic-bezier(.2,.7,.3,1) infinite}
-.boot .r1{animation-delay:.46s} .boot .r2{animation-delay:.78s} .boot .r3{animation-delay:1.1s}
-@keyframes boot-ring{0%{transform:scale(.12);opacity:.95}100%{transform:scale(1.9);opacity:0}}
+  .boot .ring,.boot .wave{background:radial-gradient(circle closest-side,transparent 86%,color-mix(in srgb,var(--accent) 14%,transparent) 92%,
+    rgba(255,255,255,.72) 95.3%,color-mix(in srgb,var(--accent) 70%,transparent) 96.8%,color-mix(in srgb,var(--accent) 18%,transparent) 98.5%,transparent 100%)}}
+.boot .ring{animation:boot-ring 2.2s cubic-bezier(.2,.7,.3,1) infinite}
+.boot .r1{animation-delay:.5s} .boot .r2{animation-delay:1.23s} .boot .r3{animation-delay:1.96s}
+@keyframes boot-ring{0%{transform:scale(.02);opacity:1}70%{opacity:.55}100%{transform:scale(1);opacity:0}}
+/* La goutte : verre teinté, reflet en haut à gauche. */
 .boot .drop{position:absolute;left:50%;top:50%;width:18px;height:24px;margin:-12px 0 0 -9px;border-radius:50% 50% 50% 50%/62% 62% 38% 38%;
-  background:radial-gradient(circle at 36% 30%,#fff 0,var(--accent) 55%);box-shadow:0 6px 16px var(--glow);
+  background:radial-gradient(circle at 34% 28%,rgba(255,255,255,.95) 0,rgba(255,255,255,.4) 22%,var(--accent) 62%);
+  box-shadow:inset 0 -3px 5px rgba(0,0,0,.18),inset 0 1px 2px rgba(255,255,255,.7),0 6px 16px var(--glow);
   animation:boot-drop .52s cubic-bezier(.55,0,.85,.45) .08s both}
 @keyframes boot-drop{0%{transform:translateY(-34vh) scaleY(1.2);opacity:0}18%{opacity:1}86%{transform:translateY(0) scaleY(1.12);opacity:1}100%{transform:translateY(0) scale(1.7,.25);opacity:0}}
-/* Révélation : les vagues s'élargissent jusqu'aux bords et l'écran apparaît dessous. */
-.boot.out{animation:boot-out .5s var(--ease-in) .16s forwards}
+/* Le logo, après la première vague : fondu et agrandissement en ressort, dans une tuile en verre (même verre que les
+   pilules), puis une lente respiration tant que l'appli charge. */
+.boot-logo{position:absolute;left:50%;top:50%;width:100px;height:100px;margin:-50px 0 0 -50px;border-radius:30px;display:grid;place-items:center;
+  color:var(--ink);background:var(--glass);border:1px solid var(--glass-line);box-shadow:var(--shadow),var(--pop-rim);
+  -webkit-backdrop-filter:blur(18px) saturate(1.6);backdrop-filter:blur(18px) saturate(1.6);opacity:0;transform:scale(.55);
+  animation:boot-logo .72s cubic-bezier(.2,1.18,.32,1) .74s both,boot-breathe 2.2s cubic-bezier(.45,0,.55,1) 1.46s infinite alternate}
+.boot-logo svg{width:54px;height:51px;fill:currentColor}
+@keyframes boot-logo{0%{opacity:0;transform:scale(.55)}55%{opacity:1}100%{opacity:1;transform:none}}
+@keyframes boot-breathe{from{transform:none}to{transform:scale(1.045)}}
+/* Effets réduits : pas de mouvement, le logo est là d'emblée (sans flou), la goutte n'est pas montrée. */
+:root[data-effets="reduits"] .boot-logo{opacity:1;transform:none;-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--glass-solid)}
+:root[data-effets="reduits"] .boot .drop{display:none}
+@media (prefers-reduced-motion:reduce){.boot-logo{opacity:1;transform:none}.boot .drop{display:none}}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.boot-logo{background:var(--glass-solid)}}
+/* Révélation : le logo grandit et s'efface, une dernière vague balaie tout l'écran, et l'écran apparaît dessous. */
+.boot.out{animation:boot-out .5s var(--ease-in) .2s forwards}
 .boot.out .ring{animation:boot-fade .22s var(--ease-in) forwards}
-.boot.out .wave{animation:boot-wave .72s cubic-bezier(.2,.7,.3,1) forwards}
+.boot.out .wave{animation:boot-wave .7s cubic-bezier(.2,.7,.3,1) forwards}
+.boot.out .boot-logo{animation:boot-logo-out .34s var(--ease-in) forwards}
 @keyframes boot-out{to{opacity:0}}
 @keyframes boot-fade{to{opacity:0}}
-@keyframes boot-wave{0%{transform:scale(.3);opacity:.9}100%{transform:scale(13);opacity:0}}
+@keyframes boot-wave{0%{transform:scale(.04);opacity:1}100%{transform:scale(1);opacity:.2}}
+@keyframes boot-logo-out{from{opacity:1;transform:none}to{opacity:0;transform:scale(1.18)}}
 
 /* ---------- Patch 4 : tablette et PC en verre liquide (pilules de la colonne de gauche) ---------- */
 @media (min-width:900px){
@@ -938,7 +961,7 @@ th small{display:block;font-size:calc(10*var(--u));font-weight:500;text-transfor
 .imp-sw{grid-area:sw;padding:0;border:0}
 /* Didacticiel : un seul calque ; l'élément expliqué reste visible dans le « trou » (pas de flou animé). */
 .tuto{position:fixed;inset:0;z-index:70}
-.tuto-hole{position:fixed;border-radius:18px;box-shadow:0 0 0 200vmax var(--scrim);pointer-events:none;transform-origin:0 0}
+.tuto-hole{position:fixed;border-radius:18px;box-shadow:0 0 0 200vmax var(--scrim);pointer-events:none}
 .tuto-bub{position:fixed;z-index:71;padding:14px 14px 12px;border-radius:24px;color:var(--ink);background:var(--pop-glass);border:1px solid var(--glass-line);box-shadow:var(--shadow),var(--pop-rim);
   -webkit-backdrop-filter:blur(20px) saturate(1.25);backdrop-filter:blur(20px) saturate(1.25)} /* même verre que .pop (pas la classe : les sélecteurs la gèrent) */
 @supports (color:color-mix(in srgb,red,blue)){.tuto-bub{background:linear-gradient(150deg,color-mix(in srgb,var(--accent) 7%,transparent) 0%,transparent 40%),var(--pop-glass)}}

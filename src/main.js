@@ -339,9 +339,10 @@ function show(id) {
     $('#' + s).hidden = s !== id;
   });
 }
-// Animation d'ouverture (patch 4) : courte si tout est prêt (au moins la chute de la goutte et la première vague,
-// ~0,75 s après le lancement), sinon les vagues tournent en boucle tant que ça charge. Elle ne bloque jamais les
-// touchers (pointer-events: none). « Effets réduits » ou « réduire les animations » : simple fondu.
+// Animation d'ouverture (patch 4) : courte si tout est prêt (au moins la chute de la goutte, la première vague et,
+// depuis le patch 6, l'apparition du logo : ~1,25 s après le lancement), sinon les vagues tournent en boucle tant que
+// ça charge. Elle ne bloque jamais les touchers (pointer-events: none). « Effets réduits » ou « réduire les
+// animations » : simple fondu.
 let bootState = 'on';
 function bootReveal() {
   const b = $('#s-boot');
@@ -357,7 +358,8 @@ function bootReveal() {
       if (a) a.finished.then(end, end); else end();
     }
   };
-  const wait = 750 - performance.now();
+  // Patch 6 : au plus tôt une fois le logo apparu (première vague à ~0,5 s, logo en place à ~1,2 s).
+  const wait = 1250 - performance.now();
   if (wait > 0 && motionOK()) setTimeout(go, wait); else go();
 }
 
@@ -4249,7 +4251,7 @@ function needNet() { if (navigator.onLine) return false; toast('Pas de réseau :
 // Visite sur la vraie appli : l'élément expliqué reste visible dans un « trou » du voile, une bulle en verre (même
 // verre que les fenêtres maison) l'explique. Rien n'est écrit : « déjà vu » est gardé sur l'appareil (`pf-tuto` :
 // 'propose' = proposé une fois, 'vu' = lancé ou refusé). Toujours relançable depuis Réglages → Mon compte.
-const TUTO = { on: false, i: 0, steps: [], rect: null, banner: false };
+const TUTO = { on: false, i: 0, steps: [], rect: null, banner: false, raf: 0, seq: 0 };
 const visEl = el => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
 const firstVis = sels => { for (const q of sels) { const el = $$(q).find(visEl); if (el) return el; } return null; };
 function tutoSteps() {
@@ -4257,8 +4259,9 @@ function tutoSteps() {
     { el: ['#v-mois .hero'], t: $('#hero-mode').hidden ? 'Ici, ce qu\'il te reste ce mois-ci.' : 'Ici, ce qu\'il te reste ce mois-ci. L\'interrupteur montre ton compte en banque ou le reste du mois.' },
     { el: ['.side-add', '.tabbar .fab'], t: 'Le + : note une dépense ou un revenu. Glisse la fenêtre vers le bas pour voir un autre écran : elle t\'attend en brouillon.' },
     { el: ['#ctx .pill'], t: 'Change de mois avec les flèches. Touche le nom du mois pour le calendrier.' },
-    { el: ['#legend .cinfo'], t: 'Touche un ⓘ pour savoir d\'où vient un montant.' },
+    // Retour sur l'APK 90 : étapes dans l'ordre de la page (URSSAF, puis le calcul), la visite ne fait que descendre.
     isPro() ? { el: ['#urssaf-block'], t: 'Ton URSSAF du mois. Note-la payée ici.' } : null,
+    { el: ['#legend .cinfo'], t: 'Touche un ⓘ pour savoir d\'où vient un montant.' },
     { el: ['#lists'], t: 'Tes opérations, avec leur catégorie. Touche-en une pour la modifier.' },
     { el: ['.nav [data-view="fixes"]', '.tabbar [data-view="fixes"]'], t: 'Fixes : ce qui revient chaque semaine, mois ou année.' },
     { el: ['.nav [data-view="annee"]', '.tabbar [data-view="annee"]'], t: 'Année : ton bilan, et où part ton argent.' },
@@ -4282,36 +4285,83 @@ function tutoStart() {
   if (S.view !== 'mois' || S.month !== CUR) { S.month = CUR; S.year = pYM(CUR).y; setView('mois'); setTimeout(go, 480); }
   else { window.scrollTo(0, 0); setTimeout(go, 80); }
 }
+// Retour sur l'APK 90 (« changement trop brusque », « saut vers le bas ») : d'une étape à l'autre, la bulle part en
+// fondu, la page défile en douceur et le trou glisse en même temps jusqu'au nouvel élément (même courbe que le
+// surlignage de la barre du bas), puis la bulle revient en ressort. Le trou change de taille image par image (left / top
+// / width / height d'un seul élément fixe, sans enfant) : un `scale` réduirait aussi son ombre, qui ne couvrirait plus
+// tout l'écran pendant le mouvement.
+const bezier = (x1, y1, x2, y2) => t => {
+  let u = t;
+  for (let k = 0; k < 8; k++) {
+    const x = ((1 - 3 * x2 + 3 * x1) * u + (3 * x2 - 6 * x1)) * u * u + 3 * x1 * u - t;
+    const dx = (3 * (1 - 3 * x2 + 3 * x1) * u + 2 * (3 * x2 - 6 * x1)) * u + 3 * x1;
+    if (Math.abs(x) < 1e-5 || !dx) break;
+    u = Math.min(1, Math.max(0, u - x / dx));
+  }
+  return ((1 - 3 * y2 + 3 * y1) * u + (3 * y2 - 6 * y1)) * u * u + 3 * y1 * u;
+};
+const GLIDE = bezier(0.3, 0.8, 0.25, 1); // = 'cubic-bezier(.3,.8,.25,1)' du surlignage de la barre du bas
+function tutoRect(r, dy) {
+  const p = 8, vw = innerWidth, vh = innerHeight, top = r.top - dy, bot = r.bottom - dy;
+  const x = Math.max(4, r.left - p), y = Math.max(4, top - p);
+  return { x, y, w: Math.min(vw - 4, r.right + p) - x, h: Math.min(vh - 4, bot + p) - y };
+}
+function tutoHole(R) { Object.assign($('#tuto .tuto-hole').style, { left: R.x + 'px', top: R.y + 'px', width: R.w + 'px', height: R.h + 'px' }); }
 function tutoShow(dir) {
   const s = TUTO.steps[TUTO.i], el = s && firstVis(s.el);
   if (!el) { tutoEnd(); return; }
-  if (!el.closest('.tabbar, .side, .top')) el.scrollIntoView({ block: el.offsetHeight > innerHeight * 0.5 ? 'start' : 'center', behavior: 'auto' });
-  requestAnimationFrame(() => tutoPlace(el, dir));
+  cancelAnimationFrame(TUTO.raf);
+  const seq = ++TUTO.seq, bub = $('#tuto .tuto-bub');
+  // Défilement voulu : centré, ou sous la barre du haut si l'élément est grand ; rien pour la barre du bas / latérale.
+  const r = el.getBoundingClientRect(), vh = innerHeight;
+  let dy = 0;
+  if (!el.closest('.tabbar, .side, .top')) {
+    const topBar = $('.top').getBoundingClientRect().bottom;
+    const want = r.height > vh * 0.5 ? r.top - topBar - 12 : r.top + r.height / 2 - vh / 2;
+    const max = Math.max(0, document.documentElement.scrollHeight - vh);
+    dy = Math.round(Math.max(0, Math.min(max, scrollY + want)) - scrollY);
+  }
+  const y0 = scrollY, R = tutoRect(r, dy), prev = TUTO.rect;
+  TUTO.rect = R;
+  const done = out => {
+    if (seq !== TUTO.seq || !TUTO.on) return;
+    if (out) out.cancel();
+    tutoHole(R); tutoText(); tutoBubble(R);
+    if (dir) riseIn(bub);
+    bub.querySelector('[data-tuto="next"]').focus({ preventScroll: true });
+  };
+  if (!prev || !dir || !motionOK()) { if (dy) window.scrollTo(0, y0 + dy); done(null); return; }
+  const out = anim(bub, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(6px) scale(.97)' }], { duration: 160, easing: EASE_IN, fill: 'forwards' });
+  const D = 460 + Math.min(340, Math.abs(dy) * 0.5), t0 = performance.now();
+  const lerp = (a, b, e) => a + (b - a) * e;
+  const frame = now => {
+    if (seq !== TUTO.seq || !TUTO.on) return;
+    const p = Math.min(1, (now - t0) / D), e = GLIDE(p);
+    if (dy) window.scrollTo(0, Math.round(y0 + dy * e));
+    tutoHole({ x: lerp(prev.x, R.x, e), y: lerp(prev.y, R.y, e), w: lerp(prev.w, R.w, e), h: lerp(prev.h, R.h, e) });
+    if (p < 1) TUTO.raf = requestAnimationFrame(frame); else done(out);
+  };
+  TUTO.raf = requestAnimationFrame(frame);
 }
-function tutoPlace(el, dir) {
-  const hole = $('#tuto .tuto-hole'), bub = $('#tuto .tuto-bub');
-  const r = el.getBoundingClientRect(), p = 8, vw = innerWidth, vh = innerHeight;
-  const x0 = Math.max(4, r.left - p), y0 = Math.max(4, r.top - p);
-  const R = { x: x0, y: y0, w: Math.min(vw - 4, r.right + p) - x0, h: Math.min(vh - 4, r.bottom + p) - y0 };
-  const prev = TUTO.rect; TUTO.rect = R;
-  Object.assign(hole.style, { left: R.x + 'px', top: R.y + 'px', width: R.w + 'px', height: R.h + 'px' });
-  // Le trou glisse d'un élément à l'autre comme le surlignage de la barre du bas (mêmes durée et courbe).
-  if (prev && dir) anim(hole, [{ transform: 'translate(' + (prev.x - R.x) + 'px,' + (prev.y - R.y) + 'px) scale(' + (prev.w / R.w).toFixed(3) + ',' + (prev.h / R.h).toFixed(3) + ')' }, { transform: 'none' }], { duration: 460, easing: 'cubic-bezier(.3,.8,.25,1)' });
+function tutoText() {
   $('#tuto-t').textContent = TUTO.steps[TUTO.i].t;
   $('#tuto-n').textContent = (TUTO.i + 1) + ' sur ' + TUTO.steps.length;
+  const bub = $('#tuto .tuto-bub');
   bub.querySelector('[data-tuto="prev"]').hidden = TUTO.i === 0;
   bub.querySelector('[data-tuto="next"]').textContent = TUTO.i === TUTO.steps.length - 1 ? 'Terminer' : 'Suivant';
+}
+// Bulle sous l'élément, ou au-dessus s'il n'y a pas la place.
+function tutoBubble(R) {
+  const bub = $('#tuto .tuto-bub'), vw = innerWidth, vh = innerHeight;
   const bw = Math.min(340, vw - 24); bub.style.width = bw + 'px';
   const bh = bub.offsetHeight;
   const y = R.y + R.h + 12 + bh <= vh - 12 ? R.y + R.h + 12 : R.y - 12 - bh >= 12 ? R.y - 12 - bh : Math.max(12, vh - bh - 12);
   const x = Math.max(12, Math.min(vw - bw - 12, R.x + R.w / 2 - bw / 2));
   bub.style.left = Math.round(x) + 'px'; bub.style.top = Math.round(y) + 'px';
-  if (dir) riseIn(bub);
-  bub.querySelector('[data-tuto="next"]').focus({ preventScroll: true });
 }
 function tutoEnd(silent) {
   if (!TUTO.on) return;
-  TUTO.on = false;
+  TUTO.on = false; cancelAnimationFrame(TUTO.raf);
   const o = $('#tuto');
   const a = silent ? null : anim(o, [{ opacity: 1 }, { opacity: 0 }], { duration: 200, easing: EASE_IN, fill: 'forwards' });
   if (a) a.finished.then(() => { if (!TUTO.on) o.hidden = true; a.cancel(); }, () => {}); else o.hidden = true;
