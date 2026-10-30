@@ -648,6 +648,10 @@ tfoot td{font-weight:600;border-bottom:0;border-top:2px solid var(--line)}
 .auth-brand .mark svg.i{width:30px;height:30px}
 .auth-brand h1{font-family:var(--f-display);font-size:calc(36*var(--u));font-weight:750;letter-spacing:-.03em;line-height:1.05}
 .auth-brand p{color:var(--muted);font-size:calc(15*var(--u))}
+/* Patch 6 : logo de l'appli (monogramme plein, pas un pictogramme au trait) et logo complet de l'écran de connexion. */
+.mark svg.logo{fill:currentColor;stroke:none}
+.auth-brand .lockup{line-height:0;color:var(--ink);margin-bottom:4px}
+.auth-brand .lockup svg{height:calc(58*var(--u));width:auto;display:block}
 .screen-card h2{font-family:var(--f-display);font-size:calc(24*var(--u));font-weight:700;letter-spacing:-.02em}
 .btn.block{width:100%}
 .btn.google{background:var(--surface);border:1px solid var(--line);color:var(--ink)}
