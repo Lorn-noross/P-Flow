@@ -136,7 +136,8 @@ async function open(cfg, docs, opts = {}) {
   const seed = Object.assign({}, docs);
   if (!opts.denied) seed['allowlist/test@example.invalid'] = { addedAt: 1767225600000 };
   if (opts.admin) seed['admins/uid-test'] = { ok: true };
-  const ls = Object.assign(opts.news ? {} : { 'pf-nouveautes': NOTES_VERSION }, opts.ls || {});
+  // Patch 6 : la visite guidée et le rappel du solde ne s'ouvrent pas d'eux-mêmes pendant les autres tests (scénario Patch6 à part).
+  const ls = Object.assign(opts.news ? {} : { 'pf-nouveautes': NOTES_VERSION }, { 'pf-tuto': 'vu', 'pf-solde-plus-tard': opts.date + '|fin' }, opts.ls || {});
   await page.addInitScript(([s, noUser, tok, ls]) => {
     window.__PFLOW_SEED__ = s; window.__PFLOW_NO_USER__ = noUser; if (tok) window.__PFLOW_DRIVE_TOKEN__ = tok;
     if (!sessionStorage.getItem('pf-test-init')) { sessionStorage.setItem('pf-test-init', '1'); for (const [k, v] of Object.entries(ls)) localStorage.setItem(k, v); }
@@ -473,7 +474,7 @@ async function scenarioSauvegardes(cfg, fx, tag) {
   const file = join(OUT, tag.normalize('NFD').replace(/[\u0300-\u036f]/g, '') + '-sauvegarde.json');
   await dl.saveAs(file);
   const bk = JSON.parse(readFileSync(file, 'utf8'));
-  check(bk.app === 'P-Flow' && bk.format === 4 && bk.dataVersion === 1 && bk.entries.length === NB.entries && bk.recurring.length === NB.recurring, 'export : toutes les opérations et tous les fixes');
+  check(bk.app === 'P-Flow' && bk.format === 5 && bk.dataVersion === 1 && bk.entries.length === NB.entries && bk.recurring.length === NB.recurring, 'export : toutes les opérations et tous les fixes');
   // Patch 4 : format 4, avec les paiements de l'URSSAF (liste vide s'il n'y en a pas).
   check(Array.isArray(bk.urssaf) && bk.urssaf.length === (NB.urssaf || 0), 'export : paiements de l\'URSSAF (' + (NB.urssaf || 0) + ')');
   check(bk.periodiques.length === (NB.periodiques || 0) && bk.epargne.length === (NB.epargne || 0), 'export : fixes non mensuels et épargne (' + bk.periodiques.length + ', ' + bk.epargne.length + ')');
@@ -1621,6 +1622,151 @@ async function run(fn, name) {
   try { await fn(); } catch (e) { check(false, 'scénario ' + (name || '') + ' interrompu : ' + String(e.message).split('\n')[0]); if (process.env.DEBUG) console.log(String(e.message).split('\n').slice(0, 30).join('\n')); }
 }
 const fixtures = readdirSync(join(ROOT, 'tests/fixtures')).filter(f => f.endsWith('.json')).sort();
+// Patch 6 : catégories, fixe chaque semaine, brouillon du +, didacticiel, rappel du solde, import (tableau et relevé).
+async function scenarioPatch6(cfg, fx, tag) {
+  const E = fx.expect, U = 'users/uid-test/';
+  let { ctx, page, errors } = await open(cfg, fx.docs, { date: E._date });
+  await waitApp(page);
+  const closed = () => until(page, () => document.getElementById('sheet-bg').hidden, null, 'fenêtre fermée');
+  // 1. Catégories devinées d'après le libellé (dépenses seulement), corrigées d'un toucher
+  if (await page.locator('#lists [data-act="toggle-fixed"]').getAttribute('aria-expanded') !== 'true') { await page.click('#lists [data-act="toggle-fixed"]'); await page.waitForTimeout(600); }
+  const cats = () => page.$$eval('#lists .row', rs => rs.map(r => [r.querySelector('.row-label').firstChild.textContent.trim(), (r.querySelector('.row-meta .cat') || {}).textContent || '']));
+  let cs = await cats();
+  const catOf = l => (cs.find(c => c[0] === l) || [])[1];
+  check(catOf('Loyer') === 'Logement' && catOf('Courses') === 'Courses' && catOf('Assurance habitation') === 'Assurances', 'catégories devinées (' + JSON.stringify(cs) + ')');
+  check(!catOf('Facture client A'), 'pas de catégorie pour un revenu');
+  await page.locator('#lists .row[data-act="edit-entry"]', { hasText: 'Courses' }).first().click();
+  await until(page, () => !document.getElementById('f-cat-field').hidden && document.getElementById('f-cat-txt').textContent === 'Courses · auto', null, 'fenêtre : catégorie « Courses · auto »');
+  await page.click('#f-cat');
+  await until(page, () => document.querySelectorAll('.pop [role="option"]').length >= 13, null, 'liste des catégories (maison)');
+  await page.click('.pop [data-v="famille"]');
+  await page.click('#f-save'); await closed();
+  let db = await dump(page);
+  check(db[U + 'categories/courses'] && db[U + 'categories/courses'].cat === 'famille', 'correction notée pour ce libellé (categories/courses)');
+  await page.waitForTimeout(300); cs = await cats();
+  check(catOf('Courses') === 'Famille', 'la liste montre la catégorie corrigée');
+
+  // 2. Fixe chaque semaine : 3 dimanches à partir du 15 mars ; dataVersion 2 dans la même écriture
+  const reste0 = await page.evaluate(() => document.getElementById('legend').innerText);
+  await page.locator('[data-act="add"]:visible').first().click();
+  await until(page, () => !document.getElementById('sheet-bg').hidden, null, 'fenêtre d\'ajout ouverte');
+  check(await page.locator('#freq-seg button:visible').count() === 5, 'fréquence : 5 choix');
+  const fb = await page.$$eval('#freq-seg button', bs => bs.filter(b => !b.hidden).map(b => b.scrollWidth <= b.clientWidth + 1));
+  check(fb.every(Boolean), 'fréquence : chaque mot tient dans son bouton');
+  await page.fill('#f-amount', '35'); await page.fill('#f-label', 'Plein hebdo');
+  await page.click('#freq-seg [data-f="semaine"]');
+  await until(page, () => /^Dimanche 15/.test(document.getElementById('f-when-txt').textContent) && /3 fois en mars/.test(document.getElementById('f-preview').textContent), null, 'semaine : dimanche 15, 3 fois en mars');
+  check((await page.locator('#f-preview').innerText()).includes('105,00'), 'semaine : total du mois (105 €)');
+  check((await page.locator('#f-cat-txt').innerText()).startsWith('Transport'), 'catégorie devinée en tapant : Transport');
+  await page.click('#f-save'); await closed();
+  db = await dump(page);
+  const hb = Object.entries(db).filter(([k]) => k.startsWith(U + 'hebdo/'));
+  check(hb.length === 1 && hb[0][1].wday === 7 && hb[0][1].start === E._date && hb[0][1].amount === 35 && hb[0][1].end === null, 'fixe hebdo enregistré (' + JSON.stringify(hb) + ')');
+  check(db[U + 'meta/settings'].dataVersion === 2 && db[U + 'meta/settings'].pro === true, 'dataVersion 2 écrit, réglages gardés');
+  await page.waitForTimeout(900);
+  check(await hero(page) === eur(E.mars.compte - 105), 'prévu le 31 : 3 dimanches de moins (' + eur(E.mars.compte - 105) + ')');
+  const row = page.locator('#lists .row[data-act="edit-heb"]').first();
+  check((await row.innerText()).includes('chaque dimanche · 3 fois') && clean(await row.innerText()).includes(eur(105).replace('-', '')), 'Mois : « chaque dimanche · 3 fois », 105 €');
+  check(reste0 !== await page.evaluate(() => document.getElementById('legend').innerText), 'le calcul du mois compte le fixe hebdo');
+  await page.locator('[data-act="view"][data-view="fixes"]:visible').click();
+  await until(page, () => /\/sem\./.test(document.getElementById('fix-list').innerText) && /chaque dimanche/.test(document.getElementById('fix-list').innerText), null, 'Fixes : « chaque dimanche », 35 €/sem.');
+  // Modifier : la fenêtre garde la fréquence, la date de départ revient
+  await page.locator('#fix-list .row[data-act="edit-heb"]').first().click();
+  await until(page, () => !document.getElementById('sheet-bg').hidden && document.getElementById('f-freq-field').hidden && /^Dimanche 15/.test(document.getElementById('f-when-txt').textContent), null, 'modifier un fixe hebdo : départ repris, fréquence fixe');
+  await page.click('#sheet-close'); await closed();
+
+  // 3. Brouillon : toucher le fond garde la saisie ; on navigue, on y revient
+  const w0 = await page.evaluate(() => window.__PFLOW_DB__.writes());
+  await page.locator('[data-act="add"]:visible').first().click();
+  await until(page, () => !document.getElementById('sheet-bg').hidden, null, 'fenêtre d\'ajout ouverte (brouillon)');
+  await page.fill('#f-amount', '12'); await page.fill('#f-label', 'Café');
+  await page.click('#sheet-bg', { position: { x: 6, y: 6 } });
+  await until(page, () => !document.getElementById('draft').hidden && document.getElementById('draft-txt').textContent.replace(/\s/g, ' ') === 'Brouillon · 12,00 € · Café', null, 'brouillon en pilule : « Brouillon · 12,00 € · Café »');
+  await page.locator('[data-act="view"][data-view="annee"]:visible').click();
+  check(await page.locator('#draft').isVisible(), 'la pilule reste en changeant d\'écran');
+  await page.click('#draft .draft-open');
+  await until(page, () => !document.getElementById('sheet-bg').hidden && document.getElementById('f-amount').value === '12' && document.getElementById('f-label').value === 'Café', null, 'brouillon rouvert avec la saisie');
+  await page.click('#sheet-close'); await closed();
+  check(await page.locator('#draft').isHidden() && await page.evaluate(() => window.__PFLOW_DB__.writes()) === w0, 'brouillon abandonné avec ×, rien d\'enregistré');
+
+  // 4. Année : par catégorie (l'URSSAF dans « Impôts et URSSAF »)
+  await page.click('#y-top-mode [data-v="cat"]');
+  await until(page, () => /Impôts et URSSAF/.test(document.getElementById('y-top').innerText) && /Logement/.test(document.getElementById('y-top').innerText), null, 'Année : dépenses par catégorie');
+  await page.click('#y-top-mode [data-v="lib"]');
+
+  // 5. Didacticiel depuis Réglages : étapes, Suivant, Échap
+  await reglages(page, 'compte');
+  await page.click('#sub-compte [data-act="tuto-start"]');
+  await until(page, () => !document.getElementById('tuto').hidden && /^1 sur \d+$/.test(document.getElementById('tuto-n').textContent), null, 'didacticiel : étape 1');
+  check(await page.evaluate(() => location.hash === '#mois' && !document.getElementById('v-mois').hidden), 'didacticiel : sur l\'écran Mois');
+  const hole = await page.evaluate(() => { const h = document.querySelector('.tuto-hole').getBoundingClientRect(), t = document.querySelector('#v-mois .hero').getBoundingClientRect(); return h.left <= t.left + 1 && h.right >= t.right - 1 && h.top <= t.top + 1; });
+  check(hole, 'didacticiel : le montant principal est mis en lumière');
+  await page.click('[data-tuto="next"]');
+  await until(page, () => /^2 sur/.test(document.getElementById('tuto-n').textContent), null, 'didacticiel : Suivant');
+  await page.screenshot({ path: join(OUT, tag + '-p6-tuto.png') });
+  await page.keyboard.press('Escape');
+  await until(page, () => document.getElementById('tuto').hidden, null, 'didacticiel : Échap ferme');
+
+  // 6. Rappel du solde : jours choisis dans Réglages (calendrier maison à cocher)
+  await reglages(page, 'compte');
+  check((await page.locator('#rappel-txt').innerText()) === 'Le dernier jour du mois', 'rappel : le dernier jour du mois d\'office');
+  await page.click('#rappel-pick');
+  await until(page, () => document.querySelectorAll('.pop-days .cal-d').length === 31, null, 'rappel : 31 jours à cocher');
+  await page.click('.pop-days .cal-d[data-d="15"]'); await page.click('.pop-days [data-c="ok"]');
+  await until(page, () => document.getElementById('rappel-txt').textContent === 'Le 15 et le dernier jour du mois', null, 'rappel : le 15 et le dernier jour');
+  db = await dump(page);
+  check(JSON.stringify(db[U + 'meta/settings'].rappelSolde) === '[15,31]', 'rappel : réglage synchronisé [15, 31]');
+
+  // 7. Import d'un tableau CSV : doublon ignoré, sens choisi, annulable
+  await reglages(page, 'donnees');
+  const csv = 'Date;Quoi;Montant\n07/03/2026;Courses;85,40\n03/03/2026;Pharmacie;12,30\n06/03/2026;Cinéma;9,50\n';
+  await page.setInputFiles('#imp-table', { name: 'mes-depenses.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') });
+  await until(page, () => document.getElementById('panel-title').textContent === 'Importer un tableau' && /Ajouter 2 opérations/.test(document.querySelector('[data-act="imp-go"]').textContent), null, 'import tableau : 2 à ajouter (Courses déjà là)');
+  check(/1 ligne déjà dans P-Flow/.test(await page.locator('#panel-body').innerText()), 'import tableau : doublon signalé');
+  check(await page.locator('#imp-sign').isVisible(), 'import tableau : « Dépenses / Revenus » proposé (montants sans signe)');
+  await page.click('[data-act="imp-go"]');
+  await until(page, () => Object.keys(window.__PFLOW_DB__.dump()).filter(k => /\/entries\/imt/.test(k)).length === 2, null, 'import tableau : 2 opérations créées');
+  db = await dump(page);
+  const ph = Object.values(db).find(v => v.label === 'Pharmacie');
+  check(ph && ph.type === 'depense' && ph.amount === 12.3 && ph.date === '2026-03-03' && ph.month === '2026-03', 'import tableau : opération normale (' + JSON.stringify(ph) + ')');
+  // Le même fichier une seconde fois : rien de plus
+  await page.setInputFiles('#imp-table', { name: 'mes-depenses.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') });
+  await until(page, () => /Rien à ajouter/.test(document.querySelector('[data-act="imp-go"]').textContent), null, 'réimport du même fichier : rien à ajouter');
+  await page.click('#panel-close');
+  await until(page, () => !document.getElementById('imp-last').hidden, null, 'Réglages : « Annuler le dernier import »');
+  await page.click('[data-act="imp-undo"]'); await page.click('[data-act="imp-undo"]');
+  await until(page, () => Object.keys(window.__PFLOW_DB__.dump()).filter(k => /\/entries\/imt/.test(k)).length === 0, null, 'import annulé : opérations retirées');
+
+  // 8. Relevé de banque (OFX) : loyer déjà compté par le fixe, Netflix repéré comme fixe, solde noté
+  const tr = (d, a, n) => '<STMTTRN><TRNTYPE>' + (a < 0 ? 'DEBIT' : 'CREDIT') + '<DTPOSTED>' + d + '<TRNAMT>' + a + '<FITID>' + d + n.length + '<NAME>' + n + '</STMTTRN>';
+  const ofx = 'OFXHEADER:100\n<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKTRANLIST>' + tr('20260108', -13.49, 'PRLV SEPA NETFLIX') + tr('20260208', -13.49, 'PRLV SEPA NETFLIX') + tr('20260308', -13.49, 'PRLV SEPA NETFLIX') +
+    tr('20260305', -500, 'VIR LOYER MARS') + tr('20260312', -40.1, 'CB CARREFOUR 11/03') + '</BANKTRANLIST><LEDGERBAL><BALAMT>1000.00<DTASOF>20260314</LEDGERBAL></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>';
+  await page.setInputFiles('#imp-bank', { name: 'releve.ofx', mimeType: 'application/x-ofx', buffer: Buffer.from(ofx, 'utf8') });
+  await until(page, () => document.getElementById('panel-title').textContent === 'Importer un relevé' && /Fixes repérés/.test(document.getElementById('panel-body').textContent), null, 'relevé : fenêtre, fixes repérés');
+  const pb = (await page.locator('#panel-body').textContent()).replace(/[\u00a0\u202f]/g, ' ');
+  check(/Netflix/.test(pb) && /le 8 de chaque mois/.test(pb), 'relevé : Netflix, le 8 de chaque mois');
+  check(/1 ligne déjà dans P-Flow/.test(pb), 'relevé : le loyer est reconnu (fixe déjà noté)');
+  check(/1 000,00 € le 14 mars/.test(pb), 'relevé : solde proposé');
+  check(await page.locator('#imp-rest .imp-line').count() === 1 && (await page.inputValue('#imp-rest .imp-lab')) === 'Carrefour', 'relevé : reste Carrefour, libellé nettoyé');
+  await page.click('[data-act="imp-go"]');
+  await until(page, () => Object.values(window.__PFLOW_DB__.dump()).some(v => v.label === 'Netflix' && v.start === '2026-01'), null, 'relevé : fixe Netflix créé (depuis janvier)');
+  db = await dump(page);
+  check(Object.values(db).filter(v => v.label === 'Carrefour' && v.amount === 40.1 && v.type === 'depense').length === 1, 'relevé : opération Carrefour créée');
+  check(!Object.entries(db).some(([k, v]) => /\/entries\//.test(k) && /loyer|netflix/i.test(v.label || '')), 'relevé : ni loyer ni Netflix en double');
+  check(Object.values(db).some(v => v.montant === 1000 && v.date === '2026-03-14'), 'relevé : solde du 14 mars noté');
+  noErr(errors, 'patch 6');
+  await ctx.close();
+
+  // 9. Rappel du solde : le dernier jour du mois, à l'ouverture ; « Plus tard »
+  ({ ctx, page, errors } = await open(cfg, fx.docs, { date: '2026-03-31', ls: { 'pf-solde-plus-tard': '' } }));
+  await waitApp(page);
+  await until(page, () => !document.getElementById('panel-bg').hidden && document.getElementById('panel-title').textContent === 'Ton solde ?', null, 'rappel du solde le 31 : « Ton solde ? »');
+  await page.click('[data-act="sd-later"]');
+  await until(page, () => document.getElementById('panel-bg').hidden && localStorage.getItem('pf-solde-plus-tard') === '2026-03-31', null, 'rappel : « Plus tard » reposera demain');
+  noErr(errors, 'rappel du solde');
+  await ctx.close();
+}
+
 // --rapide (APK de test) : seulement le jeu de données le plus récent, sur téléphone clair et PC sombre, et un nouveau
 // compte sur téléphone ; le test complet (tous les jeux, tous les écrans) reste obligatoire avant chaque publication.
 const RAPIDE = process.argv.includes('--rapide');
@@ -1659,6 +1805,7 @@ for (const file of fixtures) {
     if (file === 'v0.1.4-beta.json') await go('Patch5', () => scenarioPatch5(cfg, fx, tag));
     if (file === 'v0.1.4-beta.json') await go('Patch5Annee', () => scenarioPatch5Annee(cfg, fx, tag));
     if (file === 'v0.1.4-beta.json') await go('Patch5Ecrans', () => scenarioPatch5Ecrans(cfg, fx, tag));
+    if (file === 'v0.1.4-beta.json') await go('Patch6', () => scenarioPatch6(cfg, fx, tag));
     if (last) {
       await go('Demandes', () => scenarioDemandes(cfg, fx, tag));
       await go('Nouveautes', () => scenarioNouveautes(cfg, fx, tag));

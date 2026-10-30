@@ -177,6 +177,9 @@
     <div class="update" id="update" role="status" hidden></div>
     <div class="update" id="backup-due" hidden><span>C'est le moment de la copie de tes données sur Google Drive.</span><button class="link" data-act="drive-due">Sauvegarder</button></div>
     <div class="update req" id="req-banner" hidden></div>
+    <!-- Patch 6 : hors ligne (point 4) et visite guidée proposée une fois aux comptes existants (point 9). -->
+    <div class="update" id="offline" role="status" hidden><span>Pas de réseau : ce que tu notes est gardé ici et partira dès son retour.</span></div>
+    <div class="update" id="tuto-banner" hidden><span>Découvre P-Flow en 1 minute.</span><span class="acts"><button class="link" data-act="tuto-hide">Plus tard</button><button class="link" data-act="tuto-start">C'est parti</button></span></div>
 
     <!-- MOIS -->
     <section class="view" id="v-mois">
@@ -264,7 +267,10 @@
       <div class="two">
         <article class="card"><h3>Détail par mois</h3><div class="tbl-wrap" id="y-table"></div></article>
         <div class="stack">
-          <article class="card"><div class="card-head"><h3>Où part l'argent</h3><div class="mini-legend"><span><i class="sw s-fixes"></i>fixes</span><span><i class="sw s-dep"></i>ponctuelles</span></div></div><div class="top-list" id="y-top"></div></article>
+          <article class="card"><div class="card-head"><h3>Où part l'argent</h3><div class="mini-legend" id="y-top-legend"><span><i class="sw s-fixes"></i>fixes</span><span><i class="sw s-dep"></i>ponctuelles</span></div></div>
+            <!-- Patch 6 : par libellé ou par catégorie (choix propre à l'appareil). -->
+            <div class="seg y-top-mode" id="y-top-mode" role="group" aria-label="Regrouper les dépenses"><button type="button" data-act="top-mode" data-v="lib">Par libellé</button><button type="button" data-act="top-mode" data-v="cat">Par catégorie</button></div>
+            <div class="top-list" id="y-top"></div></article>
           <article class="card pro-only"><h3>Seuils de la micro-entreprise</h3><div class="meters" id="y-meters"></div>
             <!-- Patch 5 (point 24) : une ligne, le détail dans un ⓘ (rempli par renderAnneeBottom) -->
             <div class="hint meters-note" id="y-meters-note"></div>
@@ -305,10 +311,16 @@
           <label class="check"><span>Suivre mon épargne<small>Livret A, PEL… Ce que tu mets de côté baisse le reste du mois.</small></span><input type="checkbox" id="ep-toggle"></label>
           <p class="hint" id="ep-toggle-hint" hidden>Désactivée : tes opérations d'épargne restent enregistrées, mais elles ne sont plus affichées ni comptées.</p>
         </article>
+        <!-- Patch 6 (point 6) -->
+        <article class="card stack">
+          <h3>Rappel du solde</h3>
+          <p class="hint">Ces jours-là, l'appli te demande ton solde.</p>
+          <button type="button" class="input pick" id="rappel-pick" data-act="rappel-open" aria-haspopup="dialog" aria-expanded="false"><span id="rappel-txt"></span><svg class="i"><use href="#i-mois"/></svg></button>
+        </article>
         <article class="card stack">
           <h3>Configuration</h3>
           <p class="hint">Revoir les étapes du premier démarrage : profil, revenus et charges fixes, compte en banque, épargne, sauvegarde. Rien de ce que tu as déjà noté n'est supprimé.</p>
-          <div><button class="btn ghost" data-act="redo-setup">Refaire la configuration</button></div>
+          <div class="btn-row"><button class="btn ghost" data-act="redo-setup">Refaire la configuration</button><button class="btn ghost" data-act="tuto-start">Revoir le didacticiel</button></div>
         </article>
         <!-- Patch 4 : « Se déconnecter » tout en bas. -->
         <div class="set-foot"><button class="btn ghost block" data-act="logout"><svg class="i"><use href="#i-logout"/></svg>Se déconnecter</button></div>
@@ -337,6 +349,7 @@
             <button type="button" data-act="period" data-p="mensuelle">Tous les mois</button>
             <button type="button" data-act="period" data-p="trimestrielle">Tous les trimestres</button>
           </div>
+          <p class="hint" id="period-note" hidden></p>
         </article>
       </div>
 
@@ -388,10 +401,21 @@
           <p class="notice" id="backup-status" role="status" hidden></p>
           <div class="notice stack" id="restore-panel" hidden></div>
         </article>
+        <!-- Patch 6 (points 1 et 1 bis) : import, chacun son bouton. Pas de filtre de type : sur Android, les
+             extensions inconnues du système (.ofx, .qif) rendraient le fichier impossible à choisir ; le contenu est
+             reconnu à la lecture. -->
+        <article class="card stack">
+          <h3>Importer</h3>
+          <div class="btn-row">
+            <label class="btn ghost">Importer un tableau (Excel / CSV)<input type="file" id="imp-table" hidden></label>
+            <label class="btn ghost">Importer un relevé de ma banque<input type="file" id="imp-bank" hidden></label>
+          </div>
+          <p class="hint">Relevé : exporte au moins 3 mois depuis ton espace bancaire, en CSV ou OFX. Rien n'est envoyé ailleurs.</p>
+          <div class="stack" id="imp-last" hidden></div>
+        </article>
         <article class="card stack">
           <h3>Tableur</h3>
-          <div class="web-only"><button class="btn ghost" data-act="export" id="export-btn">Exporter l'année en CSV</button></div>
-          <p class="hint native-only">L'export CSV (pour un tableur) se fait depuis la version PC.</p>
+          <div><button class="btn ghost" data-act="export" id="export-btn">Exporter l'année en CSV</button></div>
         </article>
       </div>
 
@@ -451,6 +475,11 @@
     <button data-act="view" data-view="annee"><svg class="i"><use href="#i-annee"/></svg><span>Année</span></button>
     <button data-act="view" data-view="reglages"><svg class="i"><use href="#i-reglages"/></svg><span>Réglages</span></button>
   </nav>
+  <!-- Patch 6 : brouillon d'un ajout réduit (point 8). -->
+  <div class="draft pill" id="draft" hidden>
+    <button type="button" class="draft-open" data-act="draft-open"><svg class="i"><use href="#i-plus"/></svg><span id="draft-txt">Brouillon</span></button>
+    <button type="button" class="icon-btn" data-act="draft-del" aria-label="Abandonner le brouillon"><svg class="i"><use href="#i-close"/></svg></button>
+  </div>
 </div>
 
 <div class="backdrop" id="sheet-bg" hidden>
@@ -479,16 +508,23 @@
       <ul class="suggest" id="f-suggest" role="listbox" aria-label="Libellés déjà utilisés" hidden></ul>
       <div class="acc-chips" id="f-accounts" role="group" aria-label="Tes comptes d'épargne" hidden></div>
     </div>
+    <!-- Patch 6 : catégorie de la dépense, devinée d'après le libellé ; la changer la retient pour ce libellé. -->
+    <div class="field" id="f-cat-field" hidden>
+      <span class="field-label" id="f-cat-label">Catégorie</span>
+      <button type="button" class="input pick" id="f-cat" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="f-cat-label f-cat-txt"><span id="f-cat-txt"></span><svg class="i"><use href="#i-down"/></svg></button>
+    </div>
     <label class="field" id="f-epstart-field" hidden><span>Nouveau compte : combien as-tu déjà dessus ? (facultatif)</span>
       <div class="amount-wrap small"><input id="f-epstart" inputmode="decimal" placeholder="0,00" autocomplete="off" aria-label="Montant déjà sur ce compte, en euros"><span>€</span></div>
     </label>
     <div class="field" id="f-freq-field">
       <span class="field-label" id="f-freq-label">Fréquence</span>
-      <div class="seg seg4" id="freq-seg" role="group" aria-labelledby="f-freq-label">
+      <!-- Patch 6 : + « Semaine » ; mots courts pour tenir à 5 sur un téléphone étroit. -->
+      <div class="seg seg5" id="freq-seg" role="group" aria-labelledby="f-freq-label">
         <button type="button" data-f="once">Une fois</button>
-        <button type="button" data-f="mois">Mensuel</button>
-        <button type="button" data-f="trimestre">Trimestriel</button>
-        <button type="button" data-f="annee">Annuel</button>
+        <button type="button" data-f="semaine">Semaine</button>
+        <button type="button" data-f="mois">Mois</button>
+        <button type="button" data-f="trimestre">Trimestre</button>
+        <button type="button" data-f="annee">Année</button>
       </div>
     </div>
     <div class="field" id="f-when-field">
@@ -519,6 +555,14 @@
   </div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<!-- Patch 6 : didacticiel (point 9) : un seul calque, l'élément expliqué reste visible dans le « trou ». -->
+<div class="tuto" id="tuto" hidden>
+  <div class="tuto-hole" aria-hidden="true"></div>
+  <div class="tuto-bub" role="dialog" aria-modal="true" aria-label="Visite de P-Flow">
+    <p class="tuto-t" id="tuto-t"></p>
+    <div class="tuto-foot"><span class="hint" id="tuto-n"></span><span class="btn-row"><button type="button" class="link" data-tuto="skip">Passer</button><button type="button" class="btn ghost sm" data-tuto="prev">Retour</button><button type="button" class="btn primary sm" data-tuto="next">Suivant</button></span></div>
+  </div>
+</div>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

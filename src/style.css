@@ -894,3 +894,52 @@ th small{display:block;font-size:calc(10*var(--u));font-weight:500;text-transfor
   .nav-ind{position:absolute;z-index:0;left:6px;right:6px;top:0;height:0;border-radius:20px;background:var(--accent-soft);transform-origin:center;will-change:transform}
   .side .sync{height:44px;padding:0 14px;border-radius:999px;align-self:flex-start}
 }
+
+/* ---------- Patch 6 ---------- */
+/* Fréquence : 5 choix (Une fois, Semaine, Mois, Trimestre, Année) ; tient à 360 px de large. */
+.seg.seg5{grid-template-columns:repeat(5,minmax(0,1fr));gap:2px}
+.seg.seg5 button{font-size:calc(12*var(--u));padding:0 2px;overflow-wrap:anywhere}
+/* Catégorie d'une dépense, sous son libellé. */
+.row-meta .cat{font-weight:620}
+/* Année : par libellé ou par catégorie. */
+.seg.y-top-mode{margin:12px 0 4px}
+.top-row.static{cursor:default}
+/* Brouillon d'un ajout (même verre que les pilules du haut), au-dessus de la barre du bas. */
+.draft{position:fixed;z-index:9;left:50%;transform:translateX(-50%);bottom:calc(var(--bar-h) + var(--bar-gap) * 2 + env(safe-area-inset-bottom,0px));
+  max-width:min(calc(100% - 24px),440px);gap:2px;padding:2px 2px 2px 6px}
+.draft-open{display:flex;align-items:center;gap:8px;min-width:0;height:100%;padding:0 8px;font-weight:620;color:var(--ink)}
+.draft-open svg.i{width:18px;height:18px;color:var(--accent);flex:none}
+.draft-open span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (min-width:900px){.draft{left:calc(50% + 122px);bottom:24px}}
+/* Fenêtre d'ajout : la barre de prise et le titre se glissent vers le bas (le navigateur ne les fait pas défiler). */
+.sheet .grab,.sheet .sheet-head{touch-action:none}
+.sheet .grab{position:relative}
+.sheet .grab::after{content:"";position:absolute;inset:-12px -60px}
+/* Jours du rappel du solde. */
+.pop-days .days-grid{margin-bottom:6px}
+.days-note{margin:2px 4px 8px}
+/* Import : colonnes, lignes à cocher. */
+.imp-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.imp-col .pick span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.imp-lines{display:grid;gap:8px}
+.imp-line{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"lab sw" "meta sw";gap:4px 12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);transition:opacity .2s var(--ease)}
+.imp-line:last-child{border-bottom:0}
+.imp-line.off{opacity:.5}
+.imp-lab{grid-area:lab;height:40px}
+.imp-meta{grid-area:meta;font-size:calc(12.5*var(--u));color:var(--muted);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.imp-meta b{font-family:var(--f-data);font-weight:600;color:var(--ink)}
+.imp-meta b.in{color:var(--c-brut)}
+.imp-urs{margin-left:2px;cursor:pointer}
+.imp-urs[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent)}
+.imp-sw{grid-area:sw;padding:0;border:0}
+/* Didacticiel : un seul calque ; l'élément expliqué reste visible dans le « trou » (pas de flou animé). */
+.tuto{position:fixed;inset:0;z-index:70}
+.tuto-hole{position:fixed;border-radius:18px;box-shadow:0 0 0 200vmax var(--scrim);pointer-events:none;transform-origin:0 0}
+.tuto-bub{position:fixed;z-index:71;padding:14px 14px 12px;border-radius:24px;color:var(--ink);background:var(--pop-glass);border:1px solid var(--glass-line);box-shadow:var(--shadow),var(--pop-rim);
+  -webkit-backdrop-filter:blur(20px) saturate(1.25);backdrop-filter:blur(20px) saturate(1.25)} /* même verre que .pop (pas la classe : les sélecteurs la gèrent) */
+@supports (color:color-mix(in srgb,red,blue)){.tuto-bub{background:linear-gradient(150deg,color-mix(in srgb,var(--accent) 7%,transparent) 0%,transparent 40%),var(--pop-glass)}}
+:root[data-effets="reduits"] .tuto-bub{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--glass-solid)}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.tuto-bub{background:var(--glass-solid)}}
+.tuto-t{margin:0 2px 12px;font-size:calc(15*var(--u));line-height:1.45}
+.tuto-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.tuto-foot .btn-row{gap:6px;align-items:center}

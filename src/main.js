@@ -15,7 +15,7 @@ import { Keyboard } from '@capacitor/keyboard';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { auth, db, isNative } from './firebase.js';
 import * as Drive from './drive.js';
-import { initPickers, openCalendar, openChoice, openHue, popOpen, closePop, openPopover, setPopAnchor, popBox } from './pickers.js';
+import { initPickers, openCalendar, openChoice, openHue, popOpen, closePop, openPopover, setPopAnchor, popBox, openDays } from './pickers.js';
 
 // Module natif de P-Flow (Android) : Drive, Enregistrer sous, mises à jour, couleur des barres système.
 const PFlowNative = registerPlugin('PFlowNative');
@@ -32,7 +32,10 @@ const NOTES_VERSION = typeof __NOTES_VERSION__ !== 'undefined' ? __NOTES_VERSION
 // Champ `dataVersion` de meta/settings, absent = 1. Ne monter qu'avec une conversion validée.
 // Le patch 2 n'en a pas besoin : l'épargne et les fixes non mensuels sont dans de NOUVELLES collections
 // (epargne, periodiques) que les anciennes versions ignorent, et les nouveaux réglages sont facultatifs.
-const DATA_VERSION = 1;
+// Patch 6 : 2 = le compte a des fixes « chaque semaine » (collection `hebdo`). Écrit seulement avec le premier fixe
+// hebdo (accord du propriétaire du 29/10/2026) : les appareils pas encore à jour, qui ne les comptent pas, passent en
+// lecture seule et demandent la mise à jour au lieu d'afficher des totaux faux. Aucune donnée n'est convertie.
+const DATA_VERSION = 2;
 
 /* ---------- outils ---------- */
 const $ = (s, r) => (r || document).querySelector(s);
@@ -83,8 +86,12 @@ const accentDots = (cur, attr) => ACCENTS.map(([k, n, l, d]) => '<button type="b
 const BK_FREQ = { hebdomadaire: 7, mensuelle: 30, annuelle: 365 };
 // Fixes : fréquence → nombre de mois entre deux échéances (collection `periodiques`, patch 2).
 const FREQ = { mois: 1, trimestre: 3, annee: 12 };
-const FREQ_LABEL = { mois: 'chaque mois', trimestre: 'chaque trimestre', annee: 'chaque année' };
-const FREQ_UNIT = { mois: '/mois', trimestre: '/trim.', annee: '/an' };
+const FREQ_LABEL = { mois: 'chaque mois', trimestre: 'chaque trimestre', annee: 'chaque année', semaine: 'chaque semaine' };
+const FREQ_UNIT = { mois: '/mois', trimestre: '/trim.', annee: '/an', semaine: '/sem.' };
+// Patch 6 : fixes « chaque semaine » (collection `hebdo`, jamais dans `periodiques` : une ancienne version les
+// compterait à 0 et les changerait en mensuels si on les modifiait). wday : 1 = lundi … 7 = dimanche ; start : date
+// du premier passage (son jour de la semaine = wday) ; end : dernier mois compté (AAAA-MM) ou null.
+const WDAYS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
 // Mots des choix de fréquence (patch 3) : courts et de la même forme.
 const FREQ_WORD = { mois: 'Mensuel', trimestre: 'Trimestriel', annee: 'Annuel' };
 const PER_TYPES = ['depense', 'revenu', 'epargne'];
@@ -364,9 +371,11 @@ const S = {
   jours: [], soldes: [], pointages: [],
   // Patch 4 : paiements de l'URSSAF (`urssaf/{période}`), rangés à part.
   urssafPay: [],
+  // Patch 6 : fixes chaque semaine (`hebdo`) et catégories corrigées à la main (`categories/{libellé nettoyé}`).
+  hebdo: [], categories: [], dataVersion: 1,
   settings: null, settingsExists: false, readOnly: false,
-  loaded: { entries: false, recurring: false, settings: false, periodiques: false, epargne: false, jours: false, soldes: false, pointages: false, urssafPay: false },
-  pend: { entries: false, recurring: false, settings: false, periodiques: false, epargne: false, jours: false, soldes: false, pointages: false, urssafPay: false },
+  loaded: { entries: false, recurring: false, settings: false, periodiques: false, epargne: false, jours: false, soldes: false, pointages: false, urssafPay: false, hebdo: false, categories: false },
+  pend: { entries: false, recurring: false, settings: false, periodiques: false, epargne: false, jours: false, soldes: false, pointages: false, urssafPay: false, hebdo: false, categories: false },
   showFixed: lsGet('pf-showFixed') === '1', grouped: lsGet('pf-groupe') === '1', openGroups: new Set(),
   showEnded: false, colorOpen: null, ucOpen: false, simOpen: false, bubble: null, info: null,
   showFixedRev: lsGet('pf-showFixedRev') === '1',
@@ -399,7 +408,9 @@ function normSettings(d) {
   const objectifs = {};
   if (d.objectifs && typeof d.objectifs === 'object') for (const k of Object.keys(d.objectifs)) if (YM_RE.test(k) && okAmt(d.objectifs[k])) objectifs[k] = r2(d.objectifs[k]);
   const objectif = okAmt(d.objectif) ? r2(d.objectif) : null;
-  return { pro: !!d.pro, taux, periodicite: d.periodicite === 'trimestrielle' ? 'trimestrielle' : 'mensuelle', couleurs, sauvegarde, epargne, accent, objectif, objectifs };
+  // Champ facultatif `rappelSolde` (patch 6) : jours du mois où l'appli demande le solde ([] = jamais, absent = le dernier jour).
+  const rappelSolde = Array.isArray(d.rappelSolde) ? Array.from(new Set(d.rappelSolde.map(Number).filter(n => Number.isInteger(n) && n >= 1 && n <= 31))).sort((a, b) => a - b) : null;
+  return { pro: !!d.pro, taux, periodicite: d.periodicite === 'trimestrielle' ? 'trimestrielle' : 'mensuelle', couleurs, sauvegarde, epargne, accent, objectif, objectifs, rappelSolde };
 }
 // Objectif de fin de mois du mois m (patch 4) : réglé pour ce mois, sinon celui de tous les mois, sinon null.
 function objectifOf(m) {
@@ -467,11 +478,25 @@ function firstDue(anchor, freq, from) {
 // Mois dont les opérations ponctuelles sont chargées : l'année affichée, octobre à décembre d'avant, et depuis le
 // dernier solde noté avant l'année (patch 5 : sinon la prévision du compte disparaissait l'année suivante).
 const entCovered = m => S.entriesYear !== null && m >= (S.entriesFrom || ym(S.entriesYear - 1, 10)) && m <= ym(S.entriesYear, 12);
+// Patch 6 : fixe hebdo valide, et ses dates de passage dans le mois m (à partir de son départ, jusqu'à son mois de fin).
+const hebOk = h => (h.type === 'depense' || h.type === 'revenu') && Number.isInteger(h.wday) && h.wday >= 1 && h.wday <= 7 && DATE_RE.test(h.start || '') && (h.end == null || YM_RE.test(h.end)) && Number(h.amount) > 0;
+const wdayOf = d => ((new Date(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10)).getDay() + 6) % 7) + 1;
+function hebDates(h, m) {
+  if (!hebOk(h) || h.start.slice(0, 7) > m || (h.end && h.end < m)) return [];
+  const { y, m: mm } = pYM(m), n = new Date(y, mm, 0).getDate(), first = wdayOf(m + '-01'), out = [];
+  for (let d = 1 + ((h.wday - first + 7) % 7); d <= n; d += 7) { const v = m + '-' + pad(d); if (v >= h.start) out.push(v); }
+  return out;
+}
+// Premier jour de la semaine wday dans le mois m (ou après la date `from`).
+const firstWday = (m, wday, from) => hebDates({ type: 'depense', amount: 1, wday, start: from || m + '-01', end: null }, m)[0] || null;
 function monthItems(m) {
   const ents = (entCovered(m) ? S.entries : []).filter(e => e.month === m).map(e => Object.assign({ kind: 'entry' }, e));
   const recs = S.recurring.filter(r => r.start && r.start <= m && (!r.end || r.end >= m)).map(r => Object.assign({ kind: 'rec' }, r));
   const pers = S.periodiques.filter(p => (p.type === 'depense' || p.type === 'revenu') && perDue(p, m)).map(p => Object.assign({ kind: 'per' }, p));
-  return { ents, recs, pers, items: ents.concat(recs, pers) };
+  // Un fixe hebdo compte autant de fois que son jour tombe dans le mois (4 ou 5) : amount = total du mois, unit = une fois.
+  const hebs = [];
+  for (const h of S.hebdo) { const ds = hebDates(h, m); if (ds.length) hebs.push(Object.assign({ kind: 'heb' }, h, { unit: r2(h.amount), n: ds.length, dates: ds, amount: r2(Number(h.amount) * ds.length) })); }
+  return { ents, recs, pers, hebs, items: ents.concat(recs, pers, hebs) };
 }
 // Chiffre d'affaires soumis à l'URSSAF du mois m.
 function baseOf(m) {
@@ -508,7 +533,7 @@ function urssafReel(m, base) {
 }
 function monthData(m) {
   const y = pYM(m).y;
-  const { ents, recs, pers, items } = monthItems(m);
+  const { ents, recs, pers, hebs, items } = monthItems(m);
   const rate = rateFor(y);
   let brut = 0, base = 0, dep = 0;
   for (const it of items) {
@@ -529,7 +554,7 @@ function monthData(m) {
   for (const p of autos) epIn += Number(p.amount) || 0;
   epIn = r2(epIn); epOut = r2(epOut);
   const ep = r2(epIn - epOut);
-  return { m, items, ents, recs, pers, eps, autos, rate, brut, base, urssaf, urssafEst, urssafReel: reel != null, net, dep, epIn, epOut, ep, reste: r2(net - dep - ep) };
+  return { m, items, ents, recs, pers, hebs, eps, autos, rate, brut, base, urssaf, urssafEst, urssafReel: reel != null, net, dep, epIn, epOut, ep, reste: r2(net - dep - ep) };
 }
 // Comptes d'épargne : solde = dernier « J'ai actuellement » + dépôts − retraits notés depuis (versements automatiques compris).
 // upTo (AAAA-MM) : solde à la fin de ce mois (par défaut le mois en cours).
@@ -774,13 +799,14 @@ function stopData() {
   S.unsubs = [];
   if (S.unsubEntries) { try { S.unsubEntries(); } catch (e) { /* ignoré */ } }
   toastUndoFn = null; // « Annuler » ne doit jamais écrire dans un autre compte
-  S.unsubEntries = null; S.entriesYear = null; S.entriesFrom = null; S.entriesWant = null; S.entries = []; S.recurring = []; S.periodiques = []; S.epargne = []; S.demandes = []; S.jours = []; S.soldes = []; S.pointages = []; S.urssafPay = [];
+  S.unsubEntries = null; S.entriesYear = null; S.entriesFrom = null; S.entriesWant = null; S.entries = []; S.recurring = []; S.periodiques = []; S.epargne = []; S.demandes = []; S.jours = []; S.soldes = []; S.pointages = []; S.urssafPay = []; S.hebdo = []; S.categories = []; S.dataVersion = 1;
+  DRAFT = null; draftUi(); tutoEnd(true);
   S.settings = null; S.allow = []; S.sub = null; S.justOnboarded = false; S.bubble = null;
   S.readOnly = false; S.settingsServer = false; $('#outdated').hidden = true; applyColors();
   // Le message « Supprimé · Annuler » d'un compte ne reste pas affiché après la déconnexion (patch 4).
   clearTimeout(toastT); $('#toast').hidden = true;
   resetBackupState();
-  S.loaded = { entries: false, recurring: false, settings: false, periodiques: false, epargne: false, jours: false, soldes: false, pointages: false, urssafPay: false };
+  S.loaded = { entries: false, recurring: false, settings: false, periodiques: false, epargne: false, jours: false, soldes: false, pointages: false, urssafPay: false, hebdo: false, categories: false };
   S.ready = false;
 }
 function startData() {
@@ -792,7 +818,8 @@ function startData() {
     S.settingsExists = snap.exists();
     S.settings = normSettings(snap.exists() ? snap.data() : null);
     // Données écrites par une version plus récente : lecture seule, pour ne rien abîmer.
-    S.readOnly = (snap.exists() && Number(snap.data().dataVersion) || 1) > DATA_VERSION;
+    S.dataVersion = (snap.exists() && Number(snap.data().dataVersion)) || 1;
+    S.readOnly = S.dataVersion > DATA_VERSION;
     $('#outdated').hidden = !S.readOnly;
     applyColors();
     S.loaded.settings = true;
@@ -820,6 +847,9 @@ function startData() {
   sub('pointages', 'pointages');
   // Patch 4 : paiements de l'URSSAF (couverte par la règle users/{uid}/…), ignorée par les anciennes versions.
   sub('urssaf', 'urssafPay');
+  // Patch 6 : fixes chaque semaine et catégories corrigées (couvertes par la règle users/{uid}/…).
+  sub('hebdo', 'hebdo');
+  sub('categories', 'categories');
   if (S.isAdmin) {
     S.unsubs.push(onSnapshot(collection(db, 'allowlist'), snap => {
       S.allow = snap.docs.map(d => d.id).sort(); renderAllow();
@@ -843,6 +873,9 @@ function enterApp() {
     setTimeout(() => { if (!$('#app').hidden) viewIn(S.view); }, Math.max(0, 760 - performance.now()));
     liveBgSchedule(6000); // fond vivant : première dérive quelques secondes après l'ouverture
     setTimeout(maybeNews, 700);
+    // Patch 6 : rappel du solde (après les Nouveautés), visite proposée à un nouveau compte.
+    setTimeout(maybeSoldeAsk, 1500);
+    if (S.justOnboarded) setTimeout(tutoOffer, 1300);
   }
   render();
 }
@@ -1164,7 +1197,7 @@ function render() {
   $$('.view').forEach(el => { el.hidden = el.id !== 'v-' + S.view; });
   $$('[data-act="view"]').forEach(b => { if (b.dataset.view === S.view) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   $('.tabbar').dataset.view = S.view;
-  renderCtx(); updateSync(); renderReqBanner();
+  renderCtx(); updateSync(); renderReqBanner(); renderTutoBanner(); draftUi();
   if (S.view === 'mois') renderMois();
   else if (S.view === 'fixes') renderFixes();
   else if (S.view === 'annee') renderAnnee();
@@ -1178,6 +1211,11 @@ function updateSync() {
   else if (pending) { s = 'pending'; t = 'Envoi…'; }
   else if (ready()) { s = 'ok'; t = 'Synchronisé'; }
   const icon = { ok: 'cloud-ok', pending: 'cloud-up', off: 'cloud-off', connecting: 'cloud' }[s];
+  // Patch 6 (point 4) : hors ligne, un bandeau le dit ; au retour du réseau, « Envoyé » une fois tout parti.
+  const ob = $('#offline');
+  if (ob) { const sh = s === 'off' && S.ready; if (sh && ob.hidden) { ob.hidden = false; riseIn(ob); } else if (!sh) ob.hidden = true; }
+  if (s === 'off' && pending) S.offPend = true;
+  else if (s === 'ok' && S.offPend) { S.offPend = false; toast('Envoyé'); }
   $$('.sync').forEach(el => {
     if (el.dataset.s === s && el.title === t) return;
     el.dataset.s = s; el.title = t;
@@ -1255,8 +1293,61 @@ function renderCtx() {
   if (yb && yb.querySelector('.cal-months [data-y]') && S.view === 'annee') setPopAnchor($('#ctx .mtitle'));
 }
 
+/* ----- catégories des dépenses (patch 6) ----- */
+// Le libellé reste libre : la catégorie est devinée d'après lui (mots-clés), ou corrigée d'un toucher dans la fenêtre
+// de la dépense. Seules les corrections sont écrites, une par libellé nettoyé : `categories/{clé}` = { cat, createdAt }.
+// Liste fixe validée le 28/10/2026 (« une personne standard, auto-entrepreneur ou non ») ; « Pro » seulement pour un
+// auto-entrepreneur. Pas de couleur par catégorie (règle « une couleur par type »).
+const CATS = [['logement', 'Logement'], ['energie', 'Énergie'], ['courses', 'Courses'], ['transport', 'Transport'], ['abonnements', 'Abonnements'],
+  ['assurances', 'Assurances'], ['sante', 'Santé'], ['loisirs', 'Loisirs'], ['achats', 'Achats'], ['famille', 'Famille'], ['banque', 'Banque et crédits'],
+  ['impots', 'Impôts et URSSAF'], ['pro', 'Pro'], ['autres', 'Autres']];
+const CAT_LABEL = Object.fromEntries(CATS);
+// Mots-clés (sans accents, en minuscules, séparés par des virgules), dans l'ordre où ils sont essayés :
+// « assurance auto » → Assurances et « crédit auto » → Banque et crédits, avant Transport.
+const CAT_WORDS = [
+  ['impots', 'urssaf, impot, taxe, tresor public, dgfip, amende, cfe, prelevement a la source, sip'],
+  ['banque', 'credit, pret, emprunt, banque, frais bancaire, frais bancaires, agios, cotisation carte, commission, interets, cetelem, cofidis, sofinco, oney, floa, franfinance, echeance pret'],
+  ['assurances', 'assurance, mutuelle, maif, macif, matmut, axa, allianz, groupama, mma, gmf, prevoyance, harmonie mutuelle, malakoff, april, olivier assurance, leocare, luko'],
+  ['logement', 'loyer, location, charges copro, copropriete, syndic, habitation, foncia, nexity, hlm, opac, logement, appartement'],
+  ['energie', 'edf, engie, gaz, electricite, eau, veolia, saur, totalenergies, total energies, ekwateur, fioul, enercoop, octopus, mint energie, ohm energie, plenitude, gdf, pellets, granules'],
+  ['abonnements', 'netflix, spotify, deezer, disney, canal, prime video, amazon prime, youtube, apple music, icloud, google one, free mobile, freebox, sfr, orange, bouygues, sosh, red by sfr, b and you, forfait, internet, box internet, telephone, mobile, abonnement, game pass, playstation plus, ps plus, nintendo online, chatgpt, claude, microsoft, adobe, basic fit, fitness park, keep cool, salle de sport'],
+  ['sante', 'pharmacie, medecin, docteur, dentiste, kine, kinesitherapeute, ophtalmo, opticien, optique, hopital, clinique, analyses, laboratoire, labo, sante, osteo, osteopathe, psy, orthodontiste, doctolib, infirmier'],
+  ['transport', 'essence, gasoil, gazoil, gazole, carburant, plein, station service, esso, bp, shell, avia, peage, autoroute, sncf, train, bus, tram, metro, ratp, t2c, uber, taxi, blablacar, parking, stationnement, garage, controle technique, vidange, pneu, norauto, feu vert, midas, speedy, voiture, moto, permis'],
+  ['courses', 'courses, supermarche, carrefour, leclerc, auchan, intermarche, lidl, aldi, casino, monoprix, franprix, super u, hyper u, systeme u, netto, leader price, grand frais, picard, boulangerie, boucherie, marche, primeur, biocoop, epicerie, drive, alimentation'],
+  ['loisirs', 'restaurant, restau, resto, cinema, cine, concert, bar, cafe, mcdo, mcdonald, mcdonalds, burger king, kfc, quick, pizza, sushi, kebab, uber eats, deliveroo, just eat, sortie, vacances, voyage, hotel, airbnb, booking, steam, jeu, jeux, sport, musee, parc, bowling, piscine, livre, loisir, cadeau, anniversaire'],
+  ['achats', 'amazon, cdiscount, fnac, darty, boulanger, ikea, leroy merlin, castorama, brico, bricolage, decathlon, zara, kiabi, primark, vetement, chaussures, aliexpress, temu, shein, vinted, leboncoin, achat, action, gifi, electromenager, meuble'],
+  ['famille', 'creche, nounou, ecole, cantine, garderie, enfant, pension alimentaire, argent de poche, babysitter, baby sitting, veterinaire, veto, animaux, croquettes, periscolaire, colonie, famille'],
+  ['pro', 'materiel, outillage, outil, fournitures, comptable, expert comptable, rexel, sonepar, cged, yesss, legrand, schneider, chantier, pro, professionnel, frais pro'],
+].map(([k, w]) => {
+  // Mots composés d'abord (« prime video » avant « prime ») ; pluriel en -s ou -x accepté.
+  const list = w.split(',').map(x => x.trim()).filter(Boolean).sort((a, b) => b.length - a.length);
+  return [k, new RegExp(' (' + list.join('|') + ')(s|x)? ')];
+});
+// Clé d'une correction : libellé en minuscules, sans accents, chiffres ni « / » (identifiant Firestore valide).
+const catKey = label => { const k = fold(label).replace(/[^a-z' -]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120); return k && !/^__.*__$/.test(k) ? k : null; };
+const CAT_GUESS = new Map();
+function guessCat(label) {
+  const w = ' ' + fold(label).replace(/[^a-z0-9]+/g, ' ').trim() + ' ';
+  const pro = isPro(), ck = w + (pro ? '1' : '0');
+  if (CAT_GUESS.has(ck)) return CAT_GUESS.get(ck);
+  let c = 'autres';
+  for (const [k, re] of CAT_WORDS) if ((k !== 'pro' || pro) && re.test(w)) { c = k; break; }
+  if (CAT_GUESS.size > 2000) CAT_GUESS.clear();
+  CAT_GUESS.set(ck, c);
+  return c;
+}
+let catMapSrc = null, catMap = new Map();
+// Catégorie retenue pour ce libellé : la correction notée, sinon celle devinée.
+function catFor(label) {
+  if (catMapSrc !== S.categories) { catMapSrc = S.categories; catMap = new Map(S.categories.filter(x => CAT_LABEL[x.cat]).map(x => [x.id, x.cat])); }
+  const k = catKey(label), c = k && catMap.get(k);
+  return c && (c !== 'pro' || isPro()) ? c : guessCat(label);
+}
+const catOf = it => (it && it.type !== 'revenu' && it.label ? catFor(it.label) : null);
+const catOptions = () => CATS.filter(([k]) => k !== 'pro' || isPro()).map(([v, label]) => ({ v, label }));
+
 /* ----- lignes d'opérations ----- */
-const ROW_ACT = { entry: 'edit-entry', rec: 'edit-rec', per: 'edit-per', ep: 'edit-ep', auto: 'edit-per' };
+const ROW_ACT = { entry: 'edit-entry', rec: 'edit-rec', per: 'edit-per', ep: 'edit-ep', auto: 'edit-per', heb: 'edit-heb' };
 const OP_LABEL = { depot: 'mis de côté', retrait: 'repris', solde: 'solde' }; // patch 5 (point 18) : un seul mot « Solde »
 function rowHtml(it, rate, extraCls) {
   const isEp = it.kind === 'ep' || it.kind === 'auto';
@@ -1264,6 +1355,7 @@ function rowHtml(it, rate, extraCls) {
   const meta = [];
   if (it.kind === 'entry' || it.kind === 'ep') meta.push(dLabel(it.date));
   if (it.kind === 'per') meta.push(FREQ_LABEL[it.freq]);
+  if (it.kind === 'heb') meta.push('chaque ' + WDAYS[it.wday - 1] + (it.n > 1 ? ' · ' + it.n + ' fois' : ''));
   if (it.kind === 'ep') meta.push(OP_LABEL[it.op] || '');
   if (it.kind === 'auto') meta.push('versement automatique');
   if (isRev && isPro()) meta.push(it.urssaf ? 'URSSAF ' + MINUS + eur(it.amount * rate / 100) : 'sans URSSAF');
@@ -1271,19 +1363,22 @@ function rowHtml(it, rate, extraCls) {
   // dit), mais le jour où il passe ; ailleurs (bulle du jour du calendrier) l'étiquette reste.
   const inGroup = extraCls === 'in-fixed';
   if (inGroup && (it.kind === 'rec' || it.kind === 'per')) { const j = jourOf(it.id) || 1; meta.unshift('le ' + (j === 1 ? '1er' : j)); }
-  const tag = (it.kind === 'rec' || it.kind === 'per') && !inGroup ? '<span class="tag">fixe</span>' : '';
+  const isFix = it.kind === 'rec' || it.kind === 'per' || it.kind === 'heb';
+  const tag = isFix && !inGroup ? '<span class="tag">fixe</span>' : '';
+  // Patch 6 : catégorie de la dépense (devinée d'après le libellé, ou corrigée), en petit sous le libellé.
+  const cat = !isEp && !isRev ? catOf(it) : null;
   const back = isEp && it.op === 'retrait';
   const sign = isEp ? (it.op === 'solde' ? '' : back ? '+' : MINUS) : isRev ? '+' : MINUS;
   // Patch 4 : icône aux couleurs choisies (comme les pastilles du calendrier) : revenus, revenus sans URSSAF,
   // dépenses, fixes et épargne ; la flèche garde le sens (rentrée ou sortie).
   // Patch 5 (points 11 et 14) : chaque type garde sa couleur partout (icône et montant) ; un revenu fixe a la
   // couleur des revenus, l'orange des Fixes ne sert qu'aux charges fixes ; le vert ne sert plus qu'au Reste.
-  const fixe = !isRev && (it.kind === 'rec' || it.kind === 'per');
+  const fixe = !isRev && isFix;
   const icCls = isEp ? 'ep' : isRev ? (isPro() && !it.urssaf ? 'aut' : 'in') : fixe ? 'fix' : 'out';
   const ic = '<span class="row-ico ' + icCls + '">' + ico(isEp ? 'epargne' : isRev ? 'in' : 'out') + '</span>';
   return '<button class="row' + (extraCls ? ' ' + extraCls : '') + '" data-act="' + ROW_ACT[it.kind] + '" data-id="' + esc(it.id) + '">' + ic +
     '<span class="row-main"><span class="row-label">' + esc(it.label) + tag + '</span>' +
-    (meta.length ? '<span class="row-meta">' + esc(meta.filter(Boolean).join(' · ')) + '</span>' : '') + '</span>' +
+    (meta.length || cat ? '<span class="row-meta">' + (cat ? '<span class="cat">' + esc(CAT_LABEL[cat]) + '</span>' + (meta.length ? ' · ' : '') : '') + esc(meta.filter(Boolean).join(' · ')) + '</span>' : '') + '</span>' +
     '<span class="row-amt' + (isEp ? ' ep' : isRev ? ' ' + icCls : '') + '">' + sign + eur(it.amount) + '</span></button>';
 }
 const byDate = (a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || 0) - (a.createdAt || 0);
@@ -1527,9 +1622,9 @@ function renderMois() {
   // Patch 3 : revenus et dépenses fixes rangés pareil, à part dans une ligne repliable ; les listes du mois ne
   // montrent que ce qui a été noté à la main (« ponctuels »).
   const revs = d.ents.filter(i => i.type === 'revenu').sort(byDate);
-  const revR = d.recs.concat(d.pers).filter(i => i.type === 'revenu').sort((a, b) => b.amount - a.amount);
+  const revR = d.recs.concat(d.pers, d.hebs).filter(i => i.type === 'revenu').sort((a, b) => b.amount - a.amount);
   const depE = d.ents.filter(i => i.type !== 'revenu').sort(byDate);
-  const depR = d.recs.concat(d.pers).filter(i => i.type !== 'revenu').sort((a, b) => b.amount - a.amount);
+  const depR = d.recs.concat(d.pers, d.hebs).filter(i => i.type !== 'revenu').sort((a, b) => b.amount - a.amount);
   const epI = d.eps.concat(d.autos).sort(byDate);
   let h = '';
   h += '<section class="group"><div class="group-head"><h3>Revenus ponctuels</h3><span class="sum">' + (revs.length ? '+' + eur(sumOf(revs)) : '') + '</span></div>' +
@@ -1847,6 +1942,8 @@ function soldeMoves(L, T) {
         if (p.type === 'epargne') { if (on) put(fixeDate(p, m), -(Number(p.amount) || 0)); }
         else if (p.type === 'depense' || p.type === 'revenu') put(fixeDate(p, m), (p.type === 'revenu' ? 1 : -1) * (Number(p.amount) || 0));
       }
+      // Patch 6 : un fixe hebdo à chacune de ses dates.
+      for (const h of S.hebdo) for (const d of hebDates(h, m)) put(d, (h.type === 'revenu' ? 1 : -1) * (Number(h.amount) || 0));
     }
     // URSSAF : retirée du compte à son échéance (fin du mois suivant, ou du mois suivant le trimestre) ;
     // patch 4 : à la date et au montant réels si elle est notée payée, aujourd'hui au plus tôt si « pas encore ».
@@ -1948,6 +2045,7 @@ function dayItems(m) {
   const revDot = it => (isPro() && !it.urssaf ? 'aut' : 'in');
   for (const e of d.ents) add(+String(e.date).slice(8, 10), Object.assign({ dot: e.type === 'revenu' ? revDot(e) : 'out' }, e));
   for (const f of d.recs.concat(d.pers)) add(+fixeDate(f, m).slice(8, 10), Object.assign({ dot: f.type === 'revenu' ? revDot(f) : 'fix' }, f));
+  for (const h of d.hebs) for (const x of h.dates) add(+x.slice(8, 10), Object.assign({ dot: h.type === 'revenu' ? revDot(h) : 'fix' }, h, { amount: h.unit, n: 0 }));
   for (const e of d.eps) add(+String(e.date).slice(8, 10), Object.assign({ dot: 'ep' }, e));
   for (const a of d.autos) add(+fixeDate(a, m).slice(8, 10), Object.assign({ dot: 'ep' }, a));
   // URSSAF à payer ce mois-ci (déclaration du mois ou du trimestre précédent), le jour de l'échéance ;
@@ -2054,11 +2152,13 @@ function renderFixes() {
   const active = x => x.start && x.start <= CUR && (!x.end || x.end >= CUR);
   const recs = S.recurring.map(r => Object.assign({ kind: 'rec', freq: 'mois' }, r));
   const pers = S.periodiques.filter(p => PER_TYPES.includes(p.type) && perStep(p) && (p.type !== 'epargne' || on)).map(p => Object.assign({ kind: 'per' }, p));
-  const all = recs.concat(pers);
+  // Patch 6 : fixes hebdo (start = mois du premier passage pour les filtres, startDate = sa date).
+  const hebs = S.hebdo.filter(hebOk).map(h => Object.assign({ kind: 'heb', freq: 'semaine' }, h, { start: h.start.slice(0, 7), startDate: h.start }));
+  const all = recs.concat(pers, hebs);
   const act = all.filter(active), up = all.filter(r => r.start > CUR && !(r.end && r.end < r.start)), ended = all.filter(r => r.end && r.end < CUR && r.end >= r.start);
   const rev = act.filter(r => r.type === 'revenu'), epx = act.filter(r => r.kind === 'per' && r.type === 'epargne');
   const dep = act.filter(r => r.type !== 'revenu' && !(r.kind === 'per' && r.type === 'epargne'));
-  const perMonth = x => (Number(x.amount) || 0) / (FREQ[x.freq] || 1);
+  const perMonth = x => (x.freq === 'semaine' ? (Number(x.amount) || 0) * 52 / 12 : (Number(x.amount) || 0) / (FREQ[x.freq] || 1));
   const rate = rateFor(NOW.getFullYear());
   const revM = r2(rev.reduce((a, x) => a + perMonth(x) * (pro && x.urssaf ? 1 - rate / 100 : 1), 0));
   const depM = r2(dep.reduce((a, x) => a + perMonth(x), 0)), epM = r2(epx.reduce((a, x) => a + perMonth(x), 0));
@@ -2066,7 +2166,7 @@ function renderFixes() {
   const smooth = act.some(x => x.freq !== 'mois');
   $('#fix-totals').innerHTML =
     // Patch 5 (point 22) : un résultat négatif est normal sans les factures : « il manque », sans rouge.
-    '<div class="fix-main"><span>Après les fixes, ' + (ok && left < 0 ? 'il manque' : 'il te reste') + '</span><strong>' + (ok ? eur(Math.abs(left)) : '…') + '</strong><span>par mois' + (smooth ? ' (trimestriels et annuels comptés en moyenne)' : '') + '</span>' +
+    '<div class="fix-main"><span>Après les fixes, ' + (ok && left < 0 ? 'il manque' : 'il te reste') + '</span><strong>' + (ok ? eur(Math.abs(left)) : '…') + '</strong><span>par mois' + (smooth ? ' (' + (act.some(x => x.freq === 'semaine') ? 'hebdos, ' : '') + 'trimestriels et annuels comptés en moyenne)' : '') + '</span>' +
     (ok && left < 0 ? '<p class="hint">' + (pro ? 'Sans tes factures ni tes revenus variables.' : 'Sans tes revenus variables.') + '</p>' : '') + '</div>' +
     '<div class="fix-small"><div><span><i class="sw s-fixes"></i>Charges fixes</span><b>' + (ok ? eur(depM) : '…') + '</b></div>' +
     '<div><span><i class="sw s-net"></i>Revenus fixes' + (pro && rev.some(x => x.urssaf) ? ' nets' : '') + '</span><b>' + (ok ? eur(revM) : '…') + '</b></div>' +
@@ -2076,19 +2176,21 @@ function renderFixes() {
   if (!ok) { list.innerHTML = '<p class="empty">Chargement…</p>'; return; }
   const row = r => {
     const isRev = r.type === 'revenu', isEp = r.kind === 'per' && r.type === 'epargne';
-    const nx = r.freq !== 'mois' && active(r) ? perNext(r, CUR) : null;
+    const nx = r.freq !== 'mois' && r.kind !== 'heb' && active(r) ? perNext(r, CUR) : null;
     // Patch 4 : « à partir d'août » (élision), comme partout ailleurs.
     // Patch 5 (point 21) : plus de « chaque mois » (le « /mois » le dit) ni de « depuis… » pour un fixe déjà en cours ;
     // le jour où il passe, la fin et la prochaine échéance restent.
     const j = jourOf(r.id) || 1;
-    const meta = ['le ' + (j === 1 ? '1er' : j)];
-    if (r.start > CUR) meta.push('à partir ' + deMS(r.start));
+    const meta = [r.kind === 'heb' ? 'chaque ' + WDAYS[r.wday - 1] : 'le ' + (j === 1 ? '1er' : j)];
+    if (r.kind === 'heb' && r.startDate > TODAY) meta.push('dès le ' + dShort(r.startDate));
+    else if (r.start > CUR) meta.push('à partir ' + deMS(r.start));
     if (r.end) meta.push('jusqu\'à ' + mShort(r.end));
     if (nx) meta.push(nx === CUR ? 'échéance ce mois-ci' : 'prochaine : ' + mLabel(nx));
     if (isRev && pro) meta.push(r.urssaf ? 'soumis URSSAF' : 'sans URSSAF');
+    const cat = !isRev && !isEp ? catOf(r) : null;
     // Patch 4 : charges fixes dans la couleur des Fixes, revenus et épargne dans les leurs.
     const ic = '<span class="row-ico ' + (isEp ? 'ep' : isRev ? (pro && !r.urssaf ? 'aut' : 'in') : 'fix') + '">' + ico(isEp ? 'epargne' : isRev ? 'in' : 'out') + '</span>';
-    return '<button class="row" data-act="' + (r.kind === 'rec' ? 'edit-rec' : 'edit-per') + '" data-id="' + esc(r.id) + '">' + ic + '<span class="row-main"><span class="row-label">' + esc(r.label) + '</span><span class="row-meta">' + esc(meta.join(' · ')) + '</span></span>' +
+    return '<button class="row" data-act="' + (r.kind === 'rec' ? 'edit-rec' : r.kind === 'heb' ? 'edit-heb' : 'edit-per') + '" data-id="' + esc(r.id) + '">' + ic + '<span class="row-main"><span class="row-label">' + esc(r.label) + '</span><span class="row-meta">' + (cat ? '<span class="cat">' + esc(CAT_LABEL[cat]) + '</span> · ' : '') + esc(meta.join(' · ')) + '</span></span>' +
       '<span class="row-amt' + (isEp ? ' ep' : isRev ? (pro && !r.urssaf ? ' aut' : ' in') : '') + '">' + (isRev ? '+' : MINUS) + eur(r.amount) + '<small>' + FREQ_UNIT[r.freq] + '</small></span></button>';
   };
   const sortA = arr => arr.slice().sort((a, b) => perMonth(b) - perMonth(a));
@@ -2220,7 +2322,17 @@ function renderAnneeBottom(yd, ok, pro, on) {
   const topRow = c => '<button class="top-row" data-act="top-open" data-k="' + esc(c.k) + '"><span class="l">' + esc(c.label) + (c.n ? '<small>' + c.n + ' libellés</small>' : c.rec ? '<small>fixe</small>' : '') + '</span>' +
     '<span class="a">' + eur(c.total) + '<small>' + Math.round(c.total / tot * 100) + ' %</small></span>' +
     '<span class="bar"><i class="' + (c.rec ? 'f' : 'p') + '" style="width:' + Math.max(2, c.total / maxT * 100).toFixed(1) + '%"></i></span></button>';
-  $('#y-top').innerHTML = !ok ? '<p class="empty">Chargement…</p>' : top.length ? top.map(topRow).join('') + (others ? topRow(others) : '') : '<p class="empty">Aucune dépense sur cette période.</p>';
+  // Patch 6 : ou par catégorie (choix propre à l'appareil, `pf-top-cat`) ; l'URSSAF compte dans « Impôts et URSSAF ».
+  const byCat = lsGet('pf-top-cat') === '1';
+  $$('#y-top-mode button').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.v === 'cat') === byCat)));
+  $('#y-top-legend').hidden = byCat;
+  if (byCat && ok) {
+    const cats = yearCats(yd, pro), ctot = (T.dep + (pro ? T.urssaf : 0)) || 1, cmax = cats.length ? cats[0].total || 1 : 1;
+    $('#y-top').innerHTML = cats.length ? cats.map(g => '<button class="top-row" data-act="cat-open" data-k="' + g.k + '"><span class="l">' + esc(CAT_LABEL[g.k]) +
+      (g.labels.length ? '<small>' + plural(g.labels.length, 'libellé') + (g.urssaf ? ' + URSSAF' : '') + '</small>' : g.urssaf ? '<small>URSSAF</small>' : '') + '</span>' +
+      '<span class="a">' + eur(g.total) + '<small>' + Math.round(g.total / ctot * 100) + ' %</small></span>' +
+      '<span class="bar"><i class="p" style="width:' + Math.max(2, g.total / cmax * 100).toFixed(1) + '%"></i></span></button>').join('') : '<p class="empty">Aucune dépense sur cette période.</p>';
+  } else $('#y-top').innerHTML = !ok ? '<p class="empty">Chargement…</p>' : top.length ? top.map(topRow).join('') + (others ? topRow(others) : '') : '<p class="empty">Aucune dépense sur cette période.</p>';
   if (pro) {
     const meter = (label, v, lim) => {
       const p = v / lim, cls = p >= 1 ? 'over' : p >= 0.8 ? 'warn' : '';
@@ -2232,6 +2344,20 @@ function renderAnneeBottom(yd, ok, pro, on) {
       infoBubble('tva', 'Calculé sur les revenus marqués « soumis à l\'URSSAF ». Franchise de TVA (prestations de services) : au-delà de 37 500 € sur l\'année, la TVA s\'applique au 1er janvier suivant ; au-delà de 41 250 €, dès le dépassement.');
   }
   armInfo();
+}
+// Patch 6 : dépenses de l'année par catégorie (libellés regroupés), plus l'URSSAF pour un auto-entrepreneur.
+function yearCats(yd, pro) {
+  const m = new Map();
+  for (const c of yd.top) { const k = catFor(c.label); const g = m.get(k) || { k, total: 0, labels: [], urssaf: 0 }; g.total += c.total; g.labels.push(c); m.set(k, g); }
+  if (pro && yd.T.urssaf > 0) { const g = m.get('impots') || { k: 'impots', total: 0, labels: [], urssaf: 0 }; g.total += yd.T.urssaf; g.urssaf = yd.T.urssaf; m.set('impots', g); }
+  return Array.from(m.values()).map(g => Object.assign(g, { total: r2(g.total) })).sort((a, b) => b.total - a.total);
+}
+function openCat(k) {
+  if (!YD || !CAT_LABEL[k]) return;
+  const g = yearCats(YD, isPro()).find(x => x.k === k); if (!g) return;
+  openPanel(CAT_LABEL[k], '<p class="hint">' + S.year + '</p><p class="uc-amount">' + eur(g.total) + '</p><div>' +
+    g.labels.map(c => '<button class="top-row" data-act="top-open" data-k="' + esc(c.k) + '"><span class="l">' + esc(c.label) + (c.rec ? '<small>fixe</small>' : '') + '</span><span class="a">' + eur(c.total) + '</span></button>').join('') +
+    (g.urssaf ? '<div class="top-row static"><span class="l">URSSAF</span><span class="a">' + eur(g.urssaf) + '</span></div>' : '') + '</div>');
 }
 function niceStep(x) { const p = Math.pow(10, Math.floor(Math.log10(x))); const n = x / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p; }
 function axLabel(v) { const a = Math.abs(v), s = v < 0 ? MINUS : ''; return s + (a >= 1000 ? NUM.format(a / 1000) + ' k€' : NUM.format(a) + ' €'); }
@@ -2365,6 +2491,12 @@ function renderReglages() {
   $('#noir-toggle').checked = APP.noir;
   $('#effets-toggle').checked = APP.effets === 'reduits';
   $('#export-btn').textContent = 'Ouvrir ' + S.year + ' dans un tableur';
+  // Patch 6 : rappel du solde, paiements URSSAF notés dans l'autre déclaration (point 3), dernier import.
+  $('#rappel-txt').textContent = rappelTxt(rappelDays());
+  const otherPay = S.urssafPay.filter(p => (isQuarterly() ? /^\d{4}-\d{2}$/ : /^\d{4}-T[1-4]$/).test(p.id)).length, pn = $('#period-note');
+  pn.hidden = !otherPay || !isPro();
+  if (otherPay) pn.textContent = plural(otherPay, 'paiement') + ' URSSAF noté' + (otherPay > 1 ? 's' : '') + ' en déclaration ' + (isQuarterly() ? 'mensuelle' : 'trimestrielle') + ' : ' + (otherPay > 1 ? 'gardés, ils reviennent' : 'gardé, il revient') + ' si tu changes à nouveau.';
+  renderImpLast();
   $('#admin-card').hidden = !S.isAdmin;
   $('#req-card').hidden = !S.isAdmin;
   renderAllow();
@@ -2518,11 +2650,17 @@ function exportCsv() {
     const d = monthData(ym(y, i)); if (d.m > CUR) break;
     for (const it of d.items) {
       const rev = it.type === 'revenu', u = rev && it.urssaf && isPro();
-      lines.push([it.kind === 'entry' ? it.date : d.m + '-01', d.m, rev ? 'Revenu' : 'Dépense', q(it.label), n(it.amount), u ? 'oui' : 'non', n(u ? it.amount * d.rate / 100 : 0), it.kind === 'entry' ? 'non' : it.kind === 'rec' ? 'oui' : FREQ_LABEL[it.freq]].join(';'));
+      lines.push([it.kind === 'entry' ? it.date : it.kind === 'heb' ? it.dates[0] : d.m + '-01', d.m, rev ? 'Revenu' : 'Dépense', q(it.label), n(it.amount), u ? 'oui' : 'non', n(u ? it.amount * d.rate / 100 : 0), it.kind === 'entry' ? 'non' : it.kind === 'rec' ? 'oui' : it.kind === 'heb' ? 'chaque ' + WDAYS[it.wday - 1] + ' (' + it.n + ' fois)' : FREQ_LABEL[it.freq]].join(';'));
     }
     for (const it of d.eps.concat(d.autos)) {
       lines.push([it.kind === 'ep' ? it.date : d.m + '-01', d.m, it.op === 'retrait' ? 'Épargne reprise' : 'Épargne', q(it.label), n(it.amount), 'non', '0', it.kind === 'auto' ? FREQ_LABEL[it.freq] : 'non'].join(';'));
     }
+  }
+  // Patch 6 : aussi sur Android, avec « Enregistrer sous » (module natif).
+  if (isNative) {
+    PFlowNative.saveFile({ name: 'p-flow-' + y + '.csv', data: '﻿' + lines.join('\r\n'), mime: 'text/csv' })
+      .then(() => toast('Tableur enregistré'), e => { if (!(e && e.code === 'CANCELED')) toast('Le tableur n\'a pas pu être enregistré.', true); });
+    return;
   }
   const url = URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
   const a = document.createElement('a'); a.href = url; a.download = 'p-flow-' + y + '.csv';
@@ -2542,11 +2680,11 @@ function openLayer(back, sheet) {
     ? [{ transform: 'translateY(18px) scale(.97)', opacity: 0 }, { transform: 'none', opacity: 1 }]
     : [{ transform: 'translateY(100%)' }, { transform: 'none' }], { duration: isWide() ? 300 : 380, easing: SPRING });
 }
-function closeLayer(back, sheet) {
+function closeLayer(back, sheet, fromY) {
   if (back.hidden || back.dataset.closing) return;
   const a = anim(sheet, isWide()
     ? [{ transform: 'none', opacity: 1 }, { transform: 'translateY(12px) scale(.98)', opacity: 0 }]
-    : [{ transform: 'none' }, { transform: 'translateY(100%)' }], { duration: 220, easing: EASE_IN, fill: 'forwards' });
+    : [{ transform: fromY ? 'translateY(' + fromY + 'px)' : 'none' }, { transform: 'translateY(100%)' }], { duration: 220, easing: EASE_IN, fill: 'forwards' });
   if (!a) { back.hidden = true; return; }
   const b = anim(back, [{ opacity: 1 }, { opacity: 0 }], { duration: 220, easing: EASE_IN, fill: 'forwards' });
   back.dataset.closing = '1'; back.style.pointerEvents = 'none';
@@ -2571,7 +2709,9 @@ function openPanel(title, html) {
   panel.focus({ preventScroll: true }); // pour le clavier et les lecteurs d'écran, sans cadre de focus sur le bouton
 }
 function closePanel() {
+  soldeAsk = false;
   closeLayer(pbg, panel);
+  setTimeout(renderTutoBanner, 260);
   if (!layerOpen(bg)) document.body.style.overflow = '';
   if (panelFocus && panelFocus.focus && document.contains(panelFocus)) { try { panelFocus.focus(); } catch (e) { /* ignoré */ } }
 }
@@ -2641,17 +2781,34 @@ function maybeNews() {
 }
 
 /* ---------- feuille d'ajout / modification ---------- */
-const F = { mode: 'new', type: 'depense', op: 'depot', freq: 'once', orig: null, ctx: CUR, armed: false, uTouched: false, jour: null, datePicked: false };
+const F = { mode: 'new', type: 'depense', op: 'depot', freq: 'once', orig: null, ctx: CUR, armed: false, uTouched: false, jour: null, datePicked: false, cat: null, sig0: '' };
 const bg = $('#sheet-bg'), form = $('#sheet');
-const COL = { 'edit-entry': 'entries', 'edit-rec': 'recurring', 'edit-per': 'periodiques', 'edit-ep': 'epargne' };
+const COL = { 'edit-entry': 'entries', 'edit-rec': 'recurring', 'edit-per': 'periodiques', 'edit-ep': 'epargne', 'edit-heb': 'hebdo' };
 let lastFocus = null;
-const isFixe = () => F.mode === 'edit-rec' || F.mode === 'edit-per';
+const isFixe = () => F.mode === 'edit-rec' || F.mode === 'edit-per' || F.mode === 'edit-heb';
+const LISTS = () => ({ 'edit-entry': S.entries, 'edit-rec': S.recurring, 'edit-per': S.periodiques, 'edit-ep': S.epargne, 'edit-heb': S.hebdo });
 function openSheet(o) {
   if (blocked()) return;
   if (popOpen()) closePop();
   if (layerOpen(pbg)) closePanel();
   lastFocus = document.activeElement;
-  F.mode = o.mode; F.armed = false; F.uTouched = false; F.jour = null; F.datePicked = false; F.ctx = o.date && DATE_RE.test(o.date) ? o.date.slice(0, 7) : S.view === 'mois' ? S.month : CUR;
+  // Patch 6 : brouillon réduit en pilule (point 8) : tout ce qui était tapé revient tel quel.
+  if (o.restore) {
+    const d = o.restore, orig = d.F.mode === 'new' ? null : LISTS()[d.F.mode].find(x => x.id === d.F.orig.id);
+    if (d.F.mode !== 'new' && !orig) { toast('Cette opération n\'existe plus : brouillon abandonné.'); return; }
+    Object.assign(F, d.F, { orig, armed: false });
+    DRAFT = null; // repris : s'il est réduit à nouveau, c'est un nouveau brouillon
+    $('#f-amount').value = d.v.amount; $('#f-label').value = d.v.label; $('#f-date').value = d.v.date; $('#f-start').value = d.v.start;
+    $('#f-urssaf').checked = d.v.urssaf; $('#f-epstart').value = d.v.epstart;
+    $('#f-error').textContent = '';
+    const op = openLayer(bg, form);
+    document.body.style.overflow = 'hidden';
+    syncSheet(); catUi(); draftUi();
+    const fa = () => { if (layerOpen(bg)) $('#f-amount').focus({ preventScroll: true }); };
+    if (op) op.finished.then(fa, () => {}); else setTimeout(fa, 60);
+    return;
+  }
+  F.mode = o.mode; F.armed = false; F.uTouched = false; F.jour = null; F.datePicked = false; F.cat = null; F.ctx = o.date && DATE_RE.test(o.date) ? o.date.slice(0, 7) : S.view === 'mois' ? S.month : CUR;
   $('#f-error').textContent = '';
   let start = F.ctx;
   if (o.mode === 'new') {
@@ -2664,15 +2821,16 @@ function openSheet(o) {
     if (o.date) F.datePicked = true;
     $('#f-urssaf').checked = true;
   } else {
-    const it = { 'edit-entry': S.entries, 'edit-rec': S.recurring, 'edit-per': S.periodiques, 'edit-ep': S.epargne }[o.mode].find(x => x.id === o.id);
+    const it = LISTS()[o.mode].find(x => x.id === o.id);
     if (!it) return;
     F.orig = it;
     if (o.mode === 'edit-ep') { F.type = 'epargne'; F.op = OPS.includes(it.op) ? it.op : 'depot'; F.freq = 'once'; }
     else if (o.mode === 'edit-per') { F.type = PER_TYPES.includes(it.type) ? it.type : 'depense'; F.op = 'depot'; F.freq = FREQ[it.freq] ? it.freq : 'mois'; }
-    else { F.type = it.type === 'revenu' ? 'revenu' : 'depense'; F.op = 'depot'; F.freq = o.mode === 'edit-rec' ? 'mois' : 'once'; }
+    else { F.type = it.type === 'revenu' ? 'revenu' : 'depense'; F.op = 'depot'; F.freq = o.mode === 'edit-rec' ? 'mois' : o.mode === 'edit-heb' ? 'semaine' : 'once'; }
     $('#f-amount').value = amountStr(it.amount);
     $('#f-label').value = it.label || '';
-    $('#f-date').value = DATE_RE.test(it.date || '') ? it.date : TODAY;
+    // Fixe hebdo : la date du premier passage (son jour de la semaine) est dans le champ date.
+    $('#f-date').value = DATE_RE.test(it.date || '') ? it.date : o.mode === 'edit-heb' && DATE_RE.test(it.start || '') ? it.start : TODAY;
     if (isFixe() && YM_RE.test(it.start || '')) start = it.start;
     if (isFixe()) F.jour = jourOf(it.id);
     $('#f-urssaf').checked = !!it.urssaf;
@@ -2680,20 +2838,92 @@ function openSheet(o) {
   $('#f-start').value = start;
   const opening = openLayer(bg, form);
   document.body.style.overflow = 'hidden';
-  syncSheet();
+  syncSheet(); catUi(); draftUi();
+  F.sig0 = sheetSig();
   // Le clavier s'ouvre une fois la fenêtre en place : les deux mouvements ne se gênent pas.
   const focusAmount = () => { if (!layerOpen(bg)) return; const a = $('#f-amount'); a.focus({ preventScroll: true }); if (o.mode !== 'new' || o.amount > 0) a.select(); };
   if (opening) opening.finished.then(focusAmount, () => {}); else setTimeout(focusAmount, 60);
 }
-function closeSheet() {
+// soft : fermeture « en passant » (toucher le fond, glisser vers le bas, Retour d'Android, Échap) : si quelque chose
+// a été tapé, la fenêtre est réduite en brouillon (patch 6, point 8) au lieu d'être perdue. fromY : départ du glissement.
+function closeSheet(soft, fromY) {
   closeSuggest();
-  closeLayer(bg, form);
+  if (soft === true && layerOpen(bg) && sheetTyped()) {
+    if (DRAFT) toast('Brouillon précédent remplacé');
+    DRAFT = { F: Object.assign({}, F, { orig: F.orig ? { id: F.orig.id } : null }), v: sheetVals() };
+  }
+  closeLayer(bg, form, fromY);
   if (!layerOpen(pbg)) document.body.style.overflow = '';
   if (lastFocus && lastFocus.focus && document.contains(lastFocus)) { try { lastFocus.focus(); } catch (e) { /* ignoré */ } }
+  setTimeout(() => draftUi(true), 240); // la pilule arrive une fois la fenêtre descendue
+}
+/* ----- brouillon du + (patch 6, point 8) ----- */
+// Un seul brouillon, gardé en mémoire (rien dans Firestore) : une pilule au-dessus de la barre du bas le rouvre.
+let DRAFT = null;
+const sheetVals = () => ({ amount: $('#f-amount').value, label: $('#f-label').value, date: $('#f-date').value, start: $('#f-start').value, urssaf: $('#f-urssaf').checked, epstart: $('#f-epstart').value });
+const sheetSig = () => JSON.stringify([F.type, F.op, F.freq, F.jour, F.cat, sheetVals()]);
+function sheetTyped() {
+  if (F.mode === 'new') return !!($('#f-amount').value.trim() || $('#f-label').value.trim());
+  return sheetSig() !== F.sig0;
+}
+function draftUi(animate) {
+  const p = $('#draft'); if (!p) return;
+  const show = !!DRAFT && !layerOpen(bg) && S.ready && !$('#app').hidden;
+  if (!show) { if (!p.hidden) { const a = animate ? anim(p, [{ opacity: 1, transform: 'translateX(-50%)' }, { opacity: 0, transform: 'translateX(-50%) translateY(8px) scale(.96)' }], { duration: 180, easing: EASE_IN, fill: 'forwards' }) : null; if (a) a.finished.then(() => { p.hidden = true; a.cancel(); }, () => {}); else p.hidden = true; } return; }
+  const a = parseAmount(DRAFT.v.amount), l = DRAFT.v.label.trim();
+  $('#draft-txt').textContent = ['Brouillon', a > 0 ? eur(a) : '', l].filter(Boolean).join(' · ');
+  if (p.hidden) { p.hidden = false; if (animate) anim(p, [{ opacity: 0, transform: 'translateX(-50%) translateY(10px) scale(.98)' }, { opacity: 1, transform: 'translateX(-50%)' }], { duration: 380, easing: SPRING }); }
+}
+function draftDrop() {
+  const d = DRAFT; if (!d) return;
+  DRAFT = null; draftUi(true);
+  toastUndo('Brouillon abandonné', () => { DRAFT = d; draftUi(true); });
+}
+// Glisser la fenêtre vers le bas (téléphone) : depuis la barre de prise ou le titre.
+(function sheetDrag() {
+  let y0 = 0, dy = 0, on = false, pid = null, t0 = 0;
+  form.addEventListener('pointerdown', e => {
+    if (isWide() || e.button > 0 || !e.target.closest('.grab, .sheet-head') || e.target.closest('button, input')) return;
+    on = true; y0 = e.clientY; dy = 0; pid = e.pointerId; t0 = performance.now();
+    try { form.setPointerCapture(pid); } catch (x) { /* ignoré */ }
+  });
+  form.addEventListener('pointermove', e => {
+    if (!on || e.pointerId !== pid) return;
+    dy = Math.max(0, e.clientY - y0);
+    form.style.transform = dy ? 'translateY(' + dy + 'px)' : '';
+  });
+  const end = e => {
+    if (!on || e.pointerId !== pid) return;
+    on = false;
+    const v = dy / Math.max(1, performance.now() - t0), from = dy;
+    form.style.transform = ''; dy = 0;
+    if (from > 110 || (from > 40 && v > 0.6)) closeSheet(true, from);
+    else if (from) anim(form, [{ transform: 'translateY(' + from + 'px)' }, { transform: 'none' }], { duration: 380, easing: SPRING });
+  };
+  form.addEventListener('pointerup', end);
+  form.addEventListener('pointercancel', end);
+})();
+// Patch 6 : catégorie affichée dans la fenêtre (choisie, sinon celle retenue pour ce libellé, « auto »).
+function catUi() {
+  if (F.type !== 'depense') return;
+  const l = $('#f-label').value.trim(), c = F.cat || (l ? catFor(l) : null);
+  $('#f-cat-txt').textContent = c ? CAT_LABEL[c] + (F.cat ? '' : ' · auto') : 'Selon le libellé';
+}
+$('#f-cat').addEventListener('click', e => {
+  const l = $('#f-label').value.trim();
+  openChoice({ anchor: e.currentTarget, label: 'Catégorie', value: F.cat || (l ? catFor(l) : ''), options: catOptions(), onPick: v => { F.cat = v; catUi(); } });
+});
+$('#f-label').addEventListener('input', () => { if (!F.cat) catUi(); });
+// À l'enregistrement d'une dépense : une catégorie choisie différente de celle retenue est notée pour ce libellé.
+function saveCat(label) {
+  if (!F.cat || !CAT_LABEL[F.cat]) return;
+  const k = catKey(label);
+  if (!k || catFor(label) === F.cat) return;
+  write(setDoc(doc(ucol('categories'), k), { cat: F.cat, createdAt: Date.now() }, { merge: true }));
 }
 // Patch 6 (retour sur l'APK 87) : un champ qui apparaît dans la fenêtre d'ajout (choix du type, de la fréquence…)
 // arrive comme une carte (riseIn) au lieu de surgir. Pas à l'ouverture : toute la fenêtre monte déjà.
-const SHEET_FX = ['#op-seg', '#f-accounts', '#f-epstart-field', '#f-freq-field', '#f-urssaf-row', '#f-preview', '#f-hint', '#f-stop'];
+const SHEET_FX = ['#op-seg', '#f-accounts', '#f-epstart-field', '#f-cat-field', '#f-freq-field', '#f-urssaf-row', '#f-preview', '#f-hint', '#f-stop'];
 function syncSheet(fx) {
   const shown0 = fx && motionOK() ? SHEET_FX.map(id => !$(id).hidden) : null;
   const t = F.type, isNew = F.mode === 'new', ep = t === 'epargne', rev = t === 'revenu', fixe = isFixe();
@@ -2705,13 +2935,18 @@ function syncSheet(fx) {
   $$('#type-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.type === t)));
   $('#op-seg').hidden = !ep || F.mode === 'edit-per';
   $$('#op-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.op === F.op)));
-  // Fréquence : une fois / chaque mois / trimestre / année (dépôts d'épargne seulement pour l'épargne).
+  // Fréquence : une fois / chaque semaine / mois / trimestre / année (dépôts d'épargne seulement pour l'épargne).
+  // Patch 6 : « Semaine » pour une dépense ou un revenu ; un fixe hebdo garde sa fréquence (rangé à part, `hebdo`).
   if (ep && F.op !== 'depot') F.freq = 'once';
-  const canFreq = (isNew || fixe) && !(ep && F.op !== 'depot');
-  if (fixe && F.freq === 'once') F.freq = 'mois';
+  if (ep && F.freq === 'semaine') F.freq = 'once';
+  const heb = F.mode === 'edit-heb';
+  const canFreq = (isNew || fixe) && !heb && !(ep && F.op !== 'depot');
+  if (fixe && !heb && (F.freq === 'once' || F.freq === 'semaine')) F.freq = 'mois';
   $('#f-freq-field').hidden = !canFreq;
   $('#freq-seg [data-f="once"]').hidden = fixe;
-  $('#freq-seg').classList.toggle('seg3', fixe); $('#freq-seg').classList.toggle('seg4', !fixe);
+  $('#freq-seg [data-f="semaine"]').hidden = fixe || ep;
+  const nf = $$('#freq-seg button').filter(b => !b.hidden).length;
+  ['seg3', 'seg4', 'seg5'].forEach(c => $('#freq-seg').classList.toggle(c, c === 'seg' + nf));
   // Fixe avec une date de fin : sa fréquence ne change pas (sinon il pourrait repartir ou perdre une échéance).
   const ended = fixe && !!F.orig.end;
   $$('#freq-seg button').forEach(b => { b.setAttribute('aria-pressed', String(b.dataset.f === F.freq)); b.disabled = !!ended && b.dataset.f !== F.freq; });
@@ -2721,12 +2956,14 @@ function syncSheet(fx) {
   $('#f-label').placeholder = ep ? 'Livret A, PEL, tirelire…' : rev ? 'Salaire, facture client, CAF…' : 'Loyer, courses, plein d\'essence…';
   $('#f-amount-label').textContent = ep && F.op === 'solde' ? 'Montant actuellement sur le compte' : 'Montant';
   $('#f-urssaf-row').hidden = !rev || !isPro();
+  $('#f-cat-field').hidden = t !== 'depense';
   accountsUi();
   $('#sheet-title').textContent = isNew ? (ep ? 'Épargne' : once ? 'Nouvelle opération' : 'Nouveau fixe')
     : fixe ? (ep ? 'Modifier le versement' : 'Modifier le fixe') : F.mode === 'edit-ep' ? 'Modifier l\'épargne' : 'Modifier';
   // Patch 3 : un fixe déjà compté dans des mois passés s'arrête (le passé ne change pas) ; le supprimer le retire
   // aussi de ces mois-là, donc ce bouton passe après « Arrêter » et le dit clairement.
-  const hist = fixe && YM_RE.test(F.orig.start || '') && F.orig.start < CUR;
+  const st0 = fixe ? String(F.orig.start || '').slice(0, 7) : ''; // fixe hebdo : départ = une date
+  const hist = fixe && YM_RE.test(st0) && st0 < CUR;
   const del = $('#f-delete'); del.hidden = isNew; del.classList.remove('armed'); F.armed = false;
   del.textContent = hist ? 'Supprimer aussi des mois passés' : 'Supprimer';
   const stop = $('#f-stop');
@@ -2744,7 +2981,7 @@ function syncSheet(fx) {
 function urssafFor(label) {
   const k = fold(label); if (!k) return null;
   let best = null, t = -Infinity;
-  for (const arr of [S.entries, S.recurring, S.periodiques]) for (const it of arr) {
+  for (const arr of [S.entries, S.recurring, S.periodiques, S.hebdo]) for (const it of arr) {
     if (it.type !== 'revenu' || fold(it.label) !== k) continue;
     const ti = Number(it.createdAt) || 0;
     if (ti >= t) { t = ti; best = !!it.urssaf; }
@@ -2761,7 +2998,15 @@ function guessUrssaf() {
 // (montant, type, URSSAF ou fréquence), pas dès qu'on ouvre le fixe pour le regarder (patch 3).
 function sheetHints() {
   const hint = $('#f-hint'), hints = [];
-  if (isFixe() && F.orig) {
+  if (F.mode === 'edit-heb' && F.orig) {
+    // Patch 6 : fixe hebdo. Même principe que les autres fixes : un changement en cours de route garde le passé.
+    const o = F.orig, st0 = (o.start || '').slice(0, 7), a = parseAmount($('#f-amount').value), nd = $('#f-date').value;
+    const urs = F.type === 'revenu' && isPro() && $('#f-urssaf').checked;
+    const changed = (a > 0 && a !== Number(o.amount)) || F.type !== o.type || urs !== !!o.urssaf;
+    if (changed && st0 < F.ctx && (!o.end || o.end >= F.ctx) && nd === o.start) hints.push('Ce changement compte ' + aPartir(F.ctx) + '. Les mois d\'avant gardent ' + eur(o.amount) + ' par semaine.');
+    if (DATE_RE.test(nd) && nd !== o.start) hints.push('Départ le ' + dShort(nd) + ' : les semaines d\'avant ' + (nd > o.start ? 'ne comptent plus.' : 'comptent aussi.'));
+    if (st0 < CUR && !o.end) hints.push('Arrêter : garde le passé. Supprimer : l\'efface aussi depuis ' + mShort(st0) + '.');
+  } else if (isFixe() && F.orig) {
     const o = F.orig, ended = !!o.end;
     const hist = YM_RE.test(o.start || '') && o.start < CUR;
     const a = parseAmount($('#f-amount').value);
@@ -2829,7 +3074,7 @@ function fixeTxt(m) {
 function updatePreview() {
   const p = $('#f-preview'), a = parseAmount($('#f-amount').value);
   const once = F.freq === 'once';
-  const date = once ? ($('#f-date').value || TODAY) : (($('#f-start').value || CUR) + '-01');
+  const date = once || F.freq === 'semaine' ? ($('#f-date').value || TODAY) : (($('#f-start').value || CUR) + '-01');
   const m = date.slice(0, 7), y = +date.slice(0, 4) || NOW.getFullYear();
   const say = h => { p.hidden = false; p.innerHTML = h; };
   if (F.type === 'revenu' && isPro() && $('#f-urssaf').checked) {
@@ -2840,6 +3085,10 @@ function updatePreview() {
     else if (F.op === 'retrait') say('Repris : ce montant redonne de l\'argent au reste ' + esc(deMois(pYM(m).m - 1)) + '.');
     else if (once) say('Mis de côté : ce montant est retiré du reste ' + esc(deMois(pYM(m).m - 1)) + '.');
     else if (fixeTxt(m)) say(esc(fixeTxt(m))); else p.hidden = true;
+  } else if (F.freq === 'semaine' && DATE_RE.test(date)) {
+    // Patch 6 : combien de fois ce mois-ci (4 ou 5), et le total.
+    const n = hebDates({ type: 'depense', amount: 1, wday: wdayOf(date), start: date, end: null }, m).length;
+    say(esc(cap(WDAYS[wdayOf(date) - 1]) + ' : ' + n + ' fois en ' + MONTHS[pYM(m).m - 1]) + (a > 0 ? ', soit <b>' + esc(eur(a * n)) + '</b>' : '') + '.');
   } else if (!once && F.mode === 'new' && fixeTxt(m)) {
     say(esc(fixeTxt(m)));
   } else p.hidden = true;
@@ -2852,8 +3101,18 @@ $('#op-seg').addEventListener('click', e => { const b = e.target.closest('button
 $('#freq-seg').addEventListener('click', e => {
   const b = e.target.closest('button[data-f]'); if (!b || b.disabled) return;
   const was = F.freq; F.freq = b.dataset.f;
-  // Ajout : la date choisie pour « une fois » devient le départ (et le jour) du fixe, et inversement (patch 3).
-  if (F.mode === 'new' && was === 'once' && F.freq !== 'once') {
+  // Patch 6 : « Semaine » garde la date choisie (son jour de la semaine) ; d'un fixe mensuel, elle reprend son départ.
+  const dated = f => f === 'once' || f === 'semaine';
+  if (F.mode === 'new' && dated(F.freq) && !dated(was)) {
+    const st = $('#f-start').value || CUR, { y, m } = pYM(st);
+    if (F.jour) $('#f-date').value = st + '-' + pad(Math.min(F.jour, new Date(y, m, 0).getDate()));
+    else if (F.freq === 'semaine' && !DATE_RE.test($('#f-date').value)) $('#f-date').value = st === CUR ? TODAY : st + '-01';
+  } else if (F.mode === 'new' && dated(was) && dated(F.freq)) {
+    // une fois ↔ semaine : même date
+  } else if (F.mode === 'new' && was === 'semaine' && !dated(F.freq)) {
+    const d = $('#f-date').value;
+    if (DATE_RE.test(d)) { $('#f-start').value = d.slice(0, 7); F.jour = F.datePicked ? +d.slice(8, 10) : null; }
+  } else if (F.mode === 'new' && was === 'once' && F.freq !== 'once') {
     const d = $('#f-date').value;
     if (DATE_RE.test(d)) { $('#f-start').value = d.slice(0, 7); F.jour = F.datePicked ? +d.slice(8, 10) : null; }
   } else if (F.mode === 'new' && was !== 'once' && F.freq === 'once' && F.jour) {
@@ -2867,7 +3126,11 @@ $('#freq-seg').addEventListener('click', e => {
 // où il passe sur le compte (facultatif ; sans choix, il compte le 1er).
 function whenUi() {
   const once = F.freq === 'once', lbl = $('#f-when-label'), txt = $('#f-when-txt');
-  if (once) {
+  if (F.freq === 'semaine') {
+    const d = $('#f-date').value;
+    lbl.textContent = 'Premier passage';
+    txt.textContent = DATE_RE.test(d) ? cap(WDAYS[wdayOf(d) - 1]) + ' ' + dShort(d) + ' ' + d.slice(0, 4) + ', puis chaque semaine' : 'Choisir le jour';
+  } else if (once) {
     const d = $('#f-date').value;
     lbl.textContent = 'Date';
     txt.textContent = DATE_RE.test(d) ? (d === TODAY ? 'Aujourd\'hui, ' : '') + (+d.slice(8, 10) === 1 ? '1er' : +d.slice(8, 10)) + ' ' + MONTHS[+d.slice(5, 7) - 1] + ' ' + d.slice(0, 4) : 'Choisir une date';
@@ -2881,6 +3144,11 @@ function whenUi() {
 }
 $('#f-when').addEventListener('click', e => {
   const once = F.freq === 'once', st = $('#f-start').value || CUR;
+  if (F.freq === 'semaine') {
+    openCalendar({ anchor: e.currentTarget, mode: 'date', label: 'Premier passage', value: $('#f-date').value, note: 'Son jour de la semaine revient chaque semaine',
+      onPick: v => { $('#f-date').value = v; F.datePicked = true; whenUi(); updatePreview(); if (isFixe()) sheetHints(); } });
+    return;
+  }
   openCalendar({
     anchor: e.currentTarget, mode: 'date', label: once ? 'Date de l\'opération' : 'Départ du fixe',
     value: once ? $('#f-date').value : st + '-' + pad(F.jour || 1),
@@ -2892,11 +3160,12 @@ $('#f-when').addEventListener('click', e => {
   });
 });
 $('#f-urssaf').addEventListener('change', () => { F.uTouched = true; updatePreview(); if (isFixe()) sheetHints(); });
-$('#sheet-close').addEventListener('click', closeSheet);
-bg.addEventListener('click', e => { if (e.target === bg) closeSheet(); });
+$('#sheet-close').addEventListener('click', () => closeSheet());
+bg.addEventListener('click', e => { if (e.target === bg) closeSheet(true); });
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape' || popOpen()) return;
-  if (layerOpen(pbg)) closePanel(); else if (layerOpen(bg)) closeSheet(); else if (S.bubble != null) hideBubble(true);
+  if (TUTO.on) tutoEnd();
+  else if (layerOpen(pbg)) closePanel(); else if (layerOpen(bg)) closeSheet(true); else if (S.bubble != null) hideBubble(true);
 });
 
 form.addEventListener('submit', e => {
@@ -2909,14 +3178,15 @@ form.addEventListener('submit', e => {
   // Épargne : « Epargne » tapé pour le compte « Épargne » va sur ce compte (sinon un autre compte repartirait de 0).
   const known = ep && label ? comptes().find(c => fold(c.label) === fold(label)) : null;
   if (known && F.mode === 'new') label = known.label;
-  const date = $('#f-date').value, startSel = $('#f-start').value;
+  const date = $('#f-date').value, startSel = $('#f-start').value, week = F.freq === 'semaine';
   if (!(amount > 0 || (ep && F.op === 'solde' && amount === 0))) return err('Indique un montant supérieur à 0, par exemple 12,50.');
   if (!label) return err(ep ? 'Indique le compte, par exemple Livret A.' : 'Écris à quoi correspond ce montant.');
-  if (once && !DATE_RE.test(date)) return err('Choisis une date.');
-  if (!once && !YM_RE.test(startSel)) return err('Choisis le mois de départ.');
+  if ((once || week) && !DATE_RE.test(date)) return err(week ? 'Choisis le jour du premier passage.' : 'Choisis une date.');
+  if (!once && !week && !YM_RE.test(startSel)) return err('Choisis le mois de départ.');
   const type = F.type, urssaf = type === 'revenu' && isPro() && $('#f-urssaf').checked;
   const mode = F.mode, o = F.orig, cm = F.ctx, f = F.freq, jour = once ? null : F.jour;
-  const month = once ? date.slice(0, 7) : startSel;
+  const month = once || week ? date.slice(0, 7) : startSel;
+  if (type === 'depense') saveCat(label); // patch 6 : catégorie corrigée pour ce libellé
   closeSheet();
   if (mode === 'new') {
     // Nouveau compte : ce qu'il y a déjà dessus devient un « J'ai actuellement » juste avant l'opération (patch 3).
@@ -2939,6 +3209,7 @@ form.addEventListener('submit', e => {
       write(setDoc(ref, { type, label, amount, urssaf, date, month, createdAt: Date.now() }), (S.view === 'mois' && month !== S.month) ? 'Enregistré en ' + mLabel(month) : 'Enregistré');
       askPassed({ id: ref.id, kind: 'entry', type, label, amount, date, createdAt: Date.now() });
     }
+    else if (week) addHebdo({ type, label, amount, urssaf, wday: wdayOf(date), start: date, end: null, createdAt: Date.now() }, 'Fixe ajouté : chaque ' + WDAYS[wdayOf(date) - 1] + ' dès le ' + dShort(date));
     else if (f === 'mois') addFixe('recurring', { type, label, amount, urssaf, start: month, end: null, createdAt: Date.now() }, jour, 'Fixe ajouté ' + aPartir(month));
     else addFixe('periodiques', { type, label, amount, urssaf, freq: f, start: month, end: null, createdAt: Date.now() }, jour, 'Fixe ajouté : ' + FREQ_LABEL[f] + ' ' + aPartir(month));
   } else if (mode === 'edit-entry') {
@@ -2949,10 +3220,35 @@ form.addEventListener('submit', e => {
   } else if (mode === 'edit-ep') {
     write(setDoc(doc(ucol('epargne'), o.id), Object.assign(plain(o), { op: F.op, label, amount, date, month, createdAt: o.createdAt || Date.now() })), 'Modifié');
     if (date !== o.date && F.op !== 'solde' && epOn()) askPassed({ id: o.id, op: F.op, label, amount, date, createdAt: o.createdAt || 0, moved: true });
+  } else if (mode === 'edit-heb') {
+    saveHebdo(o, { type, label, amount, urssaf, start: date }, cm);
   } else {
     saveFixe(o, COL[mode], f, { type, label, amount, urssaf, start: startSel }, cm, jour);
   }
 });
+// Patch 6 : premier fixe hebdo → `dataVersion` 2 dans les réglages, dans la même écriture (les appareils pas à jour
+// passent en lecture seule au lieu d'oublier ces fixes ; accord du propriétaire du 29/10/2026).
+function addHebdo(data, msg) {
+  const b = writeBatch(db);
+  b.set(doc(ucol('hebdo')), data);
+  if (S.dataVersion < 2) b.set(uref('meta', 'settings'), { dataVersion: 2 }, { merge: true });
+  write(b.commit(), msg);
+}
+// Modifier un fixe hebdo : comme les autres fixes, un nouveau montant en cours de route garde le passé (l'ancien
+// s'arrête au mois d'avant, un nouveau prend le relais au premier passage du mois) ; changer le jour de départ le réécrit.
+function saveHebdo(o, vals, cm) {
+  const ref = doc(ucol('hebdo'), o.id), st0 = o.start.slice(0, 7);
+  const started = st0 < cm && (!o.end || o.end >= cm);
+  const valueChanged = vals.amount !== Number(o.amount) || vals.type !== o.type || vals.urssaf !== !!o.urssaf;
+  const nd = Object.assign({}, vals, { wday: wdayOf(vals.start) });
+  if (vals.start === o.start && valueChanged && started) {
+    const ns = firstWday(cm, o.wday) || cm + '-01';
+    const b = writeBatch(db);
+    b.set(ref, Object.assign(plain(o), { label: vals.label, end: addM(cm, -1) }));
+    b.set(doc(ucol('hebdo')), Object.assign(plain(o), nd, { start: ns, end: o.end || null, createdAt: Date.now() }));
+    write(b.commit(), 'Nouveau montant dès le ' + dShort(ns));
+  } else write(setDoc(ref, Object.assign(plain(o), nd)), 'Modifié');
+}
 // Solde du compte (patch 3) : fenêtre pour noter ce qu'on a sur son compte, avec l'historique (jamais effacé).
 const SD = { neg: false, date: TODAY };
 function openSolde() {
@@ -3091,8 +3387,9 @@ $('#f-delete').addEventListener('click', () => {
 $('#f-stop').addEventListener('click', () => {
   if (blocked()) { closeSheet(); return; }
   const o = F.orig, cm = F.ctx, col = COL[F.mode]; closeSheet();
+  const st0 = String(o.start || '').slice(0, 7); // fixe hebdo : départ = une date
   if (o.end) write(setDoc(doc(ucol(col), o.id), Object.assign(plain(o), { end: null })), 'Repris');
-  else { const end = cm < o.start ? o.start : cm; write(setDoc(doc(ucol(col), o.id), Object.assign(plain(o), { end })), 'Arrêté après ' + mLabel(end)); }
+  else { const end = cm < st0 ? st0 : cm; write(setDoc(doc(ucol(col), o.id), Object.assign(plain(o), { end })), 'Arrêté après ' + mLabel(end)); }
 });
 
 /* ---------- suggestions de libellés (dans la fenêtre, sous le champ) ---------- */
@@ -3108,7 +3405,7 @@ function labelPool(type) {
     c.n++; c.t = Math.max(c.t, Number(it.createdAt) || 0); m.set(k, c);
   };
   if (type === 'epargne') { S.epargne.forEach(add); S.periodiques.filter(p => p.type === 'epargne').forEach(add); }
-  else { [S.entries, S.recurring, S.periodiques].forEach(arr => arr.filter(it => it.type === type).forEach(add)); }
+  else { [S.entries, S.recurring, S.periodiques, S.hebdo].forEach(arr => arr.filter(it => it.type === type).forEach(add)); }
   return Array.from(m.values()).sort((a, b) => b.n - a.n || b.t - a.t);
 }
 function suggest() {
@@ -3386,7 +3683,27 @@ document.addEventListener('click', e => {
   else if (a === 'solde-open') openSolde();
   else if (a === 'sd-sign') { SD.neg = t.dataset.n === '1'; $$('[data-act="sd-sign"]').forEach(b => b.setAttribute('aria-pressed', String(b === t))); }
   else if (a === 'sd-date') openCalendar({ anchor: t, mode: 'date', label: 'Date du solde', max: TODAY, value: SD.date, onPick: v => { SD.date = v; $('#sd-date-txt').textContent = (v === TODAY ? 'Aujourd\'hui, ' : '') + dShort(v) + ' ' + v.slice(0, 4); } });
-  else if (a === 'sd-save') saveSolde();
+  else if (a === 'sd-save') { if (soldeAsk) lsSet('pf-solde-plus-tard', TODAY + '|fin'); saveSolde(); }
+  else if (a === 'sd-later') closePanel(); // reposée demain (une seule fois), voir maybeSoldeAsk
+  else if (a === 'rappel-open') {
+    openDays({ anchor: t, value: rappelDays(), label: 'Jours du rappel', note: '29, 30, 31 : le dernier jour des mois plus courts.', onPick: v => {
+      if (blocked() || JSON.stringify(v) === JSON.stringify(rappelDays())) return;
+      write(setDoc(uref('meta', 'settings'), { rappelSolde: v }, { merge: true }), v.length ? 'Rappel : ' + rappelTxt(v).toLowerCase() : 'Rappel du solde désactivé');
+    } });
+  }
+  else if (a === 'tuto-start') tutoStart();
+  else if (a === 'tuto-later') { closePanel(); toast('Didacticiel : Réglages → Mon compte'); }
+  else if (a === 'tuto-hide') { lsSet('pf-tuto', 'vu'); TUTO.banner = false; renderTutoBanner(); }
+  else if (a === 'imp-col') impColPick(t);
+  else if (a === 'imp-sheet') openChoice({ anchor: t, label: 'Feuille', value: String(IMP.sheet), options: IMP.sheets.map((x, i) => ({ v: String(i), label: x.name || 'Feuille ' + (i + 1), hint: plural(x.rows.length, 'ligne') })), onPick: async v => { IMP.sheet = +v; impGuess(); try { await impLoadHave(); } catch (e) { toast(e.message || OFFLINE_MSG, true); } impRedraw(); } });
+  else if (a === 'imp-sign') { IMP.positive = t.dataset.v === 'revenu' ? 'revenu' : 'depense'; impOps(); impRedraw(); }
+  else if (a === 'imp-all') { const on = t.dataset.v === '1'; $$('#imp-rest .imp-line').forEach(r => { const l = IMP.plan.lines[+r.dataset.i]; if (l) l.on = on; r.classList.toggle('off', !on); const c = $('input[type="checkbox"]', r); if (c) c.checked = on; }); }
+  else if (a === 'imp-urs') { const l = IMP.plan && IMP.plan.lines[+t.dataset.i]; if (l) { l.urs = !l.urs; t.setAttribute('aria-pressed', String(l.urs)); } }
+  else if (a === 'imp-go') impGo();
+  else if (a === 'imp-undo') {
+    if (!t.classList.contains('armed')) { t.classList.add('armed'); t.textContent = 'Confirmer : retirer tout ce qui a été importé'; return; }
+    impUndo(false);
+  }
   // Patch 4 : URSSAF payée, objectif de fin de mois, épargne possible.
   else if (a === 'up-open') openPay(t.dataset.m);
   else if (a === 'up-later') payLater(t.dataset.id);
@@ -3406,7 +3723,7 @@ document.addEventListener('click', e => {
     if (t.dataset.close) closePanel();
     else { const row = t.closest('.pt-row'); if (row) { row.classList.add('done'); $$('button', row).forEach(b => { b.disabled = true; b.setAttribute('aria-pressed', String(b === t)); }); } }
   }
-  else if (a === 'edit-entry' || a === 'edit-rec' || a === 'edit-per' || a === 'edit-ep') openSheet({ mode: a, id: t.dataset.id });
+  else if (a === 'edit-entry' || a === 'edit-rec' || a === 'edit-per' || a === 'edit-ep' || a === 'edit-heb') openSheet({ mode: a, id: t.dataset.id });
   else if (a === 'toggle-fixed') foldToggle({ sel: foldSel(a), open: !S.showFixed, items: sectionRows, apply: () => { S.showFixed = !S.showFixed; lsSet('pf-showFixed', S.showFixed ? '1' : '0'); renderMois(); } });
   else if (a === 'toggle-fixed-rev') foldToggle({ sel: foldSel(a), open: !S.showFixedRev, items: sectionRows, apply: () => { S.showFixedRev = !S.showFixedRev; lsSet('pf-showFixedRev', S.showFixedRev ? '1' : '0'); renderMois(); } });
   else if (a === 'info') toggleInfo(t.dataset.k); // patch 5 : petit ⓘ
@@ -3423,6 +3740,14 @@ document.addEventListener('click', e => {
   } else if (a === 'compte-open') openCompte(t.dataset.k, S.view === 'mois' ? S.month : CUR);
   else if (a === 'bar') showBubble(+t.dataset.i);
   else if (a === 'top-open') openTop(t.dataset.k);
+  else if (a === 'cat-open') openCat(t.dataset.k);
+  else if (a === 'top-mode') {
+    lsSet('pf-top-cat', t.dataset.v === 'cat' ? '1' : '0');
+    $$('#y-top-mode button').forEach(b => b.setAttribute('aria-pressed', String(b === t)));
+    requestAnimationFrame(() => setTimeout(() => { if (!YD || S.view !== 'annee') return; renderAnneeBottom(YD, ready(), isPro(), epOn()); anim($('#y-top'), [{ opacity: 0.25 }, { opacity: 1 }], { duration: 320, easing: EASE }); cascadeIn($$('#y-top .top-row'), { max: 8, dy: 8, step: 26 }); }, 0));
+  }
+  else if (a === 'draft-open') { if (DRAFT) openSheet({ restore: DRAFT }); }
+  else if (a === 'draft-del') draftDrop();
   else if (a === 'goto-month') { hideBubble(); S.month = t.dataset.month; S.year = pYM(S.month).y; setView('mois'); }
   else if (a === 'sub') setSub(t.dataset.sub, 1);
   else if (a === 'sub-back') setSub(null, -1);
@@ -3439,17 +3764,17 @@ document.addEventListener('click', e => {
   else if (a === 'redo-setup') { if (!blocked()) openOnboarding(true); }
   else if (a === 'export') exportCsv();
   // mises à jour
-  else if (a === 'upd-check') checkUpdate(true);
+  else if (a === 'upd-check') { if (!needNet()) checkUpdate(true); }
   else if (a === 'upd-auto-open') openUpdAuto(t);
   else if (a === 'upd-download') { if (isNative) downloadUpdate(); }
   else if (a === 'upd-install') installUpdate();
   else if (a === 'upd-reload') location.reload();
   // sauvegardes (Drive : driveBackup / driveList / drivePick demandent le jeton dès le clic)
-  else if (a === 'backup-export') exportBackup();
-  else if (a === 'drive-connect' || a === 'drive-now' || a === 'drive-due') driveBackup(true, false);
-  else if (a === 'drive-list') driveList();
+  else if (a === 'backup-export') { if (!needNet()) exportBackup(); }
+  else if (a === 'drive-connect' || a === 'drive-now' || a === 'drive-due') { if (!needNet()) driveBackup(true, false); }
+  else if (a === 'drive-list') { if (!needNet()) driveList(); }
   else if (a === 'drive-list-close') { BK.list = null; renderBackup(); }
-  else if (a === 'drive-pick') drivePick(t.dataset.id);
+  else if (a === 'drive-pick') { if (!needNet()) drivePick(t.dataset.id); }
   else if (a === 'drive-freq') {
     const f = t.dataset.f;
     if (BK_FREQ[f] && f !== bkCfg().frequence && !blocked()) write(setDoc(uref('meta', 'settings'), { sauvegarde: { frequence: f } }, { merge: true }));
@@ -3539,9 +3864,10 @@ $('#toast').addEventListener('click', e => {
 /* ---------- appli Android : retour et mises à jour ---------- */
 if (isNative) {
   CapApp.addListener('backButton', () => {
+    if (TUTO.on) { tutoEnd(); return; }
     if (popOpen()) { closePop(); return; }
     if (layerOpen(pbg)) { closePanel(); return; }
-    if (layerOpen(bg)) { closeSheet(); return; }
+    if (layerOpen(bg)) { closeSheet(true); return; }
     if (!$('#s-onboard').hidden) {
       if (OB.step > 0) obGo(OB.step - 1);
       else if (OB.redo) { OB.redo = false; applyColors(); show('app'); render(); requestAnimationFrame(() => positionIndicator(false)); }
@@ -3659,8 +3985,11 @@ if (isNative) CapApp.addListener('appStateChange', st => { if (st && st.isActive
 // Format 3 (patch 3) : ajoute `jours` (jour d'un fixe), `soldes` (compte courant) et `pointages`
 // (« déjà passée sur ton compte ? ») ; les versions d'avant ignorent simplement ces listes.
 // Format 4 (patch 4) : ajoute `urssaf` (paiements de l'URSSAF), ignorée de même par les versions d'avant.
+// Format 5 (patch 6) : ajoute `hebdo` (fixes chaque semaine) et `categories` (catégories corrigées). Son `dataVersion`
+// est celui du compte (2 seulement s'il a des fixes hebdo) : une sauvegarde sans fixe hebdo se restaure encore sur une
+// version d'avant, qui ignore ces deux listes.
 const BK = { busy: false, status: '', err: false, due: false, triedAuto: false, list: null, plan: null, link: null };
-const BK_COLS = ['entries', 'recurring', 'periodiques', 'epargne', 'jours', 'soldes', 'pointages', 'urssaf'];
+const BK_COLS = ['entries', 'recurring', 'periodiques', 'epargne', 'jours', 'soldes', 'pointages', 'urssaf', 'hebdo', 'categories'];
 // Déconnexion / changement de compte : on oublie tout (jeton Google, restauration en attente…).
 function resetBackupState() {
   Object.assign(BK, { busy: false, status: '', err: false, due: false, triedAuto: false, list: null, plan: null, link: null });
@@ -3682,7 +4011,8 @@ async function fromServer(p) {
 }
 async function buildBackup() {
   const [st, ...cols] = await fromServer(Promise.all([getDocFromServer(uref('meta', 'settings'))].concat(BK_COLS.map(c => getDocsFromServer(ucol(c))))));
-  const o = { app: 'P-Flow', format: 4, dataVersion: DATA_VERSION, appVersion: RAW_VERSION, exportedAt: new Date().toISOString(), settings: st.exists() ? cleanDoc(st.data()) : null };
+  const dv = st.exists() ? Math.max(1, Math.min(DATA_VERSION, Number(st.data().dataVersion) || 1)) : 1;
+  const o = { app: 'P-Flow', format: 5, dataVersion: dv, appVersion: RAW_VERSION, exportedAt: new Date().toISOString(), settings: st.exists() ? cleanDoc(st.data()) : null };
   BK_COLS.forEach((c, i) => { o[c] = cols[i].docs.map(d => Object.assign({ id: d.id }, cleanDoc(d.data()))); });
   return o;
 }
@@ -3691,6 +4021,8 @@ function validItem(it, kind) {
   if (kind === 'jours') return Number.isInteger(it.jour) && it.jour >= 1 && it.jour <= 31;
   if (kind === 'soldes') return typeof it.montant === 'number' && isFinite(it.montant) && DATE_RE.test(it.date);
   if (kind === 'pointages') return typeof it.passee === 'boolean';
+  if (kind === 'categories') return !!CAT_LABEL[it.cat] && catKey(it.id) === it.id;
+  if (kind === 'hebdo') return hebOk(it) && typeof it.label === 'string' && !!it.label.trim() && typeof it.amount === 'number' && isFinite(it.amount);
   if (kind === 'urssaf') return /^\d{4}-(\d{2}|T[1-4])$/.test(it.id) && (it.payee === false || (it.payee === true && typeof it.montant === 'number' && isFinite(it.montant) && it.montant >= 0 && DATE_RE.test(it.date)));
   const amt = typeof it.amount === 'number' && isFinite(it.amount);
   if (typeof it.label !== 'string' || !it.label.trim()) return false;
@@ -3727,6 +4059,8 @@ function countTxt(n) {
   if (n.soldes) parts.push(plural(n.soldes, 'solde') + ' du compte');
   if ((n.jours || 0) + (n.pointages || 0)) parts.push(plural(n.jours + n.pointages, 'détail') + ' (jours des fixes, opérations pointées)');
   if (n.urssaf) parts.push(plural(n.urssaf, 'paiement') + ' de l\'URSSAF');
+  if (n.hebdo) parts.push(plural(n.hebdo, 'fixe') + ' chaque semaine');
+  if (n.categories) parts.push(plural(n.categories, 'catégorie') + ' corrigée' + (n.categories > 1 ? 's' : ''));
   return joinFr(parts);
 }
 function applyRestore(plan) {
@@ -3734,6 +4068,8 @@ function applyRestore(plan) {
   const strip = o => { const c = {}; for (const k of Object.keys(o)) if (k !== 'id' && !k.startsWith('__')) c[k] = o[k]; return c; };
   const jobs = [];
   for (const c of BK_COLS) for (const x of plan.add[c]) jobs.push(setDoc(doc(ucol(c), x.id), strip(x)));
+  // Patch 6 : des fixes hebdo remis → le compte passe en version 2 (comme à l'ajout du premier fixe hebdo).
+  if (plan.add.hebdo && plan.add.hebdo.length && S.dataVersion < 2) jobs.push(setDoc(uref('meta', 'settings'), { dataVersion: 2 }, { merge: true }));
   const n = Object.fromEntries(BK_COLS.map(c => [c, plan.add[c].length]));
   write(Promise.all(jobs), countTxt(n) + ' remis');
   BK.plan = null; renderBackup();
@@ -3876,6 +4212,379 @@ function renderBackup() {
   const due = $('#backup-due');
   due.hidden = !(BK.due && c.drive && S.ready);
 }
+
+/* ---------- rappel du solde (patch 6, point 6) ---------- */
+// Les jours choisis (Réglages → Mon compte, réglage synchronisé `rappelSolde`), à l'ouverture : « Ton solde ? ».
+// « Plus tard » : reposée une seule fois, le lendemain. Rien si un solde est déjà noté ce jour-là.
+// Sur l'appareil, `pf-solde-plus-tard` = 'AAAA-MM-JJ' (posée ce jour-là, à reposer demain) ou 'AAAA-MM-JJ|fin' (plus rien).
+const rappelDays = () => (S.settings && Array.isArray(S.settings.rappelSolde) ? S.settings.rappelSolde : [31]);
+function isRappelDay(d) { const day = +d.slice(8, 10), n = dimOf(d.slice(0, 7)); return rappelDays().some(x => Math.min(x, n) === day); }
+function rappelTxt(ds) {
+  if (!ds.length) return 'Jamais';
+  return cap(joinFr(ds.map(x => (x === 31 ? 'le dernier jour' : 'le ' + (x === 1 ? '1er' : x))))) + ' du mois';
+}
+let soldeAsk = false;
+function maybeSoldeAsk() {
+  if (!S.ready || S.readOnly || !S.loaded.soldes || !S.settings || !$('#s-onboard').hidden || $('#app').hidden || S.justOnboarded) return;
+  if (TUTO.on || layerOpen(bg) || layerOpen(pbg) || popOpen()) { setTimeout(maybeSoldeAsk, 2500); return; }
+  const [d, fin] = String(lsGet('pf-solde-plus-tard') || '').split('|'), yest = addD(TODAY, -1);
+  if (d === TODAY || S.soldes.some(x => x.date === TODAY)) return;
+  const catchup = !isRappelDay(TODAY);
+  if (catchup && !(d === yest && !fin && !S.soldes.some(x => x.date === yest))) return;
+  lsSet('pf-solde-plus-tard', TODAY + (catchup ? '|fin' : ''));
+  soldeAsk = true; SD.neg = false; SD.date = TODAY;
+  openPanel('Ton solde ?', '<div class="sd-row"><div class="seg sd-sign" role="group" aria-label="Signe"><button type="button" data-act="sd-sign" data-n="0" aria-pressed="true">+</button><button type="button" data-act="sd-sign" data-n="1" aria-pressed="false">−</button></div>' +
+    '<div class="amount-wrap small"><input id="sd-amount" inputmode="decimal" placeholder="0,00" autocomplete="off" aria-label="Ton solde, en euros"><span>€</span></div></div>' +
+    '<p class="error" id="sd-error" role="alert"></p>' +
+    '<div class="btn-row"><button type="button" class="btn ghost" data-act="sd-later">Plus tard</button><button type="button" class="btn primary" data-act="sd-save">Valider</button></div>');
+  setTimeout(() => { const a = $('#sd-amount'); if (a) a.focus({ preventScroll: true }); }, 320);
+}
+
+/* ---------- hors ligne (patch 6, point 4) ---------- */
+// Déjà gardé sur l'appareil et envoyé au retour du réseau (cache Firestore) : un bandeau le dit, puis « Envoyé ».
+// Ce qui a besoin d'internet (Google Drive, copie, mises à jour, import) le dit au lieu d'échouer.
+function needNet() { if (navigator.onLine) return false; toast('Pas de réseau : réessaie une fois connecté.', true); return true; }
+
+/* ---------- didacticiel (patch 6, point 9) ---------- */
+// Visite sur la vraie appli : l'élément expliqué reste visible dans un « trou » du voile, une bulle en verre (même
+// verre que les fenêtres maison) l'explique. Rien n'est écrit : « déjà vu » est gardé sur l'appareil (`pf-tuto` :
+// 'propose' = proposé une fois, 'vu' = lancé ou refusé). Toujours relançable depuis Réglages → Mon compte.
+const TUTO = { on: false, i: 0, steps: [], rect: null, banner: false };
+const visEl = el => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+const firstVis = sels => { for (const q of sels) { const el = $$(q).find(visEl); if (el) return el; } return null; };
+function tutoSteps() {
+  const st = [
+    { el: ['#v-mois .hero'], t: $('#hero-mode').hidden ? 'Ici, ce qu\'il te reste ce mois-ci.' : 'Ici, ce qu\'il te reste ce mois-ci. L\'interrupteur montre ton compte en banque ou le reste du mois.' },
+    { el: ['.side-add', '.tabbar .fab'], t: 'Le + : note une dépense ou un revenu. Glisse la fenêtre vers le bas pour voir un autre écran : elle t\'attend en brouillon.' },
+    { el: ['#ctx .pill'], t: 'Change de mois avec les flèches. Touche le nom du mois pour le calendrier.' },
+    { el: ['#legend .cinfo'], t: 'Touche un ⓘ pour savoir d\'où vient un montant.' },
+    isPro() ? { el: ['#urssaf-block'], t: 'Ton URSSAF du mois. Note-la payée ici.' } : null,
+    { el: ['#lists'], t: 'Tes opérations, avec leur catégorie. Touche-en une pour la modifier.' },
+    { el: ['.nav [data-view="fixes"]', '.tabbar [data-view="fixes"]'], t: 'Fixes : ce qui revient chaque semaine, mois ou année.' },
+    { el: ['.nav [data-view="annee"]', '.tabbar [data-view="annee"]'], t: 'Année : ton bilan, et où part ton argent.' },
+    { el: ['.nav [data-view="reglages"]', '.tabbar [data-view="reglages"]'], t: 'Réglages : couleurs, rappel du solde, sauvegarde, import et partage.' },
+  ];
+  return st.filter(x => x && firstVis(x.el));
+}
+function tutoStart() {
+  if (!S.ready || TUTO.on) return;
+  if (popOpen()) closePop(true);
+  if (layerOpen(pbg)) closePanel();
+  if (layerOpen(bg)) closeSheet(true);
+  lsSet('pf-tuto', 'vu'); TUTO.banner = false; renderTutoBanner();
+  const go = () => {
+    TUTO.steps = tutoSteps(); if (!TUTO.steps.length) return;
+    TUTO.on = true; TUTO.i = 0; TUTO.rect = null;
+    const o = $('#tuto'); o.hidden = false;
+    anim(o, [{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: EASE });
+    tutoShow(1);
+  };
+  if (S.view !== 'mois' || S.month !== CUR) { S.month = CUR; S.year = pYM(CUR).y; setView('mois'); setTimeout(go, 480); }
+  else { window.scrollTo(0, 0); setTimeout(go, 80); }
+}
+function tutoShow(dir) {
+  const s = TUTO.steps[TUTO.i], el = s && firstVis(s.el);
+  if (!el) { tutoEnd(); return; }
+  if (!el.closest('.tabbar, .side, .top')) el.scrollIntoView({ block: el.offsetHeight > innerHeight * 0.5 ? 'start' : 'center', behavior: 'auto' });
+  requestAnimationFrame(() => tutoPlace(el, dir));
+}
+function tutoPlace(el, dir) {
+  const hole = $('#tuto .tuto-hole'), bub = $('#tuto .tuto-bub');
+  const r = el.getBoundingClientRect(), p = 8, vw = innerWidth, vh = innerHeight;
+  const x0 = Math.max(4, r.left - p), y0 = Math.max(4, r.top - p);
+  const R = { x: x0, y: y0, w: Math.min(vw - 4, r.right + p) - x0, h: Math.min(vh - 4, r.bottom + p) - y0 };
+  const prev = TUTO.rect; TUTO.rect = R;
+  Object.assign(hole.style, { left: R.x + 'px', top: R.y + 'px', width: R.w + 'px', height: R.h + 'px' });
+  // Le trou glisse d'un élément à l'autre comme le surlignage de la barre du bas (mêmes durée et courbe).
+  if (prev && dir) anim(hole, [{ transform: 'translate(' + (prev.x - R.x) + 'px,' + (prev.y - R.y) + 'px) scale(' + (prev.w / R.w).toFixed(3) + ',' + (prev.h / R.h).toFixed(3) + ')' }, { transform: 'none' }], { duration: 460, easing: 'cubic-bezier(.3,.8,.25,1)' });
+  $('#tuto-t').textContent = TUTO.steps[TUTO.i].t;
+  $('#tuto-n').textContent = (TUTO.i + 1) + ' sur ' + TUTO.steps.length;
+  bub.querySelector('[data-tuto="prev"]').hidden = TUTO.i === 0;
+  bub.querySelector('[data-tuto="next"]').textContent = TUTO.i === TUTO.steps.length - 1 ? 'Terminer' : 'Suivant';
+  const bw = Math.min(340, vw - 24); bub.style.width = bw + 'px';
+  const bh = bub.offsetHeight;
+  const y = R.y + R.h + 12 + bh <= vh - 12 ? R.y + R.h + 12 : R.y - 12 - bh >= 12 ? R.y - 12 - bh : Math.max(12, vh - bh - 12);
+  const x = Math.max(12, Math.min(vw - bw - 12, R.x + R.w / 2 - bw / 2));
+  bub.style.left = Math.round(x) + 'px'; bub.style.top = Math.round(y) + 'px';
+  if (dir) riseIn(bub);
+  bub.querySelector('[data-tuto="next"]').focus({ preventScroll: true });
+}
+function tutoEnd(silent) {
+  if (!TUTO.on) return;
+  TUTO.on = false;
+  const o = $('#tuto');
+  const a = silent ? null : anim(o, [{ opacity: 1 }, { opacity: 0 }], { duration: 200, easing: EASE_IN, fill: 'forwards' });
+  if (a) a.finished.then(() => { if (!TUTO.on) o.hidden = true; a.cancel(); }, () => {}); else o.hidden = true;
+}
+$('#tuto').addEventListener('click', e => {
+  const b = e.target.closest('[data-tuto]'); if (!b) return;
+  const c = b.dataset.tuto;
+  if (c === 'skip') tutoEnd();
+  else if (c === 'prev' && TUTO.i > 0) { TUTO.i--; tutoShow(-1); }
+  else if (c === 'next') { if (TUTO.i >= TUTO.steps.length - 1) tutoEnd(); else { TUTO.i++; tutoShow(1); } }
+});
+window.addEventListener('resize', () => { if (TUTO.on) tutoShow(0); });
+// Comptes existants : un bandeau discret une seule fois (après les Nouveautés). Nouveau compte : proposé à l'arrivée.
+function renderTutoBanner() {
+  const b = $('#tuto-banner'); if (!b) return;
+  const news = !NOTES || lsGet('pf-nouveautes') === NOTES_VERSION, st = lsGet('pf-tuto');
+  if (st === null && S.ready && !S.readOnly && news && !S.justOnboarded && !layerOpen(pbg) && !$('#app').hidden) { lsSet('pf-tuto', 'propose'); TUTO.banner = true; }
+  const show = TUTO.banner && !TUTO.on;
+  if (show && b.hidden) { b.hidden = false; riseIn(b); } else if (!show) b.hidden = true;
+}
+function tutoOffer() {
+  if (!S.ready || lsGet('pf-tuto') !== null || layerOpen(bg) || layerOpen(pbg)) return;
+  lsSet('pf-tuto', 'propose');
+  openPanel('Bienvenue sur P-Flow', '<p>On fait le tour en 1 minute ?</p><div class="btn-row"><button type="button" class="btn ghost" data-act="tuto-later">Plus tard</button><button type="button" class="btn primary" data-act="tuto-start">Oui</button></div>');
+}
+
+/* ---------- import d'un tableau ou d'un relevé de banque (patch 6, points 1 et 1 bis) ---------- */
+// Tout se fait sur l'appareil. L'import ne fait qu'AJOUTER des documents (jamais modifier ni supprimer ce qui existe) ;
+// la liste de ce qu'il a créé est gardée sur l'appareil (`pf-import-<uid>`) pour « Annuler le dernier import ».
+// Identifiants calculés d'après chaque ligne : réimporter le même fichier ne crée aucun doublon.
+// Relevé : chaque ligne est d'abord rapprochée de ce qui est déjà noté (opération à ±3 jours, fixe du mois, URSSAF
+// payée, épargne), pour ne jamais compter deux fois ; puis les fixes repérés, puis le reste, à cocher.
+let IMPORTER = null;
+const loadImporter = () => IMPORTER || (IMPORTER = import('./importer.js'));
+const IMP = { I: null, kind: null, name: '', sheets: null, sheet: 0, g: null, positive: 'depense', rows: null, ops: [], bad: 0, needSign: false, balance: null, have: null, urs: false, plan: null, busy: false };
+const impLogKey = () => 'pf-import-' + (S.user ? S.user.uid : '');
+async function impFile(input, kind) {
+  const f = input.files && input.files[0]; input.value = '';
+  if (!f || blocked() || needNet() || IMP.busy) return;
+  IMP.busy = true; toast('Lecture du fichier…');
+  try {
+    const I = await loadImporter(), res = await I.readImport(f);
+    Object.assign(IMP, { I, kind, name: f.name, sheets: null, sheet: 0, g: null, rows: null, positive: 'depense', balance: null, have: null, urs: false, plan: null });
+    if (res.kind === 'ops') Object.assign(IMP, { ops: res.ops, bad: 0, needSign: false, balance: res.balance });
+    else { IMP.sheets = res.sheets; IMP.sheet = Math.max(0, res.sheets.findIndex(x => x.rows.length >= 2)); impGuess(); }
+    await impLoadHave();
+    hideToast();
+    impOpen();
+  } catch (e) { toast((e && e.message) || 'Ce fichier n\'a pas pu être lu.', true); }
+  finally { IMP.busy = false; }
+}
+function impGuess() { IMP.rows = IMP.sheets[IMP.sheet].rows; IMP.g = IMP.I.guessColumns(IMP.rows); impOps(); }
+function impOps() {
+  const r = IMP.I.rowsToOps(IMP.rows, IMP.g, IMP.positive);
+  Object.assign(IMP, { ops: r.ops, bad: r.bad, needSign: IMP.kind === 'table' && r.needSign });
+  if (IMP.kind === 'bank') IMP.balance = IMP.g.map.balance >= 0 ? IMP.I.balanceOf(r.ops) : null;
+}
+// Opérations déjà notées autour des dates du fichier (lues sur le serveur : jamais une liste incomplète).
+async function impLoadHave() {
+  const ms = IMP.ops.map(o => o.date.slice(0, 7)).sort();
+  if (!ms.length) { IMP.have = { ids: new Set(), list: [] }; return; }
+  const snap = await fromServer(getDocsFromServer(query(ucol('entries'), where('month', '>=', addM(ms[0], -1)), where('month', '<=', addM(ms[ms.length - 1], 1)))));
+  const list = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+  IMP.have = { ids: new Set(list.map(x => x.id)), list };
+}
+function impOpen() {
+  if (!IMP.ops.length) { toast('Aucune opération trouvée dans ce fichier' + (IMP.g ? ' : vérifie les colonnes.' : '.'), true); if (!IMP.g) return; }
+  if (IMP.kind === 'bank') IMP.plan = impBankPlan();
+  openPanel(IMP.kind === 'bank' ? 'Importer un relevé' : 'Importer un tableau', IMP.kind === 'bank' ? impBankHtml() : impTableHtml());
+}
+function impRedraw() {
+  const body = $('#panel-body'), y = panel.scrollTop;
+  if (IMP.kind === 'bank') IMP.plan = impBankPlan();
+  body.innerHTML = IMP.kind === 'bank' ? impBankHtml() : impTableHtml();
+  panel.scrollTop = y;
+}
+// Colonnes devinées, modifiables (CSV, Excel).
+function impColName(i) {
+  const g = IMP.g; if (i < 0) return 'Aucune';
+  const r = IMP.rows.slice(g.head + 1).find(x => x[i] !== '' && x[i] != null), v = r ? String(r[i]).slice(0, 22) : '';
+  return g.names[i] + (v ? ' · « ' + v + ' »' : '');
+}
+function impColsHtml() {
+  if (!IMP.g) return '';
+  const M = IMP.g.map, dc = M.amount < 0 && (M.debit >= 0 || M.credit >= 0 || IMP.g.dc);
+  const row = (k, lbl) => '<div class="field imp-col"><span class="field-label">' + lbl + '</span><button type="button" class="input pick" data-act="imp-col" data-k="' + k + '" aria-haspopup="listbox" aria-expanded="false"><span>' + esc(impColName(M[k])) + '</span>' + ico('down') + '</button></div>';
+  return (IMP.sheets && IMP.sheets.length > 1 ? '<div class="field imp-col"><span class="field-label">Feuille</span><button type="button" class="input pick" data-act="imp-sheet" aria-haspopup="listbox" aria-expanded="false"><span>' + esc(IMP.sheets[IMP.sheet].name || 'Feuille ' + (IMP.sheet + 1)) + '</span>' + ico('down') + '</button></div>' : '') +
+    '<div class="imp-cols">' + row('date', 'Date') + row('label', 'Libellé') + (dc ? row('debit', 'Débit') + row('credit', 'Crédit') : row('amount', 'Montant')) + '</div>';
+}
+function impColPick(t) {
+  const k = t.dataset.k, M = IMP.g.map;
+  const opts = IMP.g.names.map((n, i) => ({ v: String(i), label: impColName(i) }));
+  if (k === 'amount') opts.push({ v: 'dc', label: 'Deux colonnes : débit et crédit' });
+  if (k === 'debit' || k === 'credit') opts.unshift({ v: '-1', label: 'Aucune' }), opts.push({ v: 'amt', label: 'Une seule colonne Montant' });
+  openChoice({ anchor: t, label: t.closest('.imp-col').querySelector('.field-label').textContent, value: String(M[k]), options: opts, width: 300, onPick: async v => {
+    if (v === 'dc') { M.amount = -1; IMP.g.dc = true; }
+    else if (v === 'amt') { M.debit = -1; M.credit = -1; IMP.g.dc = false; }
+    else { const i = +v; for (const kk of Object.keys(M)) if (kk !== k && M[kk] === i && i >= 0) M[kk] = -1; M[k] = i; }
+    impOps();
+    try { await impLoadHave(); } catch (e) { toast(e.message || OFFLINE_MSG, true); }
+    impRedraw();
+  } });
+}
+const impRowHtml = (label, date, amount) => '<div class="row static"><span class="row-main"><span class="row-label">' + esc(label) + '</span><span class="row-meta">' + esc(dShort(date) + ' ' + date.slice(0, 4)) + '</span></span><span class="row-amt' + (amount > 0 ? ' in' : '') + '">' + (amount > 0 ? '+' : MINUS) + eur(Math.abs(amount)) + '</span></div>';
+function impTableLines() {
+  const ids = IMP.I.lineIds(IMP.ops, 'imt');
+  return IMP.ops.map((o, i) => {
+    const rev = o.amount > 0, a = Math.abs(o.amount), label = o.label.replace(/\s+/g, ' ').trim().slice(0, 80);
+    const dup = IMP.have.ids.has(ids[i]) || IMP.have.list.some(e => e.date === o.date && Math.abs(Number(e.amount) - a) < 0.005 && (e.type === 'revenu') === rev && fold(e.label) === fold(label));
+    return { id: ids[i], date: o.date, amount: o.amount, label, dup };
+  });
+}
+function impTableHtml() {
+  const L = impTableLines(), add = L.filter(l => !l.dup), dups = L.length - add.length;
+  const notes = [dups ? plural(dups, 'ligne') + ' déjà dans P-Flow' : '', IMP.bad ? plural(IMP.bad, 'ligne') + ' sans date, libellé ou montant' : ''].filter(Boolean);
+  return '<p class="hint">' + esc(IMP.name) + ' · ' + plural(L.length, 'opération') + '</p>' + impColsHtml() +
+    (IMP.needSign ? '<div class="field"><span class="field-label">Ces montants sont des</span><div class="seg" id="imp-sign"><button type="button" data-act="imp-sign" data-v="depense" aria-pressed="' + (IMP.positive !== 'revenu') + '">Dépenses</button><button type="button" data-act="imp-sign" data-v="revenu" aria-pressed="' + (IMP.positive === 'revenu') + '">Revenus</button></div></div>' : '') +
+    (isPro() && add.some(l => l.amount > 0) ? '<label class="check"><span>Revenus soumis à l\'URSSAF<small>Ton chiffre d\'affaires. Pas la CAF ni un salaire.</small></span><input type="checkbox" data-imp="urs"' + (IMP.urs ? ' checked' : '') + '></label>' : '') +
+    (add.length ? '<h3>Aperçu</h3><div>' + add.slice(0, 6).map(l => impRowHtml(l.label, l.date, l.amount)).join('') + '</div>' + (add.length > 6 ? '<p class="hint">Et ' + plural(add.length - 6, 'autre') + '.</p>' : '') : '') +
+    (notes.length ? '<p class="hint">' + esc(notes.join(' · ')) + '.</p>' : '') +
+    '<div><button type="button" class="btn primary block" data-act="imp-go"' + (add.length ? '' : ' disabled') + '>' + (add.length ? 'Ajouter ' + plural(add.length, 'opération') : 'Rien à ajouter') + '</button></div>';
+}
+const perTxt = id => (/T\d$/.test(id) ? 'du ' + ['1er', '2e', '3e', '4e'][+id.slice(-1) - 1] + ' trimestre ' + id.slice(0, 4) : deM(id));
+// Relevé : rapprochement ligne par ligne (les choix déjà faits à l'écran sont gardés d'un calcul à l'autre).
+function impBankPlan() {
+  const I = IMP.I, ids = I.lineIds(IMP.ops, 'imb'), old = IMP.plan, pro = isPro(), accts = epOn() ? comptes() : [];
+  const lines = IMP.ops.map((o, i) => {
+    const label = I.cleanLabel(o.label) || o.label.slice(0, 40), prev = old && old.lines.find(x => x.id === ids[i]);
+    return { i, id: ids[i], date: o.date, amount: o.amount, raw: o.label, label: prev ? prev.label : label, key: catKey(label), st: 'add', on: prev ? prev.on : true, urs: prev ? prev.urs : false };
+  });
+  const usedE = new Set(), usedF = new Set(), near = (a, b) => Math.abs(new Date(a) - new Date(b)) <= 3 * 864e5 + 3600e3;
+  const holds = (x, raw) => { const k = fold(x.label); return k.length >= 4 && fold(raw).includes(k); };
+  for (const l of lines) {
+    const rev = l.amount > 0, a = Math.abs(l.amount), m = l.date.slice(0, 7);
+    if (IMP.have.ids.has(l.id) || S.epargne.some(x => x.id === l.id)) { l.st = 'known'; continue; }
+    const e = IMP.have.list.find(x => !usedE.has(x.id) && DATE_RE.test(x.date || '') && near(x.date, l.date) && Math.abs(Number(x.amount) - a) < 0.005 && (x.type === 'revenu') === rev);
+    if (e) { usedE.add(e.id); l.st = 'known'; continue; }
+    const fx = monthItems(m);
+    let hit = null;
+    for (const x of fx.recs.concat(fx.pers)) { const k = x.id + '|' + m; if (!usedF.has(k) && (x.type === 'revenu') === rev && (Math.abs(Number(x.amount) - a) < 0.005 || holds(x, l.raw))) { hit = k; break; } }
+    if (!hit) for (const x of fx.hebs) { if ((x.type === 'revenu') !== rev || !(Math.abs(x.unit - a) < 0.005 || holds(x, l.raw))) continue; const d = x.dates.find(dd => near(dd, l.date) && !usedF.has(x.id + '|' + dd)); if (d) { hit = x.id + '|' + d; break; } }
+    if (hit) { usedF.add(hit); l.st = 'known'; continue; }
+    if (pro && !rev && /urssaf/.test(fold(l.raw))) {
+      l.pid = perId(addM(m, -1)); // payée ce mois-ci : la période d'avant (mois ou trimestre)
+      const p = paiementOf(l.pid);
+      if (p && p.payee) { l.st = 'known'; continue; }
+      if (!lines.some(o => o !== l && o.st === 'urs' && o.pid === l.pid)) { l.st = 'urs'; continue; }
+    }
+    const fr = fold(l.raw), c = accts.find(x => x.label.length >= 3 && fr.includes(fold(x.label)));
+    if (c) { l.st = 'ep'; l.acc = c.label; }
+  }
+  const actives = S.recurring.concat(S.periodiques, S.hebdo).filter(r => !r.end || r.end >= CUR);
+  const fixes = I.detectFixes(lines.filter(l => l.st === 'add').map(l => ({ i: l.i, date: l.date, amount: l.amount, key: l.key, label: l.label })))
+    .filter(f => !actives.some(r => (r.type === 'revenu') === (f.type === 'revenu') && (fold(r.label) === fold(f.label) || catKey(r.label) === f.key)))
+    .map(f => { const p = old && old.fixes.find(x => x.key === f.key && x.start === f.start); return Object.assign(f, { on: p ? p.on : true }); });
+  let solde = null;
+  const Ls = lastSolde(), dmax = lines.reduce((a, l) => (l.date > a ? l.date : a), '');
+  if (IMP.balance && (!Ls || IMP.balance.date > Ls.date)) solde = { montant: IMP.balance.montant, date: IMP.balance.date, on: old && old.solde ? old.solde.on : true };
+  return { lines, fixes, solde, askSolde: !solde && !!dmax && (!Ls || dmax > Ls.date), dmax };
+}
+function impRestHtml() {
+  const P = IMP.plan, inFix = new Set(), pro = isPro();
+  P.fixes.forEach(f => { if (f.on) f.idx.forEach(i => inFix.add(i)); });
+  const rest = P.lines.filter(l => l.st === 'add' && !inFix.has(l.i)).sort((a, b) => b.date.localeCompare(a.date));
+  if (!rest.length) return '';
+  return '<div class="group-head"><h3>Opérations · ' + rest.length + '</h3><span class="gh-tools"><button type="button" class="link" data-act="imp-all" data-v="1">Tout</button><button type="button" class="link" data-act="imp-all" data-v="0">Rien</button></span></div>' +
+    '<div class="imp-lines">' + rest.map(l => '<div class="imp-line' + (l.on ? '' : ' off') + '" data-i="' + l.i + '">' +
+      '<input class="input imp-lab" data-imp="lab" data-i="' + l.i + '" value="' + esc(l.label) + '" maxlength="80" aria-label="Libellé">' +
+      '<span class="imp-meta">' + esc(dShort(l.date)) + ' · <b class="' + (l.amount > 0 ? 'in' : '') + '">' + (l.amount > 0 ? '+' : MINUS) + esc(eur(Math.abs(l.amount))) + '</b>' +
+      (pro && l.amount > 0 ? '<button type="button" class="tag imp-urs" data-act="imp-urs" data-i="' + l.i + '" aria-pressed="' + l.urs + '">URSSAF</button>' : '') + '</span>' +
+      '<label class="check imp-sw"><input type="checkbox" data-imp="l" data-i="' + l.i + '"' + (l.on ? ' checked' : '') + ' aria-label="Ajouter cette opération"></label></div>').join('') + '</div>';
+}
+function impBankHtml() {
+  const P = IMP.plan, L = P.lines;
+  if (!L.length) return '<p class="hint">' + esc(IMP.name) + '</p>' + impColsHtml() + '<p class="notice">Aucune opération lue : vérifie les colonnes.</p>';
+  const d0 = L.reduce((a, l) => (l.date < a ? l.date : a), L[0].date), d1 = P.dmax;
+  const known = L.filter(l => l.st === 'known').length, urs = L.filter(l => l.st === 'urs'), eps = L.filter(l => l.st === 'ep');
+  const sw = (attr, on, title, sub) => '<label class="check"><span>' + esc(title) + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</span><input type="checkbox" ' + attr + (on ? ' checked' : '') + '></label>';
+  let h = '<p class="hint">' + esc(IMP.name) + ' · du ' + esc(dShort(d0)) + ' au ' + esc(dShort(d1) + ' ' + d1.slice(0, 4)) + ' · ' + plural(L.length, 'ligne') + '</p>' + impColsHtml();
+  if (P.solde) h += '<h3>Solde du compte</h3>' + sw('data-imp="solde"', P.solde.on, eur(P.solde.montant) + ' le ' + dShort(P.solde.date), 'Ce qui est prévu sur ton compte repart de là.');
+  else if (P.askSolde) h += '<h3>Solde du compte</h3><div class="field"><span class="field-label">Ton solde le ' + esc(dShort(d1)) + ' (facultatif)</span><div class="amount-wrap small"><input id="imp-solde" inputmode="decimal" placeholder="0,00" autocomplete="off" aria-label="Solde en euros"><span>€</span></div><p class="hint">« − » devant si tu es à découvert.</p></div>';
+  if (known) h += '<p class="notice">' + plural(known, 'ligne') + ' déjà dans P-Flow : rien à ajouter.</p>';
+  if (urs.length) h += '<h3>URSSAF payée</h3>' + urs.map(l => sw('data-imp="l" data-i="' + l.i + '"', l.on, 'URSSAF ' + perTxt(l.pid) + ' : ' + eur(Math.abs(l.amount)), 'payée le ' + dShort(l.date))).join('');
+  if (eps.length) h += '<h3>Épargne</h3>' + eps.map(l => sw('data-imp="l" data-i="' + l.i + '"', l.on, l.acc + ' : ' + (l.amount < 0 ? 'mis de côté ' : 'repris ') + eur(Math.abs(l.amount)), dShort(l.date))).join('');
+  if (P.fixes.length) h += '<h3>Fixes repérés</h3>' + P.fixes.map((f, k) => sw('data-imp="fix" data-k="' + k + '"', f.on, f.label + ' : ' + (f.type === 'revenu' ? '+' : MINUS) + eur(f.amount), 'le ' + (f.day === 1 ? '1er' : f.day) + ' de chaque mois, depuis ' + mShort(f.start))).join('');
+  h += '<div id="imp-rest">' + impRestHtml() + '</div>';
+  return h + '<div><button type="button" class="btn primary block" data-act="imp-go">Ajouter</button></div>';
+}
+$('#panel-body').addEventListener('change', e => {
+  const t = e.target, k = t.dataset && t.dataset.imp; if (!k) return;
+  if (k === 'urs') { IMP.urs = t.checked; return; }
+  const P = IMP.plan; if (!P) return;
+  if (k === 'solde' && P.solde) P.solde.on = t.checked;
+  else if (k === 'l') { const l = P.lines[+t.dataset.i]; if (l) { l.on = t.checked; const r = t.closest('.imp-line'); if (r) r.classList.toggle('off', !t.checked); } }
+  else if (k === 'fix') {
+    const f = P.fixes[+t.dataset.k]; if (!f) return;
+    f.on = t.checked;
+    const box = $('#imp-rest'); box.innerHTML = impRestHtml();
+    if (!t.checked) cascadeIn($$('.imp-line', box).filter(x => f.idx.includes(+x.dataset.i)), { max: 8, dy: 8, step: 26 });
+  }
+});
+$('#panel-body').addEventListener('input', e => {
+  const t = e.target; if (!(t.dataset && t.dataset.imp === 'lab') || !IMP.plan) return;
+  const l = IMP.plan.lines[+t.dataset.i]; if (l) l.label = t.value;
+});
+// Écritures par lots (500 au plus par lot dans Firestore) ; ce qui est créé est noté pour pouvoir l'annuler.
+function impWrite(list, msg) {
+  const refs = [];
+  const jobs = [];
+  for (let k = 0; k < list.length; k += 400) {
+    const b = writeBatch(db);
+    for (const [col, id, data, merge] of list.slice(k, k + 400)) { const r = id ? doc(ucol(col), id) : doc(ucol(col)); if (merge) b.set(r, data, { merge: true }); else b.set(r, data); refs.push([col, r.id]); }
+    jobs.push(b.commit());
+  }
+  lsSet(impLogKey(), JSON.stringify({ at: Date.now(), refs }));
+  write(Promise.all(jobs));
+  toastUndo(msg, () => impUndo(true));
+  closePanel(); renderImpLast();
+}
+async function impGo() {
+  if (blocked() || needNet() || IMP.busy) return;
+  const now = Date.now(), pro = isPro(), list = [];
+  let n = 0;
+  if (IMP.kind === 'table') {
+    for (const l of impTableLines()) if (!l.dup) {
+      const rev = l.amount > 0;
+      list.push(['entries', l.id, { type: rev ? 'revenu' : 'depense', label: l.label, amount: Math.abs(l.amount), urssaf: rev && pro && IMP.urs, date: l.date, month: l.date.slice(0, 7), createdAt: now + n++ }]);
+    }
+  } else {
+    const P = IMP.plan, inFix = new Set();
+    P.fixes.forEach(f => { if (f.on) f.idx.forEach(i => inFix.add(i)); });
+    if (P.solde && P.solde.on) list.push(['soldes', null, { montant: P.solde.montant, date: P.solde.date, createdAt: now + n++ }]);
+    else if (P.askSolde && $('#imp-solde') && $('#imp-solde').value.trim()) {
+      const a = IMP.I.parseNum($('#imp-solde').value);
+      if (a == null) { toast('Solde : indique un montant, par exemple 1 250,40.', true); return; }
+      list.push(['soldes', null, { montant: a, date: P.dmax, createdAt: now + n++ }]);
+    }
+    for (const l of P.lines) {
+      if (!l.on) continue;
+      const a = Math.abs(l.amount), month = l.date.slice(0, 7);
+      if (l.st === 'urs' && !(paiementOf(l.pid) && paiementOf(l.pid).payee)) list.push(['urssaf', l.pid, { payee: true, date: l.date, montant: a, createdAt: now + n++ }, true]);
+      else if (l.st === 'ep') list.push(['epargne', l.id, { op: l.amount < 0 ? 'depot' : 'retrait', label: l.acc, amount: a, date: l.date, month, createdAt: now + n++ }]);
+      else if (l.st === 'add' && !inFix.has(l.i)) list.push(['entries', l.id, { type: l.amount > 0 ? 'revenu' : 'depense', label: (l.label || '').trim().slice(0, 80) || l.raw.slice(0, 80), amount: a, urssaf: pro && l.amount > 0 && l.urs, date: l.date, month, createdAt: now + n++ }]);
+    }
+    for (const f of P.fixes) if (f.on) {
+      const id = doc(ucol('recurring')).id;
+      list.push(['recurring', id, { type: f.type, label: f.label, amount: f.amount, urssaf: false, start: f.start, end: null, createdAt: now + n++ }]);
+      if (f.day > 1) list.push(['jours', id, { jour: f.day, createdAt: now }]);
+    }
+  }
+  if (!list.length) { toast('Rien de coché à ajouter.'); return; }
+  // Copie de sécurité sur Google Drive avant l'import, si les copies Drive sont activées (sans attendre plus de 8 s).
+  if (bkCfg().drive) { IMP.busy = true; toast('Copie de tes données sur Google Drive…'); try { await Promise.race([driveBackup(false, true), new Promise(r => setTimeout(r, 8000))]); } finally { IMP.busy = false; } }
+  const nE = list.filter(x => x[0] === 'entries').length, nF = list.filter(x => x[0] === 'recurring').length;
+  impWrite(list, [nE ? plural(nE, 'opération') : '', nF ? plural(nF, 'fixe') : ''].filter(Boolean).join(' et ') + (nE + nF ? ' ajouté' + (nE + nF > 1 ? 's' : '') : 'Import fait'));
+}
+function impLast() { try { const o = JSON.parse(lsGet(impLogKey()) || 'null'); return o && Array.isArray(o.refs) && o.refs.length ? o : null; } catch (e) { return null; } }
+function impUndo(now) {
+  const o = impLast(); if (!o || blocked()) return;
+  const jobs = [];
+  for (let k = 0; k < o.refs.length; k += 400) { const b = writeBatch(db); o.refs.slice(k, k + 400).forEach(([c, id]) => b.delete(doc(ucol(c), id))); jobs.push(b.commit()); }
+  lsSet(impLogKey(), '');
+  write(Promise.all(jobs), now ? 'Import annulé' : 'Dernier import annulé');
+  renderImpLast();
+}
+function renderImpLast() {
+  const box = $('#imp-last'); if (!box) return;
+  const o = impLast();
+  box.hidden = !o;
+  if (o) { const d = new Date(o.at); box.innerHTML = '<p class="hint">Dernier import le ' + d.getDate() + ' ' + MONTHS[d.getMonth()] + ' : ' + plural(o.refs.length, 'élément') + '.</p><div><button type="button" class="btn ghost danger" data-act="imp-undo">Annuler le dernier import</button></div>'; }
+}
+$('#imp-table').addEventListener('change', e => impFile(e.target, 'table'));
+$('#imp-bank').addEventListener('change', e => impFile(e.target, 'bank'));
 
 /* ---------- partage ---------- */
 const LINKS = { apk: (PAGES_URL || location.href.split('#')[0].replace(/[^/]*$/, '')) + 'telecharger.html', web: PAGES_URL || location.href.split('#')[0] };
