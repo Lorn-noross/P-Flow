@@ -1714,14 +1714,16 @@ async function scenarioPatch6(cfg, fx, tag) {
       const y1 = await page.evaluate(() => scrollY);
       if (/opérations/.test(await page.locator('#tuto-t').textContent())) check(y1 > y0, 'didacticiel : la visite descend vers les opérations (' + y0 + ' → ' + y1 + ')');
     }
-    // Retour arrière puis Suivant : prise de mesures pendant la transition.
+    // Retour arrière puis Suivant : prise de mesures pendant la transition (position À L'ÉCRAN du contenu : depuis
+    // l'APK 92, la page saute à sa place et le contenu revient en transform).
+    const vis = () => page.evaluate(() => ({ top: Math.round(document.getElementById('v-mois').getBoundingClientRect().top), op: getComputedStyle(document.querySelector('.tuto-bub')).opacity }));
     await page.click('[data-tuto="prev"]'); await page.waitForTimeout(1100);
-    const ya = await page.evaluate(() => scrollY);
+    const ya = (await vis()).top;
     await page.click('[data-tuto="next"]'); await page.waitForTimeout(140);
-    const mid = await page.evaluate(() => ({ y: scrollY, op: getComputedStyle(document.querySelector('.tuto-bub')).opacity }));
+    const mid = await vis();
     await page.waitForTimeout(1000);
-    const yb = await page.evaluate(() => scrollY);
-    check(yb !== ya && Math.min(ya, yb) < mid.y && mid.y < Math.max(ya, yb), 'didacticiel : défilement progressif (' + ya + ' → ' + mid.y + ' → ' + yb + ')');
+    const yb = (await vis()).top;
+    check(yb !== ya && Math.min(ya, yb) < mid.top && mid.top < Math.max(ya, yb), 'didacticiel : défilement progressif à l\'écran (' + ya + ' → ' + mid.top + ' → ' + yb + ')');
     check(+mid.op < 0.5, 'didacticiel : la bulle part en fondu pendant le défilement (opacité ' + mid.op + ')');
     check(await page.evaluate(() => getComputedStyle(document.querySelector('.tuto-bub')).opacity) === '1', 'didacticiel : la bulle revient');
   }

@@ -1247,7 +1247,7 @@ window.addEventListener('scroll', () => {
 const LIVE = { t: 0, r: 0, anims: [], last: 0 };
 function liveBgSchedule(ms) { clearTimeout(LIVE.t); LIVE.t = setTimeout(liveBgRun, ms); }
 function liveBgBusy() {
-  return document.hidden || !S.ready || $('#app').hidden || Date.now() - LIVE.last < 1500 || popOpen() || layerOpen(bg) || layerOpen(pbg);
+  return document.hidden || !S.ready || $('#app').hidden || Date.now() - LIVE.last < 1500 || popOpen() || layerOpen(bg) || layerOpen(pbg) || TUTO.on;
 }
 function liveBgRun() {
   if (!motionOK()) { liveBgSchedule(20000); return; }
@@ -4275,6 +4275,7 @@ function tutoStart() {
   if (layerOpen(pbg)) closePanel();
   if (layerOpen(bg)) closeSheet(true);
   lsSet('pf-tuto', 'vu'); TUTO.banner = false; renderTutoBanner();
+  liveBgScroll(); // retour sur l'APK 91 : fond vivant en pause pendant toute la visite (il fait recalculer le flou des pilules)
   const go = () => {
     TUTO.steps = tutoSteps(); if (!TUTO.steps.length) return;
     TUTO.on = true; TUTO.i = 0; TUTO.rect = null;
@@ -4290,6 +4291,10 @@ function tutoStart() {
 // surlignage de la barre du bas), puis la bulle revient en ressort. Le trou change de taille image par image (left / top
 // / width / height d'un seul élément fixe, sans enfant) : un `scale` réduirait aussi son ombre, qui ne couvrirait plus
 // tout l'écran pendant le mouvement.
+// Retour sur l'APK 91 (« micro-à-coups » pendant les étapes 1 à 6, pas les 6 à 9 qui ne font pas défiler) : la page
+// ne défile plus image par image (défilement réel = événements, en-tête collant et flou des pilules recalculés à chaque
+// image). Elle saute d'un coup à sa place finale et son contenu, décalé d'autant, revient en `transform` (animation
+// gérée par la carte graphique, même courbe et même durée que le trou) ; le fond vivant est en pause pendant la visite.
 const bezier = (x1, y1, x2, y2) => t => {
   let u = t;
   for (let k = 0; k < 8; k++) {
@@ -4332,12 +4337,17 @@ function tutoShow(dir) {
   };
   if (!prev || !dir || !motionOK()) { if (dy) window.scrollTo(0, y0 + dy); done(null); return; }
   const out = anim(bub, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(6px) scale(.97)' }], { duration: 160, easing: EASE_IN, fill: 'forwards' });
-  const D = 460 + Math.min(340, Math.abs(dy) * 0.5), t0 = performance.now();
-  const lerp = (a, b, e) => a + (b - a) * e;
+  const D = 460 + Math.min(340, Math.abs(dy) * 0.5);
+  if (dy) {
+    // Contenu qui défile (bandeaux et écran affiché ; pas l'en-tête collant ni ce qui est fixe).
+    const moving = $$('.main > :not(.top)').filter(visEl);
+    window.scrollTo(0, y0 + dy);
+    moving.forEach(m => anim(m, [{ transform: 'translateY(' + dy + 'px)' }, { transform: 'none' }], { duration: D, easing: 'cubic-bezier(.3,.8,.25,1)' }));
+  }
+  const t0 = performance.now(), lerp = (a, b, e) => a + (b - a) * e;
   const frame = now => {
     if (seq !== TUTO.seq || !TUTO.on) return;
     const p = Math.min(1, (now - t0) / D), e = GLIDE(p);
-    if (dy) window.scrollTo(0, Math.round(y0 + dy * e));
     tutoHole({ x: lerp(prev.x, R.x, e), y: lerp(prev.y, R.y, e), w: lerp(prev.w, R.w, e), h: lerp(prev.h, R.h, e) });
     if (p < 1) TUTO.raf = requestAnimationFrame(frame); else done(out);
   };
