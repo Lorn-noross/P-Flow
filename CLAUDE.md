@@ -108,6 +108,7 @@ Retours du propriétaire du 31/10/2026 (tablette, captures) :
 2. **Versement libératoire de l'impôt** : taux ajouté à celui de l'URSSAF pour un net juste (réglage facultatif par année, comme `taux`).
 3. Jauges franchise de TVA et plafond micro (`#y-meters`, montants en dur) : revérifier les montants chaque année (2026 : 37 500 € / 41 250 € et 83 600 €, inchangés).
 4. **Soutenir le développeur** : en attente de réflexion du propriétaire, détail dans `docs/en-reflexion.md` (ne pas coder avant sa décision).
+5. **Crédits** (demande du propriétaire, 31/10/2026) : une carte « Crédits » dans Réglages → À propos (`#sub-apropos`, sous la carte « P-Flow », mêmes `.card` / `.meta-line`) : développement (le propriétaire), icône et logo (sa sœur, graphiste), remerciements (testeurs : la famille), puis « Outils libres » en une ligne (Firebase, Capacitor, Vite, police Figtree sous licence SIL OFL) avec les mentions de licence requises (MIT, Apache 2.0, OFL). **Noms : seulement ceux donnés par le propriétaire pour les crédits** (prénom, nom ou pseudo, avec l'accord de sa sœur) : seule exception à « aucune donnée personnelle dans le dépôt », car le dépôt est public. Textes courts.
 
 ### Plus tard / à décider
 - **Technique, plus tard** : charger à la demande la visite guidée, les sauvegardes Drive et le premier démarrage (comme `importer.js` ; JS principal 833 Ko, 222 Ko gzip) ; montée de Firebase 11 → 13 et Capacitor 7 → 8 dans un patch à part (versions majeures : doc officielle, test complet des données, APK de test).
