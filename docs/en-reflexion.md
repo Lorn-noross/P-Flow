@@ -22,3 +22,14 @@ Idées du propriétaire pas encore décidées. **Ne rien coder tant qu'il n'a pa
 - Tarifs à revérifier au moment de coder.
 
 **Si c'est décidé** : patch 8 (nouvelles fonctions), ou le suivant.
+
+## Crédits dans À propos (31/10/2026)
+
+**Décidé** : une carte « Crédits » dans À propos (voir patch 8, point 5 de `CLAUDE.md`).
+
+**En attente des réponses du propriétaire** (à lui reposer au début du patch 8, ou dès qu'il reparle des crédits) :
+1. Comment il veut apparaître : prénom, nom complet, pseudo ou « Arcing-E ».
+2. Comment sa sœur (icône et logo) veut apparaître, avec son accord, et si elle veut un lien vers son travail (portfolio, Instagram…).
+3. Qui d'autre remercier : des personnes nommées, ou juste « la famille ».
+
+Rappel : le dépôt est public, les noms affichés seront visibles de tous.
