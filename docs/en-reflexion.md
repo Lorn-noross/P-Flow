@@ -68,7 +68,7 @@ Rappel : le dépôt est public, les noms affichés seront visibles de tous.
 
 **À éviter** : faire les factures dans P-Flow. Avec la facturation électronique, les micro-entreprises émettent leurs factures par une plateforme agréée à partir du 1er septembre 2027 (réception obligatoire depuis le 1er septembre 2026) : trop lourd.
 
-**Prix** : à décider (exemples : 1,99 à 2,99 €/mois, ou une formule à l'année moins chère).
+**Prix** : à décider. Étude détaillée du 31/10/2026 (marché, besoins, fonctions, prix, revenus) : doc privé « P-Flow : étude des fonctions payantes », https://claude.ai/artifact/K8Xei1xYc46GKuwVEphtSH. Conseil de l'étude : 2,49 €/mois ou 19,99 €/an, 30 jours d'essai ; Pro = mise de côté automatique (URSSAF, impôt, CFE) et rappel de déclaration d'abord ; livre des recettes simple et estimation URSSAF restent gratuits.
 
 **Technique** : il faut un serveur (Cloud Functions, offre Blaze) qui reçoit la confirmation de paiement et note l'abonnement dans un document que l'appli lit sans pouvoir l'écrire (nouvelle collection, écriture interdite aux appareils).
 - Play Store (depuis le 30/06/2026 en Europe) : 10 % de frais de service sur les abonnements, + 5 % avec le paiement de Google Play ; les 5 % disparaissent avec un paiement externe, les frais de service restent.
