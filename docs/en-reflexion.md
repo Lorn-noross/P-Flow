@@ -33,3 +33,7 @@ Idées du propriétaire pas encore décidées. **Ne rien coder tant qu'il n'a pa
 3. Qui d'autre remercier : des personnes nommées, ou juste « la famille ».
 
 Rappel : le dépôt est public, les noms affichés seront visibles de tous.
+
+## Logo et icône : nouvelle version (31/10/2026)
+
+**En attente** : la sœur du propriétaire (graphiste) doit encore modifier le logo. Version agrandie de l'icône rangée dans `assets/branding/icone-pf-upscale-2664.png`, **pas intégrée** à l'appli et **pas une icône finale**. Quand la version validée arrive : procédure « Nouvelle icône » de `CLAUDE.md` (APK et web), dans le patch en cours.
