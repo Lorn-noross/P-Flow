@@ -191,10 +191,17 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
   /* Patch 4 : colonne de gauche en verre liquide, comme le téléphone : plus de panneau opaque ni de bordure, le même
      fond passe dessous ; logo, « Ajouter », menu et synchronisation dans des pilules de verre. Le fond dessous est
      fixe : du verre sans flou (même rendu, plus léger). */
-  .side{display:flex;flex-direction:column;gap:14px;position:sticky;top:0;height:100vh;
+  .side{display:flex;flex-direction:column;gap:14px;position:sticky;top:0;z-index:7;height:100vh;
     padding:calc(20px + var(--sat)) 14px 20px max(18px,env(safe-area-inset-left,0px))}
   .main{width:100%;padding-left:40px;padding-right:max(40px,env(safe-area-inset-right,0px));padding-block:0 64px}
   .top{margin-inline:-40px;padding-inline:40px;padding-top:calc(var(--sat) + 20px);padding-bottom:12px;margin-bottom:12px}
+  /* Patch 7 (point 12) : la colonne de gauche reçoit le même fondu que le haut du contenu (même dégradé, même hauteur,
+     même fondu, posé par le même défilement) : plus de coupure nette au bord du contenu. Chacun dans son propre calque,
+     sous ses pilules : un calque commun passait au-dessus des pilules du haut là où `.main` forme son propre empilement
+     (requête de conteneur dans Chrome < 129 et Safari). */
+  .side::before{content:"";position:absolute;z-index:-1;left:0;right:0;top:0;height:calc(var(--sat) + 82px);pointer-events:none;
+    background:linear-gradient(180deg,var(--bg-top) 0,var(--bg-top) var(--sat),transparent 100%);opacity:0;transition:opacity .2s var(--ease)}
+  .side.scrolled::before{opacity:1}
   .pill{height:50px}
   .pill.solo{padding-inline:16px}
   .pill .icon-btn{width:44px;height:44px}
@@ -252,20 +259,33 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
    .main), pas l'appareil ni l'écran : une colonne en dessous de ~680 px (téléphone, petite tablette), deux dès ~680 px
    (tablette en portrait, petite fenêtre de PC), trois au-delà de ~1300 px (grand écran). Même code pour l'APK et le web. */
 .col-ab{display:grid;gap:14px;min-width:0;align-content:start}
+/* Patch 7 (point 13) : en 2 colonnes, à gauche le gros chiffre, l'URSSAF, la fin du mois et l'épargne ; à droite la
+   cascade puis les listes. Plus rien de collé (la colonne de gauche dépassait l'écran). Mêmes éléments qu'au téléphone
+   (aucun déplacement dans la page) : les blocs sont placés dans la grille. La 4e rangée (1fr) prend la hauteur des
+   listes, pour que la colonne de gauche reste serrée. */
 @container main (min-width:680px){
-  .month-grid{grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:20px;align-items:start}
-  .month-grid>.col-ab{position:sticky;top:calc(96px + var(--sat))}
+  .month-grid{grid-template-columns:minmax(0,5fr) minmax(0,6fr);grid-template-rows:auto auto auto 1fr;gap:14px 20px;align-items:start}
+  .month-grid>.col-ab,.col-ab>.col-b{display:contents}
+  .col-ab>.col-a{grid-column:1;grid-row:1/3}
+  .col-b>.ep-card{grid-column:1;grid-row:3}
+  .col-b>.casc-card{grid-column:2;grid-row:1}
+  .month-grid>.col-c{grid-column:2;grid-row:2/5}
 }
 @container main (min-width:1300px){
-  .month-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.15fr);gap:22px;max-width:2000px;margin-inline:auto;width:100%}
-  .month-grid>.col-ab{display:contents}
+  .month-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.15fr);grid-template-rows:none;gap:22px;max-width:2000px;margin-inline:auto;width:100%}
+  .col-ab>.col-b{display:grid}
+  .col-ab>.col-a,.col-b>.ep-card,.col-b>.casc-card,.month-grid>.col-c{grid-column:auto;grid-row:auto}
   .month-grid>.col-ab>.col{position:sticky;top:calc(96px + var(--sat))}
 }
 /* Navigateurs sans requêtes de conteneur (très vieux WebView) : ancienne règle sur la largeur de l'écran. */
 @supports not (container-type:inline-size){
   @media (min-width:1040px){
-    .month-grid{grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:22px;align-items:start}
-    .month-grid>.col-ab{position:sticky;top:calc(96px + var(--sat))}
+    .month-grid{grid-template-columns:minmax(0,5fr) minmax(0,6fr);grid-template-rows:auto auto auto 1fr;gap:14px 22px;align-items:start}
+    .month-grid>.col-ab,.col-ab>.col-b{display:contents}
+    .col-ab>.col-a{grid-column:1;grid-row:1/3}
+    .col-b>.ep-card{grid-column:1;grid-row:3}
+    .col-b>.casc-card{grid-column:2;grid-row:1}
+    .month-grid>.col-c{grid-column:2;grid-row:2/5}
   }
 }
 #v-mois{touch-action:pan-y pinch-zoom}
@@ -409,12 +429,12 @@ td .prev-l{display:block;font-size:calc(11*var(--u));color:var(--accent);font-we
 .mini small{font-size:calc(11.5*var(--u));color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .meters-note{margin-top:12px}
 .period{font-size:calc(13*var(--u));color:var(--muted)}
-.chart-card{display:grid;gap:12px}
+.chart-card{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
 .chart-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
 .chart-legend,.mini-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:calc(12*var(--u));color:var(--muted)}
 .chart-legend span,.mini-legend span{display:inline-flex;align-items:center;gap:6px}
 .chart-legend .dash{width:16px;height:0;border-top:2px dashed var(--ink);opacity:.6}
-.chart-wrap{position:relative}
+.chart-wrap{position:relative;min-width:0}
 #chart{min-height:200px;width:100%}
 #chart svg{display:block;overflow:visible}
 .b-pos{fill:var(--c-reste)} .b-neg{fill:var(--neg)} .b-hit{fill:transparent}
@@ -949,7 +969,7 @@ th small{display:block;font-size:calc(10*var(--u));font-weight:500;text-transfor
 .imp-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
 .imp-col .pick span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .imp-lines{display:grid;gap:8px}
-#imp-trest{display:contents}
+#imp-trest,#imp-rest{display:contents}
 .imp-line{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"lab sw" "meta sw";gap:4px 12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);transition:opacity .2s var(--ease)}
 .imp-line:last-child{border-bottom:0}
 .imp-line.off{opacity:.5}
