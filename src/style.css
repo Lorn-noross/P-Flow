@@ -143,7 +143,6 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
 .top::before{content:"";position:absolute;z-index:-1;inset:0;pointer-events:none;
   background:linear-gradient(180deg,var(--bg-top) 0,var(--bg-top) var(--sat),transparent 100%);opacity:0;transition:opacity .2s var(--ease)}
 .top.scrolled::before{opacity:1}
-.top-fade{display:none}
 .pill{pointer-events:auto;display:flex;align-items:center;min-width:0;height:44px;padding:2px;border-radius:999px;
   background:var(--glass);border:1px solid var(--glass-line);box-shadow:var(--shadow-pill);
   -webkit-backdrop-filter:blur(18px) saturate(1.6);backdrop-filter:blur(18px) saturate(1.6)}
@@ -196,12 +195,13 @@ svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke
     padding:calc(20px + var(--sat)) 14px 20px max(18px,env(safe-area-inset-left,0px))}
   .main{width:100%;padding-left:40px;padding-right:max(40px,env(safe-area-inset-right,0px));padding-block:0 64px}
   .top{margin-inline:-40px;padding-inline:40px;padding-top:calc(var(--sat) + 20px);padding-bottom:12px;margin-bottom:12px}
-  /* Patch 7 (point 12) : le fondu du haut couvre toute la largeur, colonne de gauche comprise (avant, il s'arrêtait au
-     bord du contenu : coupure nette). Même dégradé et même fondu ; sous les pilules du haut et la colonne de gauche. */
-  .top::before{display:none}
-  .top-fade{display:block;position:fixed;z-index:5;left:0;right:0;top:0;height:calc(var(--sat) + 82px);pointer-events:none;
+  /* Patch 7 (point 12) : la colonne de gauche reçoit le même fondu que le haut du contenu (même dégradé, même hauteur,
+     même fondu, posé par le même défilement) : plus de coupure nette au bord du contenu. Chacun dans son propre calque,
+     sous ses pilules : un calque commun passait au-dessus des pilules du haut là où `.main` forme son propre empilement
+     (requête de conteneur dans Chrome < 129 et Safari). */
+  .side::before{content:"";position:absolute;z-index:-1;left:0;right:0;top:0;height:calc(var(--sat) + 82px);pointer-events:none;
     background:linear-gradient(180deg,var(--bg-top) 0,var(--bg-top) var(--sat),transparent 100%);opacity:0;transition:opacity .2s var(--ease)}
-  .top-fade.on{opacity:1}
+  .side.scrolled::before{opacity:1}
   .pill{height:50px}
   .pill.solo{padding-inline:16px}
   .pill .icon-btn{width:44px;height:44px}

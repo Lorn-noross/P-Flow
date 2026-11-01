@@ -1642,13 +1642,15 @@ async function scenarioPatch7(cfg, fx, tag) {
       check(R.pos !== 'sticky', 'Mois, 2 colonnes : plus de colonne collée');
     } else check(R.hero.t < R.urs.t && R.urs.t < R.fin.t && R.fin.t < R.casc.t && R.casc.t < R.ep.t && R.ep.t < R.lists.t, 'Mois, téléphone : même ordre qu\'avant');
   }
-  // 2. Fondu du haut : sur toute la largeur dès 900 px d'écran (colonne de gauche comprise), sous les pilules
+  // 2. Fondu du haut : dès 900 px d'écran, la colonne de gauche reçoit le même fondu (même hauteur, bord à bord), sous ses pilules
+  const fade = () => page.evaluate(() => { const t = document.querySelector('.top'), s = document.querySelector('.side'), tb = getComputedStyle(t, '::before'), sb = getComputedStyle(s, '::before'), tr = t.getBoundingClientRect(), sr = s.getBoundingClientRect(); return { to: tb.opacity, so: sb.opacity, sd: getComputedStyle(s).display, th: Math.round(tr.height), sh: Math.round(parseFloat(sb.height)), sz: sb.zIndex, gap: Math.round(tr.left - sr.right), bg: tb.backgroundImage === sb.backgroundImage }; });
   await page.evaluate(() => window.scrollTo(0, 300)); await page.waitForTimeout(350);
-  const F = await page.evaluate(() => { const f = document.getElementById('top-fade'), cs = getComputedStyle(f), b = f.getBoundingClientRect(); return { d: cs.display, o: cs.opacity, z: +cs.zIndex, l: b.left, w: b.width, iw: document.documentElement.clientWidth, top: +getComputedStyle(document.querySelector('.top')).zIndex, side: +getComputedStyle(document.querySelector('.side')).zIndex || 0, before: getComputedStyle(document.querySelector('.top'), '::before').display, sc: document.querySelector('.top').classList.contains('scrolled') }; });
-  if (cfg.viewport.width >= 900) check(F.d === 'block' && F.o === '1' && F.l === 0 && Math.abs(F.w - F.iw) < 2 && F.z < F.top && F.z < F.side && F.before === 'none', 'fondu du haut sur toute la largeur, sous les pilules et la colonne de gauche (' + JSON.stringify(F) + ')');
-  else check(F.d === 'none' && F.sc, 'téléphone : fondu du haut comme avant');
-  await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(300);
-  check(await page.evaluate(() => getComputedStyle(document.getElementById('top-fade')).opacity) === '0' || cfg.viewport.width < 900, 'fondu du haut retiré en haut de page');
+  let F = await fade();
+  if (cfg.viewport.width >= 900) check(F.to === '1' && F.so === '1' && F.th === F.sh && F.gap === 0 && F.sz === '-1' && F.bg, 'fondu du haut aussi sur la colonne de gauche, même hauteur, bord à bord (' + JSON.stringify(F) + ')');
+  else check(F.to === '1' && F.sd === 'none', 'téléphone : fondu du haut comme avant');
+  await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(350);
+  F = await fade();
+  check(F.to === '0' && (F.sd === 'none' || F.so === '0'), 'fondu du haut retiré en haut de page');
   // 3. Rappel de sauvegarde (téléphone) : « Plus tard » → dans 30 jours
   if (phone) {
     check(await page.locator('#bk-remind').isVisible(), 'rappel de sauvegarde affiché (compte sans Google Drive)');

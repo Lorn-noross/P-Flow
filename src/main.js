@@ -1265,11 +1265,11 @@ window.addEventListener('online', updateSync);
 window.addEventListener('offline', updateSync);
 
 // Barre du haut transparente : dès qu'on fait défiler, un léger fondu garde l'heure et la batterie lisibles.
-const topBar = $('.top'), topFade = $('#top-fade'); // patch 7 (point 12) : fondu sur toute la largeur (tablette, PC)
+const topBar = $('.top'), sideBar = $('.side'); // patch 7 (point 12) : même fondu en haut de la colonne de gauche (tablette, PC)
 let topScrolled = false;
 window.addEventListener('scroll', () => {
   const s = window.scrollY > 4;
-  if (s !== topScrolled) { topScrolled = s; topBar.classList.toggle('scrolled', s); topFade.classList.toggle('on', s); }
+  if (s !== topScrolled) { topScrolled = s; topBar.classList.toggle('scrolled', s); sideBar.classList.toggle('scrolled', s); }
   if (S.bubble != null) hideBubble(true); // patch 7 (point 15)
   liveBgScroll();
 }, { passive: true });
