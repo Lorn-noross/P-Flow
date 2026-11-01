@@ -491,7 +491,19 @@ function hebDates(h, m) {
 }
 // Premier jour de la semaine wday dans le mois m (ou après la date `from`).
 const firstWday = (m, wday, from) => hebDates({ type: 'depense', amount: 1, wday, start: from || m + '-01', end: null }, m)[0] || null;
+// Patch 7 (point 7) : résultats de monthItems / monthData gardés le temps d'un affichage (l'écran Année les
+// demandait plus de 1 500 fois). Vidés à chaque rendu, à chaque arrivée de données et à la fin de la tâche en cours :
+// jamais un résultat d'avant un changement. Les appelants ne modifient pas ces objets (yearData y ajoute seulement
+// `fut` / `now`, toujours les mêmes).
+const CALC = { items: new Map(), data: new Map(), queued: false };
+function calcReset() { CALC.items.clear(); CALC.data.clear(); }
+const afterTask = window.queueMicrotask ? f => queueMicrotask(f) : f => Promise.resolve().then(f); // vieux WebView (< 71)
+function calcKeep() { if (!CALC.queued) { CALC.queued = true; afterTask(() => { CALC.queued = false; calcReset(); }); } }
 function monthItems(m) {
+  const c = CALC.items.get(m); if (c) return c;
+  const r = monthItems0(m); CALC.items.set(m, r); calcKeep(); return r;
+}
+function monthItems0(m) {
   const ents = (entCovered(m) ? S.entries : []).filter(e => e.month === m).map(e => Object.assign({ kind: 'entry' }, e));
   const recs = S.recurring.filter(r => r.start && r.start <= m && (!r.end || r.end >= m)).map(r => Object.assign({ kind: 'rec' }, r));
   const pers = S.periodiques.filter(p => (p.type === 'depense' || p.type === 'revenu') && perDue(p, m)).map(p => Object.assign({ kind: 'per' }, p));
@@ -534,6 +546,10 @@ function urssafReel(m, base) {
   return shares[ms.indexOf(m)];
 }
 function monthData(m) {
+  const c = CALC.data.get(m); if (c) return c;
+  const r = monthData0(m); CALC.data.set(m, r); calcKeep(); return r;
+}
+function monthData0(m) {
   const y = pYM(m).y;
   const { ents, recs, pers, hebs, items } = monthItems(m);
   const rate = rateFor(y);
@@ -804,7 +820,7 @@ function stopData() {
   S.unsubEntries = null; S.entriesYear = null; S.entriesFrom = null; S.entriesWant = null; S.entries = []; S.recurring = []; S.periodiques = []; S.epargne = []; S.demandes = []; S.jours = []; S.soldes = []; S.pointages = []; S.urssafPay = []; S.hebdo = []; S.categories = []; S.dataVersion = 1;
   DRAFT = null; draftUi(); tutoEnd(true);
   S.settings = null; S.allow = []; S.sub = null; S.justOnboarded = false; S.bubble = null;
-  S.readOnly = false; S.settingsServer = false; $('#outdated').hidden = true; applyColors();
+  S.readOnly = false; S.settingsServer = false; S.settingsSig = null; $('#outdated').hidden = true; applyColors();
   // Le message « Supprimé · Annuler » d'un compte ne reste pas affiché après la déconnexion (patch 4).
   clearTimeout(toastT); $('#toast').hidden = true;
   resetBackupState();
@@ -817,6 +833,14 @@ function startData() {
   S.unsubs.push(onSnapshot(uref('meta', 'settings'), opts, snap => {
     S.pend.settings = snap.metadata.hasPendingWrites;
     if (!snap.exists() && snap.metadata.fromCache) return; // attendre la réponse du serveur
+    // Patch 7 (point 8) : mêmes réglages qu'à l'instantané d'avant (seulement envoyés ou confirmés) : pas de rendu.
+    const sig = snap.exists() ? JSON.stringify(snap.data()) : '';
+    if (S.ready && S.settings && sig === S.settingsSig) {
+      updateSync();
+      if (!snap.metadata.fromCache) { S.settingsServer = true; maybeAutoBackup(); }
+      return;
+    }
+    S.settingsSig = sig; calcReset();
     S.settingsExists = snap.exists();
     S.settings = normSettings(snap.exists() ? snap.data() : null);
     // Données écrites par une version plus récente : lecture seule, pour ne rien abîmer.
@@ -833,11 +857,12 @@ function startData() {
     if (!snap.metadata.fromCache) { S.settingsServer = true; maybeAutoBackup(); }
   }, dbError));
   const sub = (name, key) => S.unsubs.push(onSnapshot(ucol(name), opts, snap => {
-    S[key] = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
     S.pend[key] = snap.metadata.hasPendingWrites;
-    S.loaded[key] = true;
+    if (metaOnly(snap, S.loaded[key])) { updateSync(); return; } // patch 7 : seulement envoyé / confirmé
+    S[key] = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+    S.loaded[key] = true; calcReset();
     if (key === 'soldes') ensureYearSub(); // patch 5 : la fenêtre des opérations chargées part du dernier solde
-    render();
+    renderSoon();
   }, dbError));
   sub('recurring', 'recurring');
   // Patch 2 : nouvelles collections (déjà couvertes par les règles users/{uid}/…), ignorées par les anciennes versions.
@@ -859,7 +884,7 @@ function startData() {
     // Demandes d'accès (règles Firestore du patch 2 ; sans elles, la liste reste simplement vide).
     S.unsubs.push(onSnapshot(collection(db, 'demandes'), snap => {
       S.demandes = snap.docs.map(d => Object.assign({ email: d.id }, d.data())).sort((a, b) => tsMs(a.at) - tsMs(b.at));
-      render();
+      renderSoon();
     }, () => {}));
   }
   ensureYearSub();
@@ -914,10 +939,11 @@ function ensureYearSub() {
   const q = query(ucol('entries'), where('month', '>=', from), where('month', '<=', y + '-12'));
   S.unsubEntries = onSnapshot(q, { includeMetadataChanges: true }, snap => {
     if (S.entriesYear !== y || S.entriesWant !== from) return;
+    S.pend.entries = snap.metadata.hasPendingWrites;
+    if (S.entriesFrom === from && metaOnly(snap, S.loaded.entries)) { updateSync(); return; } // patch 7
     S.entriesFrom = from;
     S.entries = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
-    S.pend.entries = snap.metadata.hasPendingWrites;
-    S.loaded.entries = true; render();
+    S.loaded.entries = true; calcReset(); renderSoon();
   }, dbError);
 }
 function dbError(e) {
@@ -1191,7 +1217,16 @@ $('#s-onboard').addEventListener('change', e => {
 });
 
 /* ---------- rendu ---------- */
+// Patch 7 (point 8) : les arrivées de données (une dizaine de collections au démarrage, 2 instantanés par écriture)
+// sont regroupées en un seul rendu par image ; un changement de métadonnées seul (envoyé, en cache) ne met à jour que
+// le nuage. Un rendu direct (geste, changement d'écran) passe tout de suite et annule celui qui attendait.
+let renderRaf = 0;
+function renderSoon() { if (!renderRaf) renderRaf = requestAnimationFrame(() => { renderRaf = 0; render(); }); }
+// Vrai si l'instantané ne change que les métadonnées (déjà chargé, aucun document ajouté, modifié ou retiré).
+const metaOnly = (snap, loaded) => loaded && typeof snap.docChanges === 'function' && snap.docChanges().length === 0;
 function render() {
+  if (renderRaf) { cancelAnimationFrame(renderRaf); renderRaf = 0; }
+  calcReset();
   if (!S.ready) return;
   const on = epOn();
   document.body.classList.toggle('ep-on', on);
@@ -1199,7 +1234,7 @@ function render() {
   $$('.view').forEach(el => { el.hidden = el.id !== 'v-' + S.view; });
   $$('[data-act="view"]').forEach(b => { if (b.dataset.view === S.view) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   $('.tabbar').dataset.view = S.view;
-  renderCtx(); updateSync(); renderReqBanner(); renderTutoBanner(); draftUi();
+  renderCtx(); updateSync(); renderReqBanner(); renderTutoBanner(); renderBkRemind(); draftUi();
   if (S.view === 'mois') renderMois();
   else if (S.view === 'fixes') renderFixes();
   else if (S.view === 'annee') renderAnnee();
@@ -1230,11 +1265,12 @@ window.addEventListener('online', updateSync);
 window.addEventListener('offline', updateSync);
 
 // Barre du haut transparente : dès qu'on fait défiler, un léger fondu garde l'heure et la batterie lisibles.
-const topBar = $('.top');
+const topBar = $('.top'), topFade = $('#top-fade'); // patch 7 (point 12) : fondu sur toute la largeur (tablette, PC)
 let topScrolled = false;
 window.addEventListener('scroll', () => {
   const s = window.scrollY > 4;
-  if (s !== topScrolled) { topScrolled = s; topBar.classList.toggle('scrolled', s); }
+  if (s !== topScrolled) { topScrolled = s; topBar.classList.toggle('scrolled', s); topFade.classList.toggle('on', s); }
+  if (S.bubble != null) hideBubble(true); // patch 7 (point 15)
   liveBgScroll();
 }, { passive: true });
 
@@ -2411,20 +2447,38 @@ let chartW = 0;
 if (window.ResizeObserver) new ResizeObserver(es => { const w = es[es.length - 1].contentRect.width; if (w > 0) chartW = w; renderChart(); }).observe($('#chart'));
 // Patch 6 : `fade` = fermeture voulue (retoucher la barre, toucher à côté, Retour) : fondu en EASE_IN, l'inverse
 // de l'ouverture. Sans `fade` (autre barre, nouveau rendu, changement d'écran) : cachée tout de suite.
+// Patch 7 (point 15) : elle se ferme aussi d'elle-même (5 s sans geste ; gardée tant que la souris est dessus, temps
+// remis à zéro si on la touche), au défilement et au redimensionnement, toujours avec ce même fondu.
+let bubT = 0;
+const BUB_MS = 5000;
+function bubTimer() { clearTimeout(bubT); bubT = setTimeout(bubAuto, BUB_MS); }
+function bubAuto() {
+  const b = $('#bubble');
+  if (S.bubble == null || !b || b.hidden) return;
+  if (window.matchMedia && matchMedia('(hover:hover)').matches && b.matches(':hover')) { bubTimer(); return; }
+  hideBubble(true);
+}
 function hideBubble(fade) {
   const b = $('#bubble');
+  clearTimeout(bubT);
   $$('#chart .bar-g.sel').forEach(g => g.classList.remove('sel')); S.bubble = null;
   if (!b || b.hidden) return;
+  if (!fade && b.dataset.out) return; // déjà en train de disparaître en fondu : on le laisse finir
   if (b.getAnimations) b.getAnimations().forEach(x => x.cancel());
+  delete b.dataset.out;
   const a = fade ? anim(b, [{ opacity: 1, transform: b.style.transform }, { opacity: 0, transform: b.style.transform + ' translateY(6px) scale(.96)' }], { duration: 160, easing: EASE_IN, fill: 'forwards' }) : null;
   if (!a) { b.hidden = true; return; }
-  a.finished.then(() => { if (S.bubble == null) b.hidden = true; a.cancel(); }, () => {}); // annulée : une autre barre s'ouvre
+  b.dataset.out = '1';
+  a.finished.then(() => { delete b.dataset.out; if (S.bubble == null) b.hidden = true; a.cancel(); }, () => { delete b.dataset.out; }); // annulée : une autre barre s'ouvre
 }
+$('#bubble').addEventListener('pointerdown', () => { if (S.bubble != null) bubTimer(); });
 function showBubble(i) {
   if (!chartGeo || !YD) return;
   const d = YD.months[i], b = $('#bubble'), on = epOn();
   if (S.bubble === i && !b.hidden) { hideBubble(true); return; }
   hideBubble(); S.bubble = i;
+  if (b.getAnimations) b.getAnimations().forEach(x => x.cancel()); // fondu de fermeture en cours : la nouvelle bulle part d'ici
+  delete b.dataset.out;
   const g = $('#chart .bar-g[data-i="' + i + '"]'); if (g) g.classList.add('sel');
   const l = (k, v) => '<div class="l"><span>' + k + '</span><span>' + eur(v) + '</span></div>';
   // Patch 5 : « Repris » quand l'épargne du mois est négative (point 20), mêmes mots que l'écran Mois (point 23) ;
@@ -2447,6 +2501,7 @@ function showBubble(i) {
   const x = Math.max(0, Math.min(W - bw, cx - bw / 2)), y = Math.max(-8, chartGeo.Y(Math.max(0, bv)) - bh - 10);
   b.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(y) + 'px)';
   anim(b, [{ opacity: 0, transform: b.style.transform + ' translateY(6px) scale(.96)' }, { opacity: 1, transform: b.style.transform }], { duration: 220, easing: SPRING });
+  bubTimer();
 }
 
 /* ----- vue Réglages ----- */
@@ -2645,14 +2700,22 @@ $('#effets-toggle').addEventListener('change', e => setAppearance('effets', e.ta
 function exportCsv() {
   if (!ready()) return;
   const y = S.entriesYear;
-  const q = s => '"' + String(s).replace(/"/g, '""') + '"';
+  // Patch 7 (point 9) : un libellé qui commence par =, +, -, @ (fréquent dans les relevés importés) serait lu comme une
+  // formule par le tableur : une apostrophe devant le garde en texte.
+  const q = s => '"' + String(s).replace(/^[=+\-@\t\r]/, "'$&").replace(/"/g, '""') + '"';
   const n = v => String(r2(v)).replace('.', ',');
   const lines = ['Date;Mois;Type;Libellé;Montant;Soumis URSSAF;URSSAF;Fixe'];
   for (let i = 1; i <= 12; i++) {
     const d = monthData(ym(y, i)); if (d.m > CUR) break;
+    // Patch 7 (point 9) : URSSAF payée notée → le montant réel, réparti selon chaque revenu (le dernier prend l'arrondi).
+    const subj = d.items.filter(it => it.type === 'revenu' && it.urssaf && isPro()), share = new Map();
+    if (d.urssafReel && d.base > 0) {
+      let left = d.urssaf;
+      subj.forEach((it, k) => { const v = k === subj.length - 1 ? r2(left) : r2(d.urssaf * (Number(it.amount) || 0) / d.base); share.set(it, v); left = r2(left - v); });
+    }
     for (const it of d.items) {
       const rev = it.type === 'revenu', u = rev && it.urssaf && isPro();
-      lines.push([it.kind === 'entry' ? it.date : it.kind === 'heb' ? it.dates[0] : d.m + '-01', d.m, rev ? 'Revenu' : 'Dépense', q(it.label), n(it.amount), u ? 'oui' : 'non', n(u ? it.amount * d.rate / 100 : 0), it.kind === 'entry' ? 'non' : it.kind === 'rec' ? 'oui' : it.kind === 'heb' ? 'chaque ' + WDAYS[it.wday - 1] + ' (' + it.n + ' fois)' : FREQ_LABEL[it.freq]].join(';'));
+      lines.push([it.kind === 'entry' ? it.date : it.kind === 'heb' ? it.dates[0] : d.m + '-01', d.m, rev ? 'Revenu' : 'Dépense', q(it.label), n(it.amount), u ? 'oui' : 'non', n(!u ? 0 : share.has(it) ? share.get(it) : it.amount * d.rate / 100), it.kind === 'entry' ? 'non' : it.kind === 'rec' ? 'oui' : it.kind === 'heb' ? 'chaque ' + WDAYS[it.wday - 1] + ' (' + it.n + ' fois)' : FREQ_LABEL[it.freq]].join(';'));
     }
     for (const it of d.eps.concat(d.autos)) {
       lines.push([it.kind === 'ep' ? it.date : d.m + '-01', d.m, it.op === 'retrait' ? 'Épargne reprise' : 'Épargne', q(it.label), n(it.amount), 'non', '0', it.kind === 'auto' ? FREQ_LABEL[it.freq] : 'non'].join(';'));
@@ -3499,7 +3562,7 @@ window.addEventListener('resize', () => {
   if (!KB.native && !isEditable(document.activeElement)) KB.base = window.innerHeight;
   kbUpdate();
   positionIndicator(false);
-  if (S.bubble != null) hideBubble();
+  if (S.bubble != null) hideBubble(true); // patch 7 (point 15) : même fondu qu'une fermeture voulue
   if (S.view === 'reglages' && S.ready) { const w = setWide(); if (w !== lastSetWide) { lastSetWide = w; render(); } } // patch 5
 });
 let lastSetWide = null;
@@ -3696,6 +3759,8 @@ document.addEventListener('click', e => {
   else if (a === 'tuto-start') tutoStart();
   else if (a === 'tuto-later') { closePanel(); toast('Didacticiel : Réglages → Mon compte'); }
   else if (a === 'tuto-hide') { lsSet('pf-tuto', 'vu'); TUTO.banner = false; renderTutoBanner(); }
+  else if (a === 'bk-remind-later') { bkRemindSet(30); renderBkRemind(); }
+  else if (a === 'bk-remind-go') { bkRemindSet(30); renderBkRemind(); if (S.view !== 'reglages') setView('reglages'); setSub('donnees', 1); }
   else if (a === 'imp-col') impColPick(t);
   else if (a === 'imp-sheet') openChoice({ anchor: t, label: 'Feuille', value: String(IMP.sheet), options: IMP.sheets.map((x, i) => ({ v: String(i), label: x.name || 'Feuille ' + (i + 1), hint: plural(x.rows.length, 'ligne') })), onPick: async v => { IMP.sheet = +v; impGuess(); try { await impLoadHave(); } catch (e) { toast(e.message || OFFLINE_MSG, true); } impRedraw(); } });
   else if (a === 'imp-sign') {
@@ -3982,7 +4047,20 @@ function openUpdAuto(btn) {
   openChoice({ anchor: btn, label: 'Vérification automatique', value: updAuto(), options: Object.keys(UPD_FREQ).map(v => ({ v, label: UPD_FREQ_LABEL[v] })),
     onPick: v => { if (v in UPD_FREQ) { lsSet('pf-maj-auto', v); renderUpdate(); } } });
 }
-if (isNative) CapApp.addListener('appStateChange', st => { if (st && st.isActive && S.ready) maybeAutoUpdate(); });
+if (isNative) CapApp.addListener('appStateChange', st => { if (st && st.isActive) { checkDay(); if (S.ready) maybeAutoUpdate(); } });
+// Patch 7 (point 6) : NOW, CUR et TODAY sont pris au démarrage. Une appli restée en mémoire garderait l'ancienne date
+// après minuit (mois en cours, « Disponible d'ici le 31 », solde du jour, rappels). Au retour dans l'appli, si le jour
+// a changé : on recharge, mais jamais avec une fenêtre ouverte ou un brouillon du + (gardé seulement en mémoire) :
+// on attend qu'ils soient fermés.
+let dayT = 0;
+const dayBusy = () => popOpen() || layerOpen(bg) || layerOpen(pbg) || !!DRAFT || TUTO.on || !$('#s-onboard').hidden || isEditable(document.activeElement);
+function checkDay() {
+  clearTimeout(dayT);
+  if (document.hidden || ymd(new Date()) === TODAY) return;
+  if (dayBusy()) { dayT = setTimeout(checkDay, 2000); return; }
+  location.reload();
+}
+document.addEventListener('visibilitychange', checkDay);
 
 /* ---------- sauvegardes : fichier et Google Drive ---------- */
 // Une sauvegarde contient tout le compte. La restaurer remet seulement ce qui manque :
@@ -4105,9 +4183,11 @@ async function exportBackup() {
       BK.link = { url, name };
       setTimeout(() => { URL.revokeObjectURL(url); if (BK.link && BK.link.url === url) { BK.link = null; renderBackup(); } }, 60000);
       setBk('Sauvegarde prête : ' + name, false, true);
+      bkRemindSet(60); renderBkRemind();
       return;
     }
     setBk('Sauvegarde enregistrée : ' + name);
+    bkRemindSet(60); renderBkRemind();
   } catch (e) {
     setBk(e && e.code === 'CANCELED' ? '' : (e && e.message === OFFLINE_MSG ? OFFLINE_MSG : 'La sauvegarde n\'a pas pu être enregistrée.'), !(e && e.code === 'CANCELED'));
   }
@@ -4396,6 +4476,22 @@ function renderTutoBanner() {
   const news = !NOTES || lsGet('pf-nouveautes') === NOTES_VERSION, st = lsGet('pf-tuto');
   if (st === null && S.ready && !S.readOnly && news && !S.justOnboarded && !layerOpen(pbg) && !$('#app').hidden) { lsSet('pf-tuto', 'propose'); TUTO.banner = true; }
   const show = TUTO.banner && !TUTO.on;
+  if (show && b.hidden) { b.hidden = false; riseIn(b); } else if (!show) b.hidden = true;
+}
+// Patch 7 (point 10) : rappel de sauvegarde pour les comptes sans copie automatique sur Google Drive, une ligne
+// discrète au plus une fois par mois. Sur l'appareil, `pf-copie-<uid>` = 'AAAA-MM-JJ' : date à partir de laquelle elle
+// s'affiche (posée à J+14 la première fois qu'il y a des données) ; « Plus tard » ou « Sauvegarder » : J+30 ;
+// une sauvegarde faite : J+60.
+const bkrKey = () => 'pf-copie-' + (S.user ? S.user.uid : '');
+function bkRemindSet(days) { if (S.user) lsSet(bkrKey(), addD(ymd(new Date()), days)); }
+function renderBkRemind() {
+  const b = $('#bk-remind'); if (!b) return;
+  let show = false;
+  if (S.ready && S.user && ready() && !S.readOnly && !bkCfg().drive && !TUTO.on && !TUTO.banner && $('#offline').hidden &&
+    (S.entries.length || S.recurring.length || S.periodiques.length || S.hebdo.length || S.epargne.length)) {
+    const v = lsGet(bkrKey());
+    if (!DATE_RE.test(v || '')) bkRemindSet(14); else show = TODAY >= v;
+  }
   if (show && b.hidden) { b.hidden = false; riseIn(b); } else if (!show) b.hidden = true;
 }
 function tutoOffer() {

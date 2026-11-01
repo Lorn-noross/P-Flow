@@ -310,7 +310,8 @@ async function scenarioSaisie(cfg, fx, tag) {
   await page.click('#f-label');
   await until(page, () => !document.getElementById('f-suggest').hidden, null, 'suggestions affichées au toucher du champ');
   let it = await items();
-  check(it.includes('Courses') && it.includes('Loyer') && !it.includes('Facture client A'), 'dépense : seulement des libellés de dépenses (' + it.join(', ') + ')');
+  // Patch 7 : jeu 0.1.6 avec un fixe hebdo (Boulangerie) : la liste courte peut ne plus montrer Loyer ; aucun revenu dedans.
+  check(it.includes('Courses') && (it.includes('Loyer') || it.includes('Boulangerie')) && !['Facture client A', 'Remboursement', 'Chantier B', 'Aide', 'Prime'].some(l => it.includes(l)), 'dépense : seulement des libellés de dépenses (' + it.join(', ') + ')');
   const lb = await box('#f-label'), sb = await box('#f-suggest');
   check(sb && lb && sb.y >= lb.y + lb.height - 1, 'suggestions placées sous le champ, dans la fenêtre');
 
@@ -474,7 +475,7 @@ async function scenarioSauvegardes(cfg, fx, tag) {
   const file = join(OUT, tag.normalize('NFD').replace(/[\u0300-\u036f]/g, '') + '-sauvegarde.json');
   await dl.saveAs(file);
   const bk = JSON.parse(readFileSync(file, 'utf8'));
-  check(bk.app === 'P-Flow' && bk.format === 5 && bk.dataVersion === 1 && bk.entries.length === NB.entries && bk.recurring.length === NB.recurring, 'export : toutes les opérations et tous les fixes');
+  check(bk.app === 'P-Flow' && bk.format === 5 && bk.dataVersion === (Number(fx.docs['users/uid-test/meta/settings'].dataVersion) || 1) && bk.entries.length === NB.entries && bk.recurring.length === NB.recurring, 'export : toutes les opérations et tous les fixes');
   // Patch 4 : format 4, avec les paiements de l'URSSAF (liste vide s'il n'y en a pas).
   check(Array.isArray(bk.urssaf) && bk.urssaf.length === (NB.urssaf || 0), 'export : paiements de l\'URSSAF (' + (NB.urssaf || 0) + ')');
   check(bk.periodiques.length === (NB.periodiques || 0) && bk.epargne.length === (NB.epargne || 0), 'export : fixes non mensuels et épargne (' + bk.periodiques.length + ', ' + bk.epargne.length + ')');
@@ -1616,12 +1617,106 @@ async function scenarioPatch5Ecrans(cfg, fx, tag) {
   await ctx.close();
 }
 
+// Patch 7 (jeu le plus récent) : Mois en 2 colonnes (gros chiffre, URSSAF, fin du mois, épargne | cascade, listes ;
+// rien de collé), fondu du haut sur toute la largeur (tablette, PC), graphique de l'Année qui rétrécit, bulle qui se
+// ferme seule (5 s, défilement), export tableur (formules neutralisées, URSSAF payée réelle), rappel de sauvegarde,
+// date qui change pendant que l'appli reste en mémoire (rechargée seulement sans fenêtre ouverte).
+async function scenarioPatch7(cfg, fx, tag) {
+  const E = fx.expect, U = 'users/uid-test/', phone = cfg.name === 'téléphone clair';
+  let { ctx, page, errors } = await open(cfg, fx.docs, { date: E._date, ls: phone ? { 'pf-copie-uid-test': '2026-03-01' } : {} });
+  await waitApp(page);
+  await page.waitForFunction(() => document.getElementById('s-boot').hidden, null, { timeout: 5000 }).catch(() => {});
+  await page.waitForTimeout(900);
+  // 1. Mois : place des blocs selon la largeur
+  const inner = await page.evaluate(() => { const m = document.querySelector('.main'), cs = getComputedStyle(m); return m.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); });
+  const R = await page.evaluate(() => {
+    const r = s => { const e = document.querySelector(s); if (!e || !e.getClientRects().length) return null; const b = e.getBoundingClientRect(); return { l: Math.round(b.left), t: Math.round(b.top + scrollY), b: Math.round(b.bottom + scrollY) }; };
+    return { hero: r('#v-mois .hero'), urs: r('#urssaf-block'), fin: r('#fin-card'), casc: r('#v-mois .casc-card'), ep: r('#ep-card'), lists: r('#lists'), pos: getComputedStyle(document.querySelector('.col-a')).position };
+  });
+  check(R.hero && R.urs && R.fin && R.casc && R.ep && R.lists, 'Mois : tous les blocs affichés (' + JSON.stringify(R) + ')');
+  if (R.hero && R.urs && R.fin && R.casc && R.ep && R.lists) {
+    if (inner >= 1300) check(R.casc.l > R.hero.l && R.lists.l > R.casc.l, 'Mois, 3 colonnes : inchangé (A | B | C)');
+    else if (inner >= 680) {
+      check(R.casc.l > R.hero.l + 50 && Math.abs(R.casc.t - R.hero.t) < 40 && R.lists.l === R.casc.l && R.lists.t > R.casc.b, 'Mois, 2 colonnes : cascade en haut à droite, listes dessous (' + JSON.stringify(R) + ')');
+      check(R.ep.l === R.hero.l && R.ep.t > R.fin.b && R.ep.t - R.fin.b < 40 && R.urs.l === R.hero.l, 'Mois, 2 colonnes : gros chiffre, URSSAF, fin du mois et épargne à gauche, serrés');
+      check(R.pos !== 'sticky', 'Mois, 2 colonnes : plus de colonne collée');
+    } else check(R.hero.t < R.urs.t && R.urs.t < R.fin.t && R.fin.t < R.casc.t && R.casc.t < R.ep.t && R.ep.t < R.lists.t, 'Mois, téléphone : même ordre qu\'avant');
+  }
+  // 2. Fondu du haut : sur toute la largeur dès 900 px d'écran (colonne de gauche comprise), sous les pilules
+  await page.evaluate(() => window.scrollTo(0, 300)); await page.waitForTimeout(350);
+  const F = await page.evaluate(() => { const f = document.getElementById('top-fade'), cs = getComputedStyle(f), b = f.getBoundingClientRect(); return { d: cs.display, o: cs.opacity, z: +cs.zIndex, l: b.left, w: b.width, iw: document.documentElement.clientWidth, top: +getComputedStyle(document.querySelector('.top')).zIndex, side: +getComputedStyle(document.querySelector('.side')).zIndex || 0, before: getComputedStyle(document.querySelector('.top'), '::before').display, sc: document.querySelector('.top').classList.contains('scrolled') }; });
+  if (cfg.viewport.width >= 900) check(F.d === 'block' && F.o === '1' && F.l === 0 && Math.abs(F.w - F.iw) < 2 && F.z < F.top && F.z < F.side && F.before === 'none', 'fondu du haut sur toute la largeur, sous les pilules et la colonne de gauche (' + JSON.stringify(F) + ')');
+  else check(F.d === 'none' && F.sc, 'téléphone : fondu du haut comme avant');
+  await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(300);
+  check(await page.evaluate(() => getComputedStyle(document.getElementById('top-fade')).opacity) === '0' || cfg.viewport.width < 900, 'fondu du haut retiré en haut de page');
+  // 3. Rappel de sauvegarde (téléphone) : « Plus tard » → dans 30 jours
+  if (phone) {
+    check(await page.locator('#bk-remind').isVisible(), 'rappel de sauvegarde affiché (compte sans Google Drive)');
+    await page.click('[data-act="bk-remind-later"]');
+    await until(page, () => document.getElementById('bk-remind').hidden && localStorage.getItem('pf-copie-uid-test') === '2026-04-14', null, 'rappel de sauvegarde : « Plus tard » = dans 30 jours');
+  } else check(await page.evaluate(() => document.getElementById('bk-remind').hidden && localStorage.getItem('pf-copie-uid-test') === '2026-03-29'), 'rappel de sauvegarde : pas tout de suite (première fois : dans 14 jours)');
+  // 4. Export tableur (PC) : libellé « formule » neutralisé, URSSAF de février = montant payé (110 €, pas 106 €)
+  if (!cfg.isMobile) {
+    await page.evaluate(([p]) => window.__PFLOW_DB__.set(p, { type: 'depense', label: '=1+1 frais', amount: 12, urssaf: false, date: '2026-03-09', month: '2026-03', createdAt: 1773014400000 }), [U + 'entries/eq']);
+    await until(page, () => document.getElementById('lists').innerText.includes('=1+1 frais'), null, 'libellé « =1+1 frais » affiché tel quel');
+    await reglages(page, 'donnees');
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-act="export"]')]);
+    const csv = readFileSync(await dl.path(), 'utf8');
+    check(csv.includes(';"\'=1+1 frais";') && !csv.includes(';"=1+1 frais";'), 'export : libellé commençant par = gardé en texte');
+    check(/2026-02-03;2026-02;Revenu;"Chantier B";500;oui;110;/.test(csv), 'export : URSSAF de février = montant payé (110 €)');
+    check(/2026-03-05;2026-03;Revenu;"Facture client A";1000;oui;212;/.test(csv), 'export : URSSAF de mars = estimation (212 €)');
+    await page.locator('[data-act="view"][data-view="mois"]:visible').click();
+  }
+  // 5. Année : bulle qui se ferme seule (5 s), au défilement ; graphique qui rétrécit avec la fenêtre
+  await page.locator('[data-act="view"][data-view="annee"]:visible').click();
+  await until(page, () => !document.getElementById('v-annee').hidden && !!document.querySelector('#chart .bar-g'), null, 'Année : graphique');
+  await page.waitForTimeout(700);
+  const bar = page.locator('#chart .bar-g[data-i="1"] .b-hit');
+  await bar.click();
+  await until(page, () => !document.getElementById('bubble').hidden, null, 'bulle ouverte');
+  if (!cfg.isMobile) { const bb = await page.locator('#bubble').boundingBox(); await page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2); /* sans défiler */ await page.waitForTimeout(5600); check(!(await page.evaluate(() => document.getElementById('bubble').hidden)), 'bulle gardée tant que la souris est dessus'); await page.mouse.move(2, 400); }
+  await page.waitForTimeout(5400);
+  check(await page.evaluate(() => document.getElementById('bubble').hidden), 'bulle fermée seule après 5 s sans geste');
+  await bar.click();
+  await until(page, () => !document.getElementById('bubble').hidden, null, 'bulle rouverte');
+  await page.evaluate(() => window.scrollBy(0, 40)); await page.waitForTimeout(450);
+  check(await page.evaluate(() => document.getElementById('bubble').hidden), 'bulle fermée au défilement');
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const vw = cfg.viewport;
+  await page.setViewportSize({ width: Math.max(360, Math.round(vw.width * 0.6)), height: vw.height }); await page.waitForTimeout(600);
+  const fit = await page.evaluate(() => { const w = document.querySelector('.chart-wrap'), s = document.querySelector('#chart svg'), c = document.querySelector('#v-annee .chart-card').getBoundingClientRect(); return s && s.getBoundingClientRect().width <= w.clientWidth + 1 && w.getBoundingClientRect().right <= c.right + 1; });
+  check(fit, 'graphique de l\'Année qui rétrécit avec la fenêtre (rien de coupé)');
+  await page.setViewportSize(vw); await page.waitForTimeout(400);
+  noErr(errors, 'patch 7');
+  await ctx.close();
+  // 6. Date qui change (téléphone) : rechargée au retour dans l'appli, mais pas tant qu'une fenêtre est ouverte
+  if (!phone) return;
+  ({ ctx, page, errors } = await open(cfg, fx.docs, { date: E._date }));
+  await waitApp(page);
+  await page.locator('[data-act="add"]:visible').first().click();
+  await until(page, () => !document.getElementById('sheet-bg').hidden, null, 'fenêtre d\'ajout ouverte');
+  await page.evaluate(() => { window.__mark = 1; });
+  await page.clock.setFixedTime(new Date('2026-03-16T08:00:00+01:00'));
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await page.waitForTimeout(2600);
+  check(await page.evaluate(() => window.__mark === 1), 'jour changé, fenêtre ouverte : pas rechargée');
+  const loaded = page.waitForEvent('load', { timeout: 8000 }).then(() => true, () => false);
+  await page.click('#sheet-close');
+  check(await loaded, 'jour changé : rechargée une fois la fenêtre fermée');
+  await waitApp(page);
+  check(await page.evaluate(() => window.__mark === undefined), 'nouvelle date prise en compte (appli rechargée)');
+  noErr(errors, 'date qui change');
+  await ctx.close();
+}
+
 // ---------- lancement ----------
 // Un scénario qui plante compte comme un échec, et les suivants continuent.
 async function run(fn, name) {
   try { await fn(); } catch (e) { check(false, 'scénario ' + (name || '') + ' interrompu : ' + String(e.message).split('\n')[0]); if (process.env.DEBUG) console.log(String(e.message).split('\n').slice(0, 30).join('\n')); }
 }
-const fixtures = readdirSync(join(ROOT, 'tests/fixtures')).filter(f => f.endsWith('.json')).sort();
+// Patch 7 : triés par numéro de version (0.1.10 après 0.1.9), pas par ordre alphabétique.
+const verKey = f => (f.match(/\d+/g) || []).map(Number);
+const fixtures = readdirSync(join(ROOT, 'tests/fixtures')).filter(f => f.endsWith('.json')).sort((a, b) => { const A = verKey(a), B = verKey(b); for (let i = 0; i < Math.max(A.length, B.length); i++) if ((A[i] || 0) !== (B[i] || 0)) return (A[i] || 0) - (B[i] || 0); return a.localeCompare(b); });
 // Patch 6 : catégories, fixe chaque semaine, brouillon du +, didacticiel, rappel du solde, import (tableau et relevé).
 async function scenarioPatch6(cfg, fx, tag) {
   const E = fx.expect, U = 'users/uid-test/';
@@ -1855,6 +1950,7 @@ for (const file of fixtures) {
       await go('Nouveautes', () => scenarioNouveautes(cfg, fx, tag));
       await go('Apparence', () => scenarioApparence(cfg, fx, tag));
       await go('Navigation', () => scenarioNavigation(cfg, fx, tag));
+      await go('Patch7', () => scenarioPatch7(cfg, fx, tag));
     }
     console.log(failures === before ? '   ✓ ok' : '   ✗ ' + (failures - before) + ' échec(s)');
   }

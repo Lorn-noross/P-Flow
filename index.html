@@ -158,6 +158,8 @@
 </div>
 
 <div class="app" id="app" hidden>
+  <!-- Patch 7 : tablette et PC, fondu du haut sur toute la largeur (colonne de gauche comprise) quand on fait défiler. -->
+  <div class="top-fade" id="top-fade" aria-hidden="true"></div>
   <aside class="side">
     <div class="brand"><span class="mark"><svg class="i logo"><use href="#i-logo"/></svg></span>P-Flow</div>
     <button class="btn primary side-add" data-act="add"><svg class="i"><use href="#i-plus"/></svg>Ajouter</button>
@@ -183,12 +185,14 @@
     <div class="update req" id="req-banner" hidden></div>
     <!-- Patch 6 : hors ligne (point 4) et visite guidée proposée une fois aux comptes existants (point 9). -->
     <div class="update" id="offline" role="status" hidden><span>Pas de réseau : ce que tu notes est gardé ici et partira dès son retour.</span></div>
+    <!-- Patch 7 : rappel de sauvegarde (comptes sans copie Google Drive automatique). -->
+    <div class="update" id="bk-remind" hidden><span>Fais une copie de tes données.</span><span class="acts"><button class="link" data-act="bk-remind-later">Plus tard</button><button class="link" data-act="bk-remind-go">Sauvegarder</button></span></div>
     <div class="update" id="tuto-banner" hidden><span>Découvre P-Flow en 1 minute.</span><span class="acts"><button class="link" data-act="tuto-hide">Plus tard</button><button class="link" data-act="tuto-start">C'est parti</button></span></div>
 
     <!-- MOIS -->
     <section class="view" id="v-mois">
-      <!-- Patch 5 (points 28 et 30) : trois blocs. Téléphone : l'un sous l'autre ; tablette : (A + B) | C ;
-           grand écran : A | B | C (les colonnes restent en haut de l'écran pendant que la page défile). -->
+      <!-- Patch 5 (points 28 et 30) : trois blocs. Téléphone : l'un sous l'autre ; grand écran : A | B | C (les colonnes
+           restent en haut de l'écran pendant que la page défile). Patch 7 : tablette = A + épargne | cascade + listes. -->
       <div class="month-grid">
         <div class="col-ab">
         <div class="col col-a">
@@ -238,7 +242,7 @@
           <article class="card fin-card" id="fin-card" hidden></article>
         </div>
         <div class="col col-b">
-          <article class="card">
+          <article class="card casc-card">
             <dl class="cascade" id="legend"></dl>
           </article>
           <article class="card ep-card ep-only" id="ep-card"></article>

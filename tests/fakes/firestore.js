@@ -64,15 +64,27 @@ export async function getDoc(ref) { return snapFor(ref); }
 export async function getDocs(ref) { return snapFor(ref); }
 export async function getDocFromServer(ref) { if (window.__PFLOW_OFFLINE__) throw Object.assign(new Error('offline'), { code: 'unavailable' }); return snapFor(ref); }
 export async function getDocsFromServer(ref) { if (window.__PFLOW_OFFLINE__) throw Object.assign(new Error('offline'), { code: 'unavailable' }); return snapFor(ref); }
+// Comme le vrai Firestore, une collection écoutée dit ce qui a changé depuis l'instantané d'avant (`docChanges()` :
+// vide quand rien n'a changé dans ses documents, ce que l'appli traite comme un simple changement de métadonnées).
+function snapForListener(l) {
+  const snap = snapFor(l.ref);
+  if (l.ref.type === 'doc') return snap;
+  const cur = new Map(snap.docs.map(d => [d.id, JSON.stringify(d.data())])), prev = l.prev, ch = [];
+  l.prev = cur;
+  for (const [id, v] of cur) if (!prev || prev.get(id) !== v) ch.push({ type: prev && prev.has(id) ? 'modified' : 'added', doc: { id } });
+  if (prev) for (const id of prev.keys()) if (!cur.has(id)) ch.push({ type: 'removed', doc: { id } });
+  snap.docChanges = () => ch;
+  return snap;
+}
 export function onSnapshot(ref, opts, next) {
   if (typeof opts === 'function') next = opts;
-  const l = { ref, next };
+  const l = { ref, next, prev: null };
   listeners.add(l);
-  setTimeout(() => { if (listeners.has(l)) next(snapFor(ref)); }, 0);
+  setTimeout(() => { if (listeners.has(l)) next(snapForListener(l)); }, 0);
   return () => { listeners.delete(l); };
 }
 function notify() {
-  setTimeout(() => { for (const l of Array.from(listeners)) if (listeners.has(l)) l.next(snapFor(l.ref)); }, 0);
+  setTimeout(() => { for (const l of Array.from(listeners)) if (listeners.has(l)) l.next(snapForListener(l)); }, 0);
 }
 
 // Comme le vrai Firestore : une valeur `undefined` est refusée (sinon un bug passerait inaperçu).
