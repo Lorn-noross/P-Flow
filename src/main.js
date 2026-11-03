@@ -53,7 +53,10 @@ const n0 = n => (n < -0.5 ? MINUS : '') + NUM0.format(Math.abs(Math.round(n)) ||
 const pctf = n => NUM.format(n) + ' %';
 const MINUS = '−';
 // Patch 5 : aide du taux URSSAF, identique au premier démarrage et dans Réglages → Auto-entrepreneur (index.html).
-const RATE_HELP = 'Artisan (ex. électricien) : tape 21,98 %. Avec le versement libératoire : 23,68 %. Avec l\'ACRE la première année, le taux est réduit : regarde ton espace URSSAF.';
+// Patch 8 : le versement libératoire se règle à part (Réglages → Auto-entrepreneur), il n'est plus à inclure dans le taux.
+const RATE_HELP = 'Artisan (ex. électricien) : tape 21,98 %, sans le versement libératoire (réglé à part). Avec l\'ACRE la première année, le taux est réduit : regarde ton espace URSSAF.';
+// Patch 8 : taux du versement libératoire de l'impôt (art. 151-0 du CGI, vérifiés le 03/11/2026), payé avec l'URSSAF.
+const VL_OPTS = [{ v: '0', label: 'Non' }, { v: '1', label: '1 %', hint: 'Vente, hébergement' }, { v: '1.7', label: '1,7 %', hint: 'Services, artisans' }, { v: '2.2', label: '2,2 %', hint: 'Libéral' }];
 const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 const MS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 const MI = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
@@ -121,6 +124,7 @@ const aPartir = s => 'à partir ' + deM(s);
 const norm = s => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 const lsGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* stockage indisponible */ } };
+const lsDel = k => { try { localStorage.removeItem(k); } catch (e) { /* stockage indisponible */ } };
 const sumOf = arr => r2(arr.reduce((a, i) => a + (Number(i.amount) || 0), 0));
 const plural = (n, w) => n + ' ' + w + (n > 1 ? 's' : '');
 const joinFr = parts => parts.length <= 1 ? parts.join('') : parts.slice(0, -1).join(', ') + ' et ' + parts[parts.length - 1];
@@ -394,6 +398,9 @@ function normSettings(d) {
   d = d || {};
   const taux = {};
   if (d.taux && typeof d.taux === 'object') for (const k of Object.keys(d.taux)) { const v = Number(d.taux[k]); if (isFinite(v)) taux[k] = v; }
+  // Champ facultatif `vl` (patch 8) : taux du versement libératoire par année, { 'AAAA': 1.7 } ; 0 = non ; absent = repris de l'année d'avant, sinon non.
+  const vl = {};
+  if (d.vl && typeof d.vl === 'object') for (const k of Object.keys(d.vl)) { const v = Number(d.vl[k]); if (isFinite(v) && v >= 0 && v < 10) vl[k] = v; }
   // Champ facultatif `couleurs` (absent dans les données d'avant le patch 1) : null ou absent = couleur par défaut.
   const couleurs = {};
   if (d.couleurs && typeof d.couleurs === 'object') for (const [k] of COLORS) if (isHex(d.couleurs[k])) couleurs[k] = d.couleurs[k].toLowerCase();
@@ -412,7 +419,7 @@ function normSettings(d) {
   const objectif = okAmt(d.objectif) ? r2(d.objectif) : null;
   // Champ facultatif `rappelSolde` (patch 6) : jours du mois où l'appli demande le solde ([] = jamais, absent = le dernier jour).
   const rappelSolde = Array.isArray(d.rappelSolde) ? Array.from(new Set(d.rappelSolde.map(Number).filter(n => Number.isInteger(n) && n >= 1 && n <= 31))).sort((a, b) => a - b) : null;
-  return { pro: !!d.pro, taux, periodicite: d.periodicite === 'trimestrielle' ? 'trimestrielle' : 'mensuelle', couleurs, sauvegarde, epargne, accent, objectif, objectifs, rappelSolde };
+  return { pro: !!d.pro, taux, vl, periodicite: d.periodicite === 'trimestrielle' ? 'trimestrielle' : 'mensuelle', couleurs, sauvegarde, epargne, accent, objectif, objectifs, rappelSolde };
 }
 // Objectif de fin de mois du mois m (patch 4) : réglé pour ce mois, sinon celui de tous les mois, sinon null.
 function objectifOf(m) {
@@ -450,6 +457,16 @@ function rateFor(y) {
   if (ks.length) return t[ks[0]];
   return 0;
 }
+// Patch 8 : versement libératoire de l'année y (repris de la dernière année réglée avant, sinon 0 : jamais d'une année suivante).
+function vlFor(y) {
+  if (!isPro()) return 0;
+  const t = S.settings.vl || {};
+  if (t[y] != null) return t[y];
+  const before = Object.keys(t).map(Number).filter(k => k < y).sort((a, b) => a - b);
+  return before.length ? t[before[before.length - 1]] : 0;
+}
+// Taux prélevé en tout (URSSAF + versement libératoire), pour tous les calculs ; `rateFor` reste le taux URSSAF saisi.
+const rateTot = y => Math.round((rateFor(y) + vlFor(y)) * 1000) / 1000;
 
 /* ---------- calculs ---------- */
 // Jour du mois d'un fixe (patch 3, collection `jours`, rangé à part : jamais dans `recurring`). null = pas choisi (le 1er).
@@ -552,7 +569,7 @@ function monthData(m) {
 function monthData0(m) {
   const y = pYM(m).y;
   const { ents, recs, pers, hebs, items } = monthItems(m);
-  const rate = rateFor(y);
+  const rate = rateTot(y), vl = vlFor(y);
   let brut = 0, base = 0, dep = 0;
   for (const it of items) {
     const a = Number(it.amount) || 0;
@@ -572,7 +589,7 @@ function monthData0(m) {
   for (const p of autos) epIn += Number(p.amount) || 0;
   epIn = r2(epIn); epOut = r2(epOut);
   const ep = r2(epIn - epOut);
-  return { m, items, ents, recs, pers, hebs, eps, autos, rate, brut, base, urssaf, urssafEst, urssafReel: reel != null, net, dep, epIn, epOut, ep, reste: r2(net - dep - ep) };
+  return { m, items, ents, recs, pers, hebs, eps, autos, rate, vl, brut, base, urssaf, urssafEst, urssafReel: reel != null, net, dep, epIn, epOut, ep, reste: r2(net - dep - ep) };
 }
 // Comptes d'épargne : solde = dernier « J'ai actuellement » + dépôts − retraits notés depuis (versements automatiques compris).
 // upTo (AAAA-MM) : solde à la fin de ce mois (par défaut le mois en cours).
@@ -1312,20 +1329,25 @@ document.addEventListener('visibilitychange', () => {
 });
 
 const ico = (id, cls) => '<svg class="i' + (cls ? ' ' + cls : '') + '"><use href="#i-' + id + '"/></svg>';
+// Patch 8 : « ⋯ » dans la pilule du haut des écrans Mois et Année (effacer la période affichée).
+const ER_MORE = '<button class="icon-btn" data-act="er-menu" aria-label="Plus d\'actions" aria-haspopup="listbox" aria-expanded="false">' + '<svg class="i"><use href="#i-more"/></svg></button>';
 function renderCtx() {
   const c = $('#ctx');
   let h;
   // Pilules en verre : le titre (avec ses flèches) et, dans une sous-page des réglages, le retour.
   if (S.view === 'mois') {
-    h = '<div class="pill"><button class="icon-btn" data-act="prev-month" aria-label="Mois précédent">' + ico('left') + '</button><h1><button type="button" class="mtitle" data-act="month-cal" aria-haspopup="dialog" aria-expanded="' + (CAL.open ? 'true' : 'false') + '" aria-label="' + esc(cap(mLabel(S.month))) + ', ouvrir le calendrier du mois">' + esc(cap(mLabel(S.month))) + '</button></h1><button class="icon-btn" data-act="next-month" aria-label="Mois suivant">' + ico('right') + '</button></div>';
+    h = '<div class="pill"><button class="icon-btn" data-act="prev-month" aria-label="Mois précédent">' + ico('left') + '</button><h1><button type="button" class="mtitle" data-act="month-cal" aria-haspopup="dialog" aria-expanded="' + (CAL.open ? 'true' : 'false') + '" aria-label="' + esc(cap(mLabel(S.month))) + ', ouvrir le calendrier du mois">' + esc(cap(mLabel(S.month))) + '</button></h1><button class="icon-btn" data-act="next-month" aria-label="Mois suivant">' + ico('right') + '</button>' + ER_MORE + '</div>';
   } else if (S.view === 'annee') {
-    h = '<div class="pill"><button class="icon-btn" data-act="prev-year" aria-label="Année précédente">' + ico('left') + '</button><h1><button type="button" class="mtitle" data-act="year-pick" aria-haspopup="dialog" aria-expanded="' + (YP.open ? 'true' : 'false') + '" aria-label="' + S.year + ', choisir une autre année">' + S.year + '</button></h1><button class="icon-btn" data-act="next-year" aria-label="Année suivante">' + ico('right') + '</button></div>';
+    h = '<div class="pill"><button class="icon-btn" data-act="prev-year" aria-label="Année précédente">' + ico('left') + '</button><h1><button type="button" class="mtitle" data-act="year-pick" aria-haspopup="dialog" aria-expanded="' + (YP.open ? 'true' : 'false') + '" aria-label="' + S.year + ', choisir une autre année">' + S.year + '</button></h1><button class="icon-btn" data-act="next-year" aria-label="Année suivante">' + ico('right') + '</button>' + ER_MORE + '</div>';
   } else if (S.view === 'reglages' && S.sub && !setWide()) {
     h = '<button class="pill back" data-act="sub-back" aria-label="Retour aux réglages">' + ico('left') + '</button><div class="pill solo"><h1>' + esc(SUBS[S.sub]) + '</h1></div>';
   } else {
     h = '<div class="pill solo"><h1>' + (S.view === 'fixes' ? 'Charges et revenus fixes' : 'Réglages') + '</h1></div>';
   }
   c.innerHTML = h;
+  // Patch 8 : menu « ⋯ » ouvert pendant un nouveau rendu : il reste calé sur le nouveau bouton.
+  const mb = popOpen() && popBox();
+  if (mb && mb.querySelector('.pop-list[aria-label="Plus d\'actions"]')) setPopAnchor($('#ctx [data-act="er-menu"]'));
   // Patch 4 : choix de l'année ouvert pendant un nouveau rendu (synchronisation) : la fenêtre reste calée sur la pilule.
   const yb = YP.open && popOpen() && popBox();
   if (yb && yb.querySelector('.cal-months [data-y]') && S.view === 'annee') setPopAnchor($('#ctx .mtitle'));
@@ -1561,7 +1583,7 @@ function casInfoText(k, d, pro) {
     brut: 'Ce que tu as facturé ce mois-ci, avant l\'URSSAF : seulement les revenus marqués « soumis à l\'URSSAF ».',
     urssaf: pay ? (isQuarterly() ? 'Ta part de l\'URSSAF du trimestre réellement payée (' + eur(pay.montant) + ' le ' + dShort(pay.date) + '), répartie selon ce que tu as facturé chaque mois. L\'estimation était de ' + eur(d.urssafEst) + ' pour ce mois.'
       : 'Le montant que tu as réellement payé le ' + dShort(pay.date) + '. L\'estimation à ' + pctf(d.rate) + ' était de ' + eur(d.urssafEst) + '.')
-      : 'Ta part URSSAF sur ce chiffre d\'affaires (' + pctf(d.rate) + '). Elle est retirée dès maintenant, alors qu\'elle se paie' + (dl ? ' avant le ' + dl : ' plus tard') + '.',
+      : 'Ta part URSSAF sur ce chiffre d\'affaires (' + pctf(d.rate) + (d.vl ? ', impôt compris' : '') + '). Elle est retirée dès maintenant, alors qu\'elle se paie' + (dl ? ' avant le ' + dl : ' plus tard') + '.',
     autres: 'Ce que tu as reçu sans URSSAF : CAF, France Travail, pension, remboursements…',
     net: pro ? 'Ce qui te reste de tes revenus une fois l\'URSSAF retirée.' : 'Tout ce qui est rentré ce mois-ci : ce que tu as noté et tes revenus fixes.',
     dep: 'Tout ce qui est sorti ce mois-ci : tes dépenses notées et tes charges fixes.',
@@ -2163,23 +2185,27 @@ function refreshMonthCal() {
 
 // Choix de l'année (patch 3) : touche l'année en haut de l'écran Année.
 const YP = { open: false };
-function openYearPick(anchor) {
-  YP.open = true;
+// Patch 8 : `o` facultatif ({ value, label, onPick }) : la même fenêtre sert à choisir l'année à effacer.
+function openYearPick(anchor, o) {
+  o = o || null;
+  const cur = o ? o.value : S.year;
+  if (!o) YP.open = true;
   const cy = NOW.getFullYear();
-  let lo = Math.min(cy - 4, S.year);
+  let lo = Math.min(cy - 4, cur);
   const yearOf = v => { const n = parseInt(String(v || '').slice(0, 4), 10); return n > 1999 && n < 2100 ? n : null; };
   for (const v of [].concat(S.recurring.map(r => r.start), S.periodiques.map(p => p.start), S.epargne.map(e => e.date), S.soldes.map(x => x.date), Object.keys((S.settings && S.settings.taux) || {}))) {
     const y = yearOf(v); if (y && y < lo) lo = y;
   }
-  const hi = Math.max(cy + 1, S.year), ys = [];
+  const hi = Math.max(cy + 1, cur), ys = [];
   for (let y = lo; y <= hi; y++) ys.push(y);
-  const box = openPopover(anchor, '<p class="pop-title">Choisir l\'année</p><div class="cal-months">' + ys.map(y =>
-    '<button type="button" class="cal-m' + (y === S.year ? ' sel' : '') + (y === cy ? ' today' : '') + '" data-y="' + y + '" aria-label="' + y + (y === cy ? ', cette année' : '') + '">' + y + '</button>').join('') + '</div>' +
-    '<div class="cal-foot"><span></span><button type="button" class="link" data-y="' + cy + '">Cette année</button></div>', { label: 'Choisir l\'année', width: 300, cls: 'pop-cal', onClose: () => { YP.open = false; } });
+  const box = openPopover(anchor, '<p class="pop-title">' + esc(o && o.label || 'Choisir l\'année') + '</p><div class="cal-months">' + ys.map(y =>
+    '<button type="button" class="cal-m' + (y === cur ? ' sel' : '') + (y === cy ? ' today' : '') + '" data-y="' + y + '" aria-label="' + y + (y === cy ? ', cette année' : '') + '">' + y + '</button>').join('') + '</div>' +
+    '<div class="cal-foot"><span></span><button type="button" class="link" data-y="' + cy + '">Cette année</button></div>', { label: o && o.label || 'Choisir l\'année', width: 300, cls: 'pop-cal', onClose: () => { if (!o) YP.open = false; } });
   const sel = box.querySelector('.cal-m.sel'); if (sel) sel.focus({ preventScroll: true });
   box.addEventListener('click', e => {
     const b = e.target.closest('[data-y]'); if (!b) return;
     const y = +b.dataset.y; closePop();
+    if (o) { o.onPick(y); return; }
     if (y !== S.year) setYear(y, y > S.year ? 1 : -1);
   });
 }
@@ -2197,7 +2223,7 @@ function renderFixes() {
   const rev = act.filter(r => r.type === 'revenu'), epx = act.filter(r => r.kind === 'per' && r.type === 'epargne');
   const dep = act.filter(r => r.type !== 'revenu' && !(r.kind === 'per' && r.type === 'epargne'));
   const perMonth = x => (x.freq === 'semaine' ? (Number(x.amount) || 0) * 52 / 12 : (Number(x.amount) || 0) / (FREQ[x.freq] || 1));
-  const rate = rateFor(NOW.getFullYear());
+  const rate = rateTot(NOW.getFullYear());
   const revM = r2(rev.reduce((a, x) => a + perMonth(x) * (pro && x.urssaf ? 1 - rate / 100 : 1), 0));
   const depM = r2(dep.reduce((a, x) => a + perMonth(x), 0)), epM = r2(epx.reduce((a, x) => a + perMonth(x), 0));
   const left = r2(revM - depM - epM);
@@ -2377,7 +2403,8 @@ function renderAnneeBottom(yd, ok, pro, on) {
       return '<div class="meter ' + cls + '"><div class="meter-top"><b>' + label + '</b><span>' + eur(v) + ' / ' + eur(lim) + '</span></div><div class="bar"><i style="width:' + Math.min(100, Math.max(p * 100, v > 0 ? 1.5 : 0)).toFixed(1) + '%"></i></div></div>';
     };
     $('#y-meters').innerHTML = meter('Franchise de TVA', T.base, 37500) + meter('Plafond micro-entreprise', T.base, +y >= 2026 ? 83600 : 77700);
-    // Patch 5 (point 24) : une ligne ; le détail dans un ⓘ (chiffres 2026 vérifiés).
+    // Patch 5 (point 24) : une ligne ; le détail dans un ⓘ. Montants revérifiés le 03/11/2026 (patch 8) : TVA 37 500 / 41 250 € inchangés
+    // (loi de finances 2026 : le seuil à 25 000 € des travaux immobiliers n'a pas été retenu) ; plafond micro 83 600 € pour 2026-2028.
     $('#y-meters-note').innerHTML = 'Au-delà de 37 500 €, la TVA s\'applique l\'année suivante.' + infoBtn('tva', 'Franchise de TVA') +
       infoBubble('tva', 'Calculé sur les revenus marqués « soumis à l\'URSSAF ». Franchise de TVA (prestations de services) : au-delà de 37 500 € sur l\'année, la TVA s\'applique au 1er janvier suivant ; au-delà de 41 250 €, dès le dépassement.');
   }
@@ -2524,7 +2551,7 @@ function renderReglages() {
   $('#acc-email').textContent = email;
   $('#acc-version').textContent = APP_VERSION;
   $('#sh-compte').textContent = email;
-  $('#sh-pro').textContent = isPro() ? 'Taux ' + pctf(rateFor(NOW.getFullYear())) + ' · déclaration ' + S.settings.periodicite : '';
+  $('#sh-pro').textContent = isPro() ? 'Taux ' + pctf(rateFor(NOW.getFullYear())) + (vlFor(NOW.getFullYear()) ? ' + impôt ' + pctf(vlFor(NOW.getFullYear())) : '') + ' · déclaration ' + S.settings.periodicite : '';
   $('#sh-apparence').textContent = (ACCENTS.find(([k]) => k === S.settings.accent) || ACCENTS[0])[1] + ' · ' + { auto: 'thème automatique', clair: 'thème clair', sombre: 'thème sombre' }[APP.theme] + (APP.noir ? ' · noir absolu' : '') + (APP.texte === 'grand' ? ' · grand texte' : '');
   $('#sh-donnees').textContent = bkCfg().drive ? 'Copies sur Google Drive activées' : 'Sauvegardes et export';
   $('#sh-apropos').textContent = 'Version ' + APP_VERSION;
@@ -2539,6 +2566,18 @@ function renderReglages() {
     ys.add(NOW.getFullYear()); ys.add(S.year);
     rates.innerHTML = Array.from(ys).sort((a, b) => b - a).map(y => '<label class="rate-row"><b>' + y + '</b><input class="input" data-year="' + y + '" inputmode="decimal" value="' + esc(NUM.format(rateFor(y))) + '" aria-label="Taux URSSAF ' + y + '"><span class="unit">%' + (S.settings.taux[y] == null ? ' <span class="hint">(repris)</span>' : '') + '</span></label>').join('');
   }
+  // Patch 8 : versement libératoire, une ligne par année (mêmes années que le taux), choix dans une liste maison.
+  const vlBox = $('#vl-rates');
+  if (isPro()) {
+    const ys = new Set(Object.keys(S.settings.taux).concat(Object.keys(S.settings.vl || {})).map(Number));
+    ys.add(NOW.getFullYear()); ys.add(S.year);
+    const h = Array.from(ys).sort((a, b) => b - a).map(y => {
+      const v = vlFor(y), txt = v ? pctf(v) : 'Non';
+      return '<div class="rate-row"><b>' + y + '</b><button type="button" class="input pick" data-act="vl-open" data-year="' + y + '" aria-haspopup="listbox" aria-expanded="false" aria-label="Versement libératoire ' + y + ' : ' + esc(txt) + '"><span>' + esc(txt) + '</span>' + ico('down') + '</button>' +
+        '<span class="unit">' + ((S.settings.vl || {})[y] == null && v ? '<span class="hint">(repris)</span>' : '') + '</span></div>';
+    }).join('');
+    if (vlBox.dataset.h !== h) { vlBox.innerHTML = h; vlBox.dataset.h = h; }
+  }
   $$('#period-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.p === S.settings.periodicite)));
   $('#ep-toggle').checked = epOn();
   $('#ep-toggle-hint').hidden = !(S.settings.epargne === false && (S.epargne.length || S.periodiques.some(p => p.type === 'epargne')));
@@ -2548,6 +2587,7 @@ function renderReglages() {
   $('#noir-toggle').checked = APP.noir;
   $('#effets-toggle').checked = APP.effets === 'reduits';
   $('#export-btn').textContent = 'Ouvrir ' + S.year + ' dans un tableur';
+  renderEr();
   // Patch 6 : rappel du solde, paiements URSSAF notés dans l'autre déclaration (point 3), dernier import.
   $('#rappel-txt').textContent = rappelTxt(rappelDays());
   const otherPay = S.urssafPay.filter(p => (isQuarterly() ? /^\d{4}-\d{2}$/ : /^\d{4}-T[1-4]$/).test(p.id)).length, pn = $('#period-note');
@@ -2669,8 +2709,8 @@ function renderReqList() {
 }
 function calc() {
   if (!isPro()) return;
-  const y = NOW.getFullYear(), rate = rateFor(y);
-  $('#c-rate').textContent = 'Avec ton taux ' + y + ' : ' + pctf(rate);
+  const y = NOW.getFullYear(), rate = rateTot(y), vl = vlFor(y);
+  $('#c-rate').textContent = 'Avec ton taux ' + y + ' : ' + pctf(rate) + (vl ? ', impôt compris' : '');
   const b = parseAmount($('#c-brut').value);
   $('#c-out1').innerHTML = b > 0 ? 'URSSAF <b>' + MINUS + eur(b * rate / 100) + '</b> · il te reste <b>' + eur(b - r2(b * rate / 100)) + '</b>' : 'Tape un montant brut pour voir ce qu\'il te reste.';
   const o = parseAmount($('#c-obj').value), th = parseAmount($('#c-th').value);
@@ -2689,6 +2729,15 @@ $('#rates').addEventListener('change', e => {
   write(setDoc(uref('meta', 'settings'), { taux: { [y]: v } }, { merge: true }), 'Taux ' + y + ' : ' + pctf(v));
 });
 $('#rates').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('input')) e.target.blur(); });
+// Patch 8 : choix du versement libératoire d'une année (`vl` écrit avec merge : les autres années et réglages restent).
+function openVl(btn) {
+  const y = btn.dataset.year, cur = vlFor(+y);
+  openChoice({ anchor: btn, label: 'Versement libératoire ' + y, value: String(cur), options: VL_OPTS, onPick: v => {
+    const n = Number(v);
+    if (blocked() || !VL_OPTS.some(o => o.v === v) || n === cur && (S.settings.vl || {})[y] != null) return;
+    write(setDoc(uref('meta', 'settings'), { vl: { [y]: n } }, { merge: true }), n ? 'Impôt ' + y + ' : ' + pctf(n) : 'Sans versement libératoire en ' + y);
+  } });
+}
 $('#ep-toggle').addEventListener('change', e => {
   if (blocked()) { e.target.checked = epOn(); return; }
   write(setDoc(uref('meta', 'settings'), { epargne: e.target.checked }, { merge: true }), e.target.checked ? 'Épargne activée' : 'Épargne désactivée');
@@ -3143,7 +3192,7 @@ function updatePreview() {
   const m = date.slice(0, 7), y = +date.slice(0, 4) || NOW.getFullYear();
   const say = h => { p.hidden = false; p.innerHTML = h; };
   if (F.type === 'revenu' && isPro() && $('#f-urssaf').checked) {
-    const rate = rateFor(y);
+    const rate = rateTot(y);
     say(a > 0 ? 'URSSAF ' + pctf(rate) + ' : <b>' + MINUS + eur(a * rate / 100) + '</b> · il te reste <b>' + eur(a - r2(a * rate / 100)) + '</b>' : 'Tape le montant brut : le net et la part URSSAF s\'affichent ici.');
   } else if (F.type === 'epargne') {
     if (F.op === 'solde') say('Le compte est fixé à ce montant au ' + esc(DATE_RE.test(date) ? dLabel(date) : '') + ' ; ce que tu mets de côté ou reprends ensuite s\'y ajoute. Le reste du mois ne change pas.');
@@ -3837,6 +3886,14 @@ document.addEventListener('click', e => {
   // mises à jour
   else if (a === 'upd-check') { if (!needNet()) checkUpdate(true); }
   else if (a === 'upd-auto-open') openUpdAuto(t);
+  else if (a === 'vl-open') openVl(t);
+  // Patch 8 : effacer des données.
+  else if (a === 'er-mode') { if (t.dataset.v in { jour: 1, mois: 1, annee: 1 }) { ER.mode = t.dataset.v; renderEr(); } }
+  else if (a === 'er-pick') erPick(t);
+  else if (a === 'er-open') openErase(ER.mode, erVal(ER.mode));
+  else if (a === 'er-reset') openErase('tout', '');
+  else if (a === 'er-do') eraseGo(t);
+  else if (a === 'er-menu') openErMenu(t);
   else if (a === 'upd-download') { if (isNative) downloadUpdate(); }
   else if (a === 'upd-install') installUpdate();
   else if (a === 'upd-reload') location.reload();
@@ -4093,13 +4150,20 @@ const OFFLINE_MSG = 'Il faut être connecté à internet pour cette action.';
 async function fromServer(p) {
   try { return await p; } catch (e) { throw (e && (e.code === 'unavailable' || e.code === 'failed-precondition')) ? new Error(OFFLINE_MSG) : e; }
 }
-async function buildBackup() {
+// Patch 8 : lecture du compte entier sur le serveur (réglages + toutes les collections), partagée par la sauvegarde
+// et l'effacement (qui garde les documents tels quels pour « Annuler »).
+async function readAccount() {
   const [st, ...cols] = await fromServer(Promise.all([getDocFromServer(uref('meta', 'settings'))].concat(BK_COLS.map(c => getDocsFromServer(ucol(c))))));
+  return { st, cols: Object.fromEntries(BK_COLS.map((c, i) => [c, cols[i].docs])) };
+}
+function backupFrom(acc) {
+  const st = acc.st;
   const dv = st.exists() ? Math.max(1, Math.min(DATA_VERSION, Number(st.data().dataVersion) || 1)) : 1;
   const o = { app: 'P-Flow', format: 5, dataVersion: dv, appVersion: RAW_VERSION, exportedAt: new Date().toISOString(), settings: st.exists() ? cleanDoc(st.data()) : null };
-  BK_COLS.forEach((c, i) => { o[c] = cols[i].docs.map(d => Object.assign({ id: d.id }, cleanDoc(d.data()))); });
+  BK_COLS.forEach(c => { o[c] = acc.cols[c].map(d => Object.assign({ id: d.id }, cleanDoc(d.data()))); });
   return o;
 }
+async function buildBackup() { return backupFrom(await readAccount()); }
 function validItem(it, kind) {
   if (!it || typeof it !== 'object') return false;
   // Clé d'une correction de catégorie = libellé nettoyé (espaces et apostrophes permis) : contrôle à part.
@@ -4168,20 +4232,24 @@ function setBk(msg, err, keepLink) { BK.status = msg || ''; BK.err = !!err; if (
 function driveErr(e) { return (e && e.message) || 'Google Drive est indisponible pour le moment.'; }
 
 // Fichier : exporter (téléchargement sur PC, « Enregistrer sous » sur Android).
+// Enregistre le fichier : « Enregistrer sous » sur Android (refus → erreur CANCELED), téléchargement ailleurs.
+// Renvoie true si un lien de secours est gardé (navigateur).
+async function saveBackupFile(text, name) {
+  if (isNative) { await PFlowNative.saveFile({ name, data: text, mime: 'application/json' }); return false; }
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  const a = document.createElement('a'); a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  // Si le navigateur n'a pas lancé le téléchargement (iPhone notamment), un lien reste proposé une minute.
+  BK.link = { url, name };
+  setTimeout(() => { URL.revokeObjectURL(url); if (BK.link && BK.link.url === url) { BK.link = null; renderBackup(); } }, 60000);
+  return true;
+}
 async function exportBackup() {
   if (!ready()) return;
   setBk('Préparation de la sauvegarde…');
   try {
     const text = JSON.stringify(await buildBackup(), null, 1), name = bkName();
-    if (isNative) {
-      await PFlowNative.saveFile({ name, data: text, mime: 'application/json' });
-    } else {
-      const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
-      const a = document.createElement('a'); a.href = url; a.download = name;
-      document.body.appendChild(a); a.click(); a.remove();
-      // Si le navigateur n'a pas lancé le téléchargement (iPhone notamment), un lien reste proposé une minute.
-      BK.link = { url, name };
-      setTimeout(() => { URL.revokeObjectURL(url); if (BK.link && BK.link.url === url) { BK.link = null; renderBackup(); } }, 60000);
+    if (await saveBackupFile(text, name)) {
       setBk('Sauvegarde prête : ' + name, false, true);
       bkRemindSet(60); renderBkRemind();
       return;
@@ -4757,6 +4825,150 @@ function renderImpLast() {
 }
 $('#imp-table').addEventListener('change', e => impFile(e.target, 'table'));
 $('#imp-bank').addEventListener('change', e => impFile(e.target, 'bank'));
+
+/* ---------- effacer des données (patch 8) ---------- */
+// Un jour, un mois, une année (Réglages → Mes données, ou « ⋯ » en haut des écrans Mois et Année), ou tout remettre à
+// zéro. Règle n°1 : rien ne doit se perdre par erreur.
+// - Tout est relu sur le serveur juste avant (`readAccount`, comme une sauvegarde), jamais depuis S.entries (seule une
+//   fenêtre des opérations est chargée).
+// - Une copie complète du compte est faite avant (Google Drive si activé, sinon fichier) ; si elle échoue, rien n'est effacé.
+// - Une période : opérations (`entries`), épargne (`epargne`) et soldes notés (`soldes`) datés dedans, leurs `pointages`,
+//   paiements URSSAF (`urssaf`) des périodes entièrement comprises. Jamais les fixes (`recurring`, `periodiques`, `hebdo`,
+//   `jours`) ni les catégories corrigées. « Annuler » réécrit les documents tels qu'ils étaient (gardés en mémoire).
+// - Tout remettre à zéro : toutes les collections de `users/{uid}`, puis `meta/settings` en dernier (→ premier démarrage
+//   guidé) ; jamais `allowlist`, `admins` ni `demandes`. « SUPPRIMER » à taper. Retour possible par « Remettre une copie ».
+// Effacements par lots de 500 au plus (limite de writeBatch). Rien à changer dans firestore.rules.
+const ER = { mode: 'mois', jour: null, mois: null, annee: null, busy: false, plan: null, req: 0 };
+const ER_LOCAL = ['pf-urs-plus-tard', 'pf-solde-plus-tard', 'pf-offre-ep']; // + pf-import-<uid> ; l'apparence de l'appareil reste
+function erVal(mode) { return mode === 'jour' ? ER.jour || TODAY : mode === 'mois' ? ER.mois || CUR : String(ER.annee || NOW.getFullYear()); }
+function erLabel(kind, v) { return kind === 'jour' ? 'le ' + dShort(v) + ' ' + v.slice(0, 4) : kind === 'mois' ? mLabel(v) : v; }
+function renderEr() {
+  if (!$('#er-card')) return;
+  $$('#er-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === ER.mode)));
+  const v = erVal(ER.mode);
+  $('#er-txt').textContent = cap(erLabel(ER.mode, v).replace(/^le /, ''));
+  $('#er-pick').setAttribute('aria-label', 'Période à effacer : ' + erLabel(ER.mode, v));
+}
+function erPick(btn) {
+  const v = erVal(ER.mode), done = x => { ER[ER.mode] = x; renderEr(); };
+  if (ER.mode === 'annee') openYearPick(btn, { value: +v, label: 'Année à effacer', onPick: y => done(String(y)) });
+  else openCalendar({ anchor: btn, mode: ER.mode === 'jour' ? 'date' : 'month', label: ER.mode === 'jour' ? 'Jour à effacer' : 'Mois à effacer', value: v, onPick: done });
+}
+// Ce qui sera effacé, d'après le compte lu sur le serveur : [[collection, document lu], …].
+function erPlan(acc, kind, v) {
+  const del = [], pick = (c, f) => acc.cols[c].forEach(d => { if (f(d.data(), d.id)) del.push([c, d]); });
+  if (kind === 'tout') { BK_COLS.forEach(c => pick(c, () => true)); return { kind, v, del, settings: acc.st.exists() }; }
+  const inP = x => typeof x === 'string' && x.startsWith(v), key = o => kind === 'jour' ? o.date : o.month;
+  pick('entries', o => inP(key(o)));
+  pick('epargne', o => inP(key(o)));
+  pick('soldes', o => inP(o.date));
+  // URSSAF : seulement les périodes entièrement comprises (un mois dans un mois ; mois et trimestres dans une année).
+  if (kind !== 'jour') pick('urssaf', (o, id) => kind === 'mois' ? id === v : id.startsWith(v + '-'));
+  const ops = new Set(del.filter(([c]) => c === 'entries' || c === 'epargne').map(([, d]) => d.id));
+  pick('pointages', (o, id) => ops.has(id));
+  return { kind, v, del, settings: false };
+}
+function erTxt(del, tout) {
+  const n = {}; for (const [c] of del) n[c] = (n[c] || 0) + 1;
+  const fx = (n.recurring || 0) + (n.periodiques || 0) + (n.hebdo || 0), p = [];
+  if (n.entries) p.push(plural(n.entries, 'opération'));
+  if (tout && fx) p.push(plural(fx, 'fixe'));
+  if (n.epargne) p.push(plural(n.epargne, 'mouvement') + ' d\'épargne');
+  if (n.soldes) p.push(plural(n.soldes, 'solde') + ' noté' + (n.soldes > 1 ? 's' : ''));
+  if (n.urssaf) p.push(plural(n.urssaf, 'paiement') + ' URSSAF');
+  if (tout) p.push('tes réglages');
+  return joinFr(p);
+}
+function erHtml(p) {
+  const tout = p.kind === 'tout', empty = !p.del.length && !(tout && p.settings), drive = bkCfg().drive;
+  if (empty) return '<p>Rien à effacer ici.</p>' + (tout ? '' : '<p class="hint">Les fixes restent : arrête-les dans Fixes.</p>');
+  return '<p>Seront effacés : <b>' + esc(erTxt(p.del, tout)) + '</b>.</p>' +
+    (tout ? '<p class="hint">Tu restes connecté et tu repars du premier démarrage.</p>' : '<p class="hint">Les fixes restent : arrête-les dans Fixes.</p>') +
+    '<p class="hint">Copie de tout ton compte avant (' + (drive ? 'Google Drive' : 'fichier') + ')' + (tout ? ' : pour revenir en arrière, « Remettre une copie ».' : '.') + '</p>' +
+    (tout ? '<div class="field"><span class="field-label">Tape SUPPRIMER pour confirmer</span><input class="input" id="er-confirm" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="SUPPRIMER"></div>' : '') +
+    '<p class="error" id="er-error" role="alert"></p>' +
+    '<div><button type="button" class="btn danger armed block" data-act="er-do"' + (tout ? ' disabled' : '') + '>' + (tout ? 'Tout effacer' : 'Effacer') + '</button></div>';
+}
+// Ouvre la fenêtre : le récapitulatif chiffré arrive après la lecture du compte (bloc qui monte, comme une carte).
+async function openErase(kind, v) {
+  if (blocked() || ER.busy || needNet()) return;
+  const req = ++ER.req; ER.plan = null;
+  openPanel(kind === 'tout' ? 'Tout remettre à zéro' : 'Effacer ' + erLabel(kind, v), '<div id="er-body"><p class="hint">Chargement…</p></div>');
+  let html;
+  try { const acc = await readAccount(); if (req !== ER.req) return; ER.plan = erPlan(acc, kind, v); html = erHtml(ER.plan); }
+  catch (e) { if (req !== ER.req) return; html = '<p class="error">' + esc(e && e.message === OFFLINE_MSG ? OFFLINE_MSG : 'Lecture impossible pour le moment. Réessaie.') + '</p>'; }
+  const box = $('#er-body'); if (!box || !layerOpen(pbg)) return;
+  box.innerHTML = html; riseIn(box);
+  if (kind === 'tout') { const i = $('#er-confirm'); if (i) i.focus({ preventScroll: true }); }
+}
+const erConfirmed = () => { const i = $('#er-confirm'); return !!i && i.value.trim().toUpperCase() === 'SUPPRIMER'; };
+$('#panel-body').addEventListener('input', e => {
+  if (e.target.id !== 'er-confirm') return;
+  const b = $('[data-act="er-do"]'); if (b && !ER.busy) b.disabled = !erConfirmed();
+});
+// « Effacer » : le jeton Google est demandé tout de suite (avant tout await : la fenêtre Google exige le clic).
+function eraseGo(btn) {
+  const p = ER.plan; if (!p || ER.busy || blocked() || needNet()) return;
+  if (p.kind === 'tout' && !erConfirmed()) { $('#er-error').textContent = 'Tape SUPPRIMER pour confirmer.'; return; }
+  const tok = bkCfg().drive ? driveToken(true) : null;
+  if (tok) tok.catch(() => {}); // erreur lue plus bas
+  eraseRun(p.kind, p.v, tok, btn);
+}
+async function eraseRun(kind, v, tok, btn) {
+  ER.busy = true; btn.disabled = true; btn.textContent = 'Copie en cours…';
+  const err = $('#er-error'); if (err) err.textContent = '';
+  let plan = null, step = 'copie';
+  try {
+    // 1. Relire le compte juste avant : la copie et l'effacement portent exactement sur ce qui est là maintenant.
+    const acc = await readAccount();
+    plan = erPlan(acc, kind, v);
+    if (!plan.del.length && !plan.settings) { ER.busy = false; closePanel(); toast('Rien à effacer'); return; }
+    // 2. La copie de tout le compte. Si elle échoue (ou si « Enregistrer sous » est refusé), rien n'est effacé.
+    const text = JSON.stringify(backupFrom(acc), null, 1), name = bkName();
+    if (tok) { await tok; await Drive.upload(name, text); BK.list = null; }
+    else await saveBackupFile(text, name);
+    // 3. Effacer : les collections d'abord, les réglages en dernier (un autre appareil passe alors au premier démarrage).
+    step = 'effacement'; btn.textContent = 'Effacement…';
+    for (let k = 0; k < plan.del.length; k += 500) {
+      const b = writeBatch(db);
+      plan.del.slice(k, k + 500).forEach(([c, d]) => b.delete(doc(ucol(c), d.id)));
+      await b.commit();
+    }
+    if (kind === 'tout') {
+      if (plan.settings) await deleteDoc(uref('meta', 'settings'));
+      ER_LOCAL.concat(impLogKey()).forEach(lsDel);
+    }
+    ER.busy = false; ER.plan = null;
+    closePanel();
+    if (kind === 'tout') toast('Tout est effacé. Une copie a été faite.');
+    else { const done = plan; toastUndo('Effacé : ' + erTxt(done.del, false), () => eraseUndo(done)); }
+  } catch (e) {
+    ER.busy = false;
+    // La copie a échoué : rien n'est effacé. Effacement coupé en route : la copie est faite, on peut réessayer.
+    const msg = e && e.code === 'CANCELED' ? 'Copie non enregistrée : rien n\'a été effacé.'
+      : e && e.message === OFFLINE_MSG ? OFFLINE_MSG
+      : step === 'copie' ? (tok ? driveErr(e) + ' ' : 'La copie a échoué. ') + 'Rien n\'a été effacé.'
+      : 'Effacement interrompu. Ta copie est faite : réessaie.';
+    const er = $('#er-error');
+    if (er && layerOpen(pbg)) { er.textContent = msg; btn.textContent = kind === 'tout' ? 'Tout effacer' : 'Effacer'; btn.disabled = kind === 'tout' && !erConfirmed(); }
+    else toast(msg, true);
+  }
+}
+// « Annuler » (une période) : remet chaque document tel qu'il a été lu juste avant l'effacement.
+function eraseUndo(plan) {
+  if (blocked()) return;
+  const jobs = [];
+  for (let k = 0; k < plan.del.length; k += 500) {
+    const b = writeBatch(db);
+    plan.del.slice(k, k + 500).forEach(([c, d]) => b.set(doc(ucol(c), d.id), d.data()));
+    jobs.push(b.commit());
+  }
+  write(Promise.all(jobs), 'Remis comme avant');
+}
+function openErMenu(btn) {
+  const kind = S.view === 'annee' ? 'annee' : 'mois', v = kind === 'annee' ? String(S.year) : S.month;
+  openChoice({ anchor: btn, label: 'Plus d\'actions', value: '', options: [{ v: 'er', label: 'Effacer ' + (kind === 'annee' ? v : mLabel(v)) }], onPick: () => openErase(kind, v) });
+}
 
 /* ---------- partage ---------- */
 const LINKS = { apk: (PAGES_URL || location.href.split('#')[0].replace(/[^/]*$/, '')) + 'telecharger.html', web: PAGES_URL || location.href.split('#')[0] };

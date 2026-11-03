@@ -1482,7 +1482,8 @@ async function scenarioPatch5(cfg, fx, tag) {
 
   // 4. Aide du taux URSSAF dans Réglages → Auto-entrepreneur, la même phrase qu'au premier démarrage
   await reglages(page, 'pro');
-  check(clean(await page.locator('#sub-pro .rate-help').innerText()) === clean('Artisan (ex. électricien) : tape 21,98 %. Avec le versement libératoire : 23,68 %. Avec l\'ACRE la première année, le taux est réduit : regarde ton espace URSSAF.'), 'Réglages : aide du taux « tape 21,98 % »');
+  // Patch 8 : le versement libératoire se règle à part (carte du dessous), il ne s'ajoute plus à la main au taux.
+  check(clean(await page.locator('#sub-pro .rate-help').innerText()) === clean('Artisan (ex. électricien) : tape 21,98 %, sans le versement libératoire (réglé à part). Avec l\'ACRE la première année, le taux est réduit : regarde ton espace URSSAF.'), 'Réglages : aide du taux « tape 21,98 % »');
   noErr(errors, 'patch 5');
   await ctx.close();
 
@@ -1908,6 +1909,144 @@ async function scenarioPatch6(cfg, fx, tag) {
   await ctx.close();
 }
 
+// Patch 8 (jeu le plus récent, date 15/03/2026) : versement libératoire ajouté au taux ; effacer un mois (« ⋯ » de l'écran
+// Mois, copie en fichier, « Annuler » = tout remis à l'identique), un jour (Mes données, copie sur Google Drive simulé),
+// une année (« ⋯ » de l'écran Année) ; hors ligne rien n'est effacé ; tout remettre à zéro (SUPPRIMER, premier démarrage,
+// liste d'accès et apparence gardées) puis « Remettre une copie » = toutes les données identiques.
+async function scenarioPatch8(cfg, fx, tag) {
+  const U = 'users/uid-test/', S0 = U + 'meta/settings';
+  const userKeys = Object.keys(fx.docs).filter(k => k.startsWith(U));
+  const gone = (db, ks) => ks.every(k => !(k in db));
+  const sameExcept = (db, ks) => userKeys.filter(k => !ks.includes(k)).every(k => JSON.stringify(db[k]) === JSON.stringify(fx.docs[k])) &&
+    Object.keys(db).filter(k => k.startsWith(U)).length === userKeys.length - ks.length;
+  const fileName = s => join(OUT, (tag + '-' + s).normalize('NFD').replace(/[̀-ͯ]/g, '') + '.json');
+  let { ctx, page, errors } = await open(cfg, fx.docs, { date: fx.expect._date, ls: { 'pf-groupe': '1', 'pf-urs-plus-tard': '2026-03-15|2026-02', 'pf-import-uid-test': '{"at":1,"refs":[]}' } });
+  await waitApp(page);
+
+  // 1. Versement libératoire : 1,7 % ajouté au taux (21,2 % → 22,9 %), réglé par année, autres réglages intacts
+  await reglages(page, 'pro');
+  check(clean(await page.locator('#vl-rates').innerText()).includes('2026Non'), 'versement libératoire : « Non » par défaut');
+  await page.click('[data-act="vl-open"][data-year="2026"]');
+  await until(page, () => !!document.querySelector('.pop [role="option"][data-v="1.7"]'), null, 'versement libératoire : liste maison (4 choix)');
+  await page.click('.pop [role="option"][data-v="1.7"]');
+  await until(page, () => { const s = window.__PFLOW_DB__.dump()['users/uid-test/meta/settings']; return s.vl && s.vl['2026'] === 1.7; }, null, 'versement libératoire 2026 enregistré (vl)');
+  let db = await dump(page);
+  const { vl, ...rest } = db[S0];
+  check(JSON.stringify(rest) === JSON.stringify(fx.docs[S0]), 'versement libératoire : autres réglages intacts');
+  check(clean(await page.locator('#sh-pro').innerText()).includes('+impôt1,7%'), 'Réglages : « Taux 21,2 % + impôt 1,7 % »');
+  await page.locator('[data-act="view"][data-view="mois"]:visible').click();
+  await until(page, ([a, b]) => { const t = document.getElementById('legend').innerText.replace(/[\s  ]/g, ''); return t.includes(a) && t.includes(b); }, ['22,9%', eur(229)], 'Mois : URSSAF à 22,9 % (229 € au lieu de 212 €)');
+  await reglages(page, 'pro');
+  await page.click('[data-act="vl-open"][data-year="2026"]');
+  await page.click('.pop [role="option"][data-v="0"]');
+  await until(page, () => window.__PFLOW_DB__.dump()['users/uid-test/meta/settings'].vl['2026'] === 0, null, 'versement libératoire retiré (0)');
+  await page.locator('[data-act="view"][data-view="mois"]:visible').click();
+  await until(page, a => document.getElementById('legend').innerText.replace(/[\s  ]/g, '').includes(a), eur(212), 'Mois : URSSAF revenue à 212 €');
+  // remet les réglages d'origine pour la suite (comparaisons à l'identique)
+  await page.evaluate(([k, v]) => window.__PFLOW_DB__.set ? window.__PFLOW_DB__.set(k, v) : null, [S0, fx.docs[S0]]);
+
+  // 2. Effacer mars depuis « ⋯ » (écran Mois) : récapitulatif, copie en fichier, puis « Annuler »
+  await page.click('#ctx [data-act="er-menu"]');
+  await until(page, () => !!document.querySelector('.pop [role="option"][data-v="er"]'), null, '« ⋯ » : menu maison');
+  check(clean(await page.locator('.pop [role="option"][data-v="er"]').innerText()).includes('Effacermars2026'), '« ⋯ » : « Effacer mars 2026 »');
+  await page.click('.pop [role="option"][data-v="er"]');
+  await until(page, () => /Seront effacés/.test((document.getElementById('er-body') || {}).textContent || ''), null, 'Effacer mars : récapitulatif chiffré');
+  const recap = clean(await page.locator('#er-body').innerText());
+  check(recap.includes('3opérations,4mouvementsd\'épargneet2soldesnotés') && recap.includes('Lesfixesrestent'), 'récapitulatif : 3 opérations, 4 mouvements d\'épargne, 2 soldes ; les fixes restent (' + recap.slice(0, 120) + ')');
+  const w0 = await page.evaluate(() => window.__PFLOW_DB__.writes());
+  await page.waitForTimeout(400);
+  check(await page.evaluate(() => window.__PFLOW_DB__.writes()) === w0, 'rien n\'est effacé avant « Effacer »');
+  const MARS = ['entries/e1', 'entries/e2', 'entries/e3', 'epargne/ep2', 'epargne/ep3', 'epargne/ep5', 'epargne/ep6', 'soldes/s1', 'soldes/s2', 'pointages/e3'].map(k => U + k);
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-act="er-do"]')]);
+  await until(page, ks => { const d = window.__PFLOW_DB__.dump(); return ks.every(k => !(k in d)); }, MARS, 'mars effacé');
+  db = await dump(page);
+  check(sameExcept(db, MARS), 'mars : rien d\'autre ne bouge (autres mois, fixes, URSSAF de février, réglages, catégories)');
+  await dl.saveAs(fileName('copie-mars'));
+  const bk = JSON.parse(readFileSync(fileName('copie-mars'), 'utf8'));
+  check(bk.app === 'P-Flow' && bk.entries.length === 6 && bk.epargne.length === 6 && bk.soldes.length === 2, 'copie complète faite juste avant (fichier)');
+  await until(page, () => !!document.querySelector('#toast .toast-undo'), null, '« Annuler » proposé');
+  await page.click('#toast .toast-undo');
+  await until(page, ks => { const d = window.__PFLOW_DB__.dump(); return ks.every(k => k in d); }, MARS, '« Annuler » : mars remis');
+  db = await dump(page);
+  check(sameExcept(db, []), '« Annuler » : compte identique à avant');
+  noErr(errors, 'effacer un mois');
+
+  // 3. Hors ligne : la fenêtre le dit, rien n'est effacé
+  await page.evaluate(() => { window.__PFLOW_OFFLINE__ = true; });
+  await page.click('#ctx [data-act="er-menu"]');
+  await page.click('.pop [role="option"][data-v="er"]');
+  await until(page, () => /connecté à internet/.test((document.getElementById('er-body') || {}).textContent || ''), null, 'hors ligne : message clair, rien de proposé');
+  check(!(await page.locator('[data-act="er-do"]').count()), 'hors ligne : pas de bouton « Effacer »');
+  await page.click('#panel-close');
+  await page.evaluate(() => { window.__PFLOW_OFFLINE__ = false; });
+
+  // 4. Année 2026 depuis « ⋯ » (écran Année) : tout ce qui est daté en 2026 part, les fixes restent
+  await page.locator('[data-act="view"][data-view="annee"]:visible').click();
+  await page.waitForTimeout(400);
+  await page.click('#ctx [data-act="er-menu"]');
+  await page.click('.pop [role="option"][data-v="er"]');
+  await until(page, () => /Seront effacés/.test((document.getElementById('er-body') || {}).textContent || ''), null, 'Effacer 2026 : récapitulatif');
+  check(clean(await page.locator('#er-body').innerText()).includes('6opérations,6mouvementsd\'épargne,2soldesnotéset2paiementsURSSAF'), 'année : 6 opérations, 6 mouvements d\'épargne, 2 soldes, 2 paiements URSSAF');
+  const Y = userKeys.filter(k => /\/(entries|epargne|soldes|pointages|urssaf)\//.test(k));
+  await Promise.all([page.waitForEvent('download'), page.click('[data-act="er-do"]')]);
+  await until(page, ks => { const d = window.__PFLOW_DB__.dump(); return ks.every(k => !(k in d)); }, Y, '2026 effacée');
+  db = await dump(page);
+  check(sameExcept(db, Y), 'année : fixes (mensuels, périodiques, hebdo, jours), catégories et réglages intacts');
+  await page.click('#toast .toast-undo').catch(() => {});
+  await until(page, ks => { const d = window.__PFLOW_DB__.dump(); return ks.every(k => k in d); }, Y, '« Annuler » : 2026 remise');
+
+  // 5. Tout remettre à zéro : SUPPRIMER obligatoire, premier démarrage, liste d'accès et apparence de l'appareil gardées
+  await reglages(page, 'donnees');
+  await page.click('[data-act="er-reset"]');
+  await until(page, () => !!document.getElementById('er-confirm'), null, 'remise à zéro : saisie demandée');
+  check(await page.locator('[data-act="er-do"]').isDisabled(), 'remise à zéro : bouton bloqué sans SUPPRIMER');
+  await page.fill('#er-confirm', 'supprime');
+  check(await page.locator('[data-act="er-do"]').isDisabled(), 'remise à zéro : mot incomplet refusé');
+  await page.fill('#er-confirm', 'supprimer');
+  const [dl2] = await Promise.all([page.waitForEvent('download'), page.click('[data-act="er-do"]')]);
+  await until(page, () => !document.getElementById('s-onboard').hidden, null, 'remise à zéro : premier démarrage guidé');
+  db = await dump(page);
+  check(Object.keys(db).every(k => !k.startsWith(U)) && 'allowlist/test@example.invalid' in db, 'remise à zéro : tout le compte vidé, liste d\'accès gardée');
+  check(await page.evaluate(() => localStorage.getItem('pf-groupe') === '1' && localStorage.getItem('pf-urs-plus-tard') === null && localStorage.getItem('pf-import-uid-test') === null), 'remise à zéro : clés du compte vidées, réglages de l\'appareil gardés');
+  await dl2.saveAs(fileName('copie-tout'));
+  noErr(errors, 'remise à zéro');
+  await ctx.close();
+
+  // 6. Après le premier démarrage, « Remettre une copie » : toutes les données reviennent à l'identique
+  ({ ctx, page, errors } = await open(cfg, { [S0]: fx.docs[S0] }, { date: fx.expect._date }));
+  await waitApp(page); await reglages(page, 'donnees');
+  await page.setInputFiles('#import-file', fileName('copie-tout'));
+  await until(page, () => !document.getElementById('restore-panel').hidden, null, 'copie de la remise à zéro relue');
+  await page.click('[data-act="restore-go"]');
+  await until(page, ks => { const d = window.__PFLOW_DB__.dump(); return ks.every(k => k in d); }, userKeys, 'copie remise');
+  db = await dump(page);
+  check(sameExcept(db, []), 'remise à zéro puis copie remise : données identiques');
+  await ctx.close();
+
+  // 7. Un jour (Mes données, calendrier maison) avec Google Drive activé : la copie part sur Drive
+  const docs = JSON.parse(JSON.stringify(fx.docs));
+  docs[S0].sauvegarde = { drive: true, frequence: 'mensuelle', derniere: Date.parse('2026-03-14T12:00:00Z') };
+  const opts = { date: fx.expect._date, driveToken: 'jeton-test' };
+  ({ ctx, page, errors } = await open(cfg, docs, opts));
+  await waitApp(page); await reglages(page, 'donnees');
+  await page.click('[data-act="er-mode"][data-v="jour"]');
+  await page.click('#er-pick');
+  await page.click('.pop [data-c="prev"]');
+  await page.click('.pop .cal-d[data-d="12"]');
+  check(clean(await page.locator('#er-txt').innerText()) === '12février2026', 'jour choisi au calendrier maison : 12 février 2026');
+  await page.click('[data-act="er-open"]');
+  await until(page, () => /Seront effacés/.test((document.getElementById('er-body') || {}).textContent || ''), null, 'Effacer le 12 février : récapitulatif');
+  check(clean(await page.locator('#er-body').innerText()).includes('1opération.') && clean(await page.locator('#er-body').innerText()).includes('GoogleDrive'), 'jour : 1 opération, copie sur Google Drive');
+  await page.click('[data-act="er-do"]');
+  await until(page, k => !(k in window.__PFLOW_DB__.dump()), U + 'entries/e4', 'le 12 février effacé');
+  db = await dump(page);
+  check(userKeys.filter(k => k !== U + 'entries/e4' && k !== S0).every(k => JSON.stringify(db[k]) === JSON.stringify(fx.docs[k])), 'jour : rien d\'autre ne bouge (e5 du 3 février gardée)');
+  const up = (opts.drive && opts.drive.files || []).filter(f => !f.folder);
+  check(up.length === 1 && JSON.parse(up[0].content).entries.length === 6, 'jour : copie complète envoyée sur Google Drive avant');
+  noErr(errors, 'effacer un jour');
+  await ctx.close();
+}
+
 // --rapide (APK de test) : seulement le jeu de données le plus récent, sur téléphone clair et PC sombre, et un nouveau
 // compte sur téléphone ; le test complet (tous les jeux, tous les écrans) reste obligatoire avant chaque publication.
 const RAPIDE = process.argv.includes('--rapide');
@@ -1953,6 +2092,7 @@ for (const file of fixtures) {
       await go('Apparence', () => scenarioApparence(cfg, fx, tag));
       await go('Navigation', () => scenarioNavigation(cfg, fx, tag));
       await go('Patch7', () => scenarioPatch7(cfg, fx, tag));
+      if (cfg.name !== 'tablette clair') await go('Patch8', () => scenarioPatch8(cfg, fx, tag));
     }
     console.log(failures === before ? '   ✓ ok' : '   ✗ ' + (failures - before) + ' échec(s)');
   }
