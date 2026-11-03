@@ -4890,10 +4890,11 @@ function erHtml(p) {
     '<div><button type="button" class="btn danger armed block" data-act="er-do"' + (tout ? ' disabled' : '') + '>' + (tout ? 'Tout effacer' : 'Effacer') + '</button></div>';
 }
 // Ouvre la fenêtre : le récapitulatif chiffré arrive après la lecture du compte (bloc qui monte, comme une carte).
+// Le bloc reprend les espacements des autres fenêtres (`.panel-body` : 12 px entre chaque ligne, champ et bouton).
 async function openErase(kind, v) {
   if (blocked() || ER.busy || needNet()) return;
   const req = ++ER.req; ER.plan = null;
-  openPanel(kind === 'tout' ? 'Tout remettre à zéro' : 'Effacer ' + erLabel(kind, v), '<div id="er-body"><p class="hint">Chargement…</p></div>');
+  openPanel(kind === 'tout' ? 'Tout remettre à zéro' : 'Effacer ' + erLabel(kind, v), '<div id="er-body" class="panel-body"><p class="hint">Chargement…</p></div>');
   let html;
   try { const acc = await readAccount(); if (req !== ER.req) return; ER.plan = erPlan(acc, kind, v); html = erHtml(ER.plan); }
   catch (e) { if (req !== ER.req) return; html = '<p class="error">' + esc(e && e.message === OFFLINE_MSG ? OFFLINE_MSG : 'Lecture impossible pour le moment. Réessaie.') + '</p>'; }
