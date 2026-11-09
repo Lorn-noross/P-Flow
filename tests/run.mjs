@@ -1933,7 +1933,8 @@ async function scenarioPatch8(cfg, fx, tag) {
   let db = await dump(page);
   const { vl, ...rest } = db[S0];
   check(JSON.stringify(rest) === JSON.stringify(fx.docs[S0]), 'versement libératoire : autres réglages intacts');
-  check(clean(await page.locator('#sh-pro').innerText()).includes('+impôt1,7%'), 'Réglages : « Taux 21,2 % + impôt 1,7 % »');
+  // Attendre le nouveau rendu des Réglages (un rendu par image après la synchronisation) : lu trop tôt, l'ancien texte restait.
+  await until(page, a => document.getElementById('sh-pro').textContent.replace(/[\s  ]/g, '').includes(a), '+impôt1,7%', 'Réglages : « Taux 21,2 % + impôt 1,7 % »');
   await page.locator('[data-act="view"][data-view="mois"]:visible').click();
   await until(page, ([a, b]) => { const t = document.getElementById('legend').innerText.replace(/[\s  ]/g, ''); return t.includes(a) && t.includes(b); }, ['22,9%', eur(229)], 'Mois : URSSAF à 22,9 % (229 € au lieu de 212 €)');
   await reglages(page, 'pro');
