@@ -38,6 +38,20 @@ Des personnes (dont la famille du propriétaire) ont de vraies données dans l'a
   4. écrire `dataVersion` seulement après une conversion réussie.
 - **Test de non-régression des données avant chaque publication** (voir `tests/README.md`) : des jeux de données fictifs au format de chaque ancienne version sont chargés dans l'appli, construite avec un faux Firebase en mémoire (`tests/fakes/`) ; on vérifie que tout s'affiche à l'identique et que modifier ou supprimer ne fait rien perdre d'autre. Quand le format évolue, on ajoute un nouveau jeu de données sans retirer les anciens.
 
+## Règle n°2 : sécurité et conformité (exigence du propriétaire, 13/11/2026)
+L'appli garde les données financières de vraies personnes. La sécurité et le RGPD passent juste après la règle n°1, avant toute nouveauté ; en cas de conflit avec la règle n°1, demander au propriétaire. Référentiels à suivre (vérifier leur version à jour quand on s'en sert) : guide RGPD de l'équipe de développement et recommandation « applications mobiles » de la CNIL, checklist de sécurité Firebase, OWASP Mobile Top 10 (2024) et MASVS. Détail, état des lieux, registre des données et liste avant un lancement public : `docs/securite-conformite.md`.
+- **Le moins de données possible** : ne collecter que ce qui sert à une fonction. Pas de pub, pas de statistiques d'usage, pas de suivi, pas de nouveau SDK ou service tiers qui reçoit des données, sans l'accord du propriétaire. Toute nouvelle donnée, nouveau service tiers ou nouvel envoi hors de l'appareil est inscrit dans le registre de `docs/securite-conformite.md`.
+- **Règles Firestore d'abord** : tout nouveau chemin hors de `users/{uid}` a sa règle écrite avant le code (refus par défaut, accès minimal, champs, types et tailles contrôlés comme `demandes`). Ne jamais faire confiance à ce que l'appli envoie : le serveur doit refuser seul ce qui n'est pas permis. Resserrer une règle existante reste interdit par la règle n°1 : seulement en cas de faille, avec l'accord explicite du propriétaire, après avoir vérifié que les versions en circulation marchent encore.
+- **Aucun secret dans le dépôt, l'APK ou la version web** (dépôt public) : la configuration Firebase est publique par conception, la sécurité repose sur les règles. Tout vrai secret (clé de compte de service, clé d'un service bancaire, mot de passe) passe par les secrets GitHub ou un serveur, jamais dans le code, les tests, les exemples ni les journaux.
+- **Rien de personnel dans les journaux** : aucun `console.*` avec montants, libellés, emails ou jetons ; messages d'erreur sans donnée personnelle.
+- **Tout ce qui entre est vérifié** : saisie, import Excel / CSV / OFX / QIF, sauvegarde restaurée, données lues dans Firestore (type, taille, format, valeurs limites). Tout texte venant d'une personne ou d'un fichier passe par `esc()` avant `innerHTML`. Exports tableur protégés contre les formules (patch 7). Jamais d'adresse, de lien ou de code tiré d'un contenu importé.
+- **Connexions sûres** : HTTPS seulement ; mises à jour téléchargées uniquement depuis les releases du dépôt, paquet vérifié avant installation (déjà en place, ne jamais affaiblir).
+- **Dépendances** : peu de bibliothèques, à jour ; avant d'en ajouter une, vérifier ce qu'elle envoie, sa licence et son poids.
+- **Permissions Android** : seulement celles qui servent, demandées au moment où on en a besoin, avec une phrase courte qui dit pourquoi.
+- **Droits des personnes** : toute donnée ajoutée reste exportable (sauvegarde, export tableur) et effaçable (effacement du patch 8, futur « Supprimer mon compte ») : une nouvelle collection est ajoutée à la sauvegarde, à la restauration et à l'effacement dans le même patch.
+- **Avant chaque publication** (s'ajoute à la liste « Qualité ») : relecture sécurité du diff (secrets, journaux, entrées, `innerHTML` sans `esc()`, règles Firestore, permissions) ; `npm audit --omit=dev` : aucune faille haute ou critique sans correction ou explication au propriétaire ; registre de `docs/securite-conformite.md` à jour.
+- **Avant un lancement public** : audit complet sécurité + RGPD obligatoire (liste dans `docs/securite-conformite.md`), sans exception.
+
 ## Qualité avant chaque publication (exigence du propriétaire)
 1. Relire intégralement chaque modification (diff complet), puis lancer le plugin Code Review sur les changements.
 2. Vérifier les API utilisées dans la documentation officielle à jour (Firebase, Capacitor, plugins) : pas de mémoire approximative.
@@ -64,6 +78,7 @@ Des personnes (dont la famille du propriétaire) ont de vraies données dans l'a
    - Pas de captures d'écran, de maquettes ni de scripts de diagnostic sans nécessité ; lire les fichiers par morceaux ciblés ; filtrer les sorties de commande (seulement les échecs et le total).
    - À la publication d'une version, déplacer son détail de ce fichier vers `docs/historique-patchs.md` (ce fichier est relu à chaque session : le garder court).
    - Conseiller au propriétaire d'ouvrir une nouvelle conversation à chaque nouveau patch (une longue conversation coûte plus cher à chaque message).
+9. **Sécurité et conformité** : contrôles « Avant chaque publication » de la règle n°2.
 
 
 ## Versions publiées (détail : `docs/historique-patchs.md`, à lire seulement si besoin)
@@ -85,7 +100,8 @@ Règle du propriétaire (23/10/2026) : quand il propose une nouveauté, Claude c
 
 ### Patch 8 (0.1.8 bêta) : publié le 09/11/2026 (détail : `docs/historique-patchs.md`)
 
-### Patch 9 (0.1.9 bêta) : soutien et crédits (reportés du patch 8 à la demande du propriétaire, 03/11/2026)
+### Patch 9 (0.1.9 bêta) : soutien, crédits et check-up sécurité (soutien et crédits reportés du patch 8 à la demande du propriétaire, 03/11/2026)
+0. **Check-up sécurité et conformité de l'existant** (demande du propriétaire, 13/11/2026 ; peut se faire sans attendre les décisions des points 1 et 2) : la partie « Dans le code » de la liste « À faire » de `docs/securite-conformite.md`. Rien ne doit changer à l'écran ni dans les données (règle n°1).
 1. **Soutenir le développeur** : en attente de réflexion du propriétaire, détail dans `docs/en-reflexion.md` (ne pas coder avant sa décision).
 2. **Crédits** (demande du propriétaire, 31/10/2026) : une carte « Crédits » dans Réglages → À propos (`#sub-apropos`, sous la carte « P-Flow », mêmes `.card` / `.meta-line`) : développement (le propriétaire), icône et logo (sa sœur, graphiste), remerciements (testeurs : la famille), puis « Outils libres » en une ligne (Firebase, Capacitor, Vite, police Figtree sous licence SIL OFL) avec les mentions de licence requises (MIT, Apache 2.0, OFL). **Noms : seulement ceux donnés par le propriétaire pour les crédits** (prénom, nom ou pseudo, avec l'accord de sa sœur) : seule exception à « aucune donnée personnelle dans le dépôt », car le dépôt est public. Textes courts. **En attente** : le propriétaire ne sait pas encore quels noms afficher ; questions dans `docs/en-reflexion.md`, à lui reposer au début du patch 9 (ou dès qu'il reparle des crédits), ne pas coder avant ses réponses.
 
